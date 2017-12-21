@@ -1,0 +1,8 @@
+*.o
+*.a
+*.cmo
+*.cma
+*.cmi
+*.cmx
+*.cmxa
+TestParallel
