@@ -1,8 +1,4 @@
-*.o
-*.a
-*.cmo
-*.cma
-*.cmi
-*.cmx
-*.cmxa
-TestParallel
+_build
+*.native
+Parallel
+KMerCounter
