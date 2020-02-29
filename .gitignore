@@ -2,3 +2,4 @@ _build
 *.native
 Parallel
 KMerCounter
+PELT
