@@ -2,4 +2,5 @@ _build
 *.native
 Parallel
 KMerCounter
+KMerDB
 PELT
