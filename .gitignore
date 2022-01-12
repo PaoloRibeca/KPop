@@ -3,4 +3,5 @@ _build
 Parallel
 KMerCounter
 KMerDB
+CovidDB
 PELT
