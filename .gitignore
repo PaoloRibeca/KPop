@@ -1,7 +1,7 @@
 _build
 *.native
 Parallel
-KMerCounter
-KMerDB
+KPopCount
+KPopDB
 CovidDB
 PELT
