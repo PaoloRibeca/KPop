@@ -1,3 +1,5 @@
+open BiOCamLib
+
 module KMerCounter (KMH: KMer.KMerHash with type t = int):
   sig
     val compute: ?verbose:bool -> ?display_step:int -> KMer.ReadStore.t -> int -> string -> string -> unit
@@ -14,13 +16,13 @@ module KMerCounter (KMH: KMer.KMerHash with type t = int):
       let output_format = Scanf.format_from_string (Printf.sprintf "%%0%dx\t%%d\n" ((KMH.k + 1) / 2)) "%d%d" in
       let reads_cntr = ref 0 and res = KMer.IntHashtbl.create max_results_size in
       KMer.ReadStore.iter
-        (fun read_id segm_id read ->
+        (fun _ segm_id read ->
           KMH.iter
             (fun hash occs ->
               KMer.add_to_kmer_counter res hash occs;
               if KMer.IntHashtbl.length res > max_results_size then begin
                 let min_binding =
-                  KMer.IntHashtbl.fold (fun hash occs old_min -> min old_min !occs) res max_int in
+                  KMer.IntHashtbl.fold (fun _ occs old_min -> min old_min !occs) res max_int in
                 if verbose then
                   Printf.eprintf "\rKMerCounter.compute: Outputting and removing hashes having #%d occurrences...%!" min_binding;
                 KMer.IntHashtbl.filter_map_inplace

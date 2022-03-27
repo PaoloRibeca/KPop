@@ -1,4 +1,4 @@
-
+open BiOCamLib
 
 module Misc =
   struct
@@ -121,7 +121,7 @@ let () =
           print_num_lines "read";
         let buf = ref [] and base_input_line_num = !Misc.input_line_num + 1 in
         begin try
-          for i = 1 to lines_per_block do
+          for _ = 1 to lines_per_block do
             incr Misc.input_line_num;
             input_line input |> Tools.Misc.accum buf
           done

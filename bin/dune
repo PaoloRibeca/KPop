@@ -1,9 +1,13 @@
-(executable
- (public_name KPopDB)
- (name KPopDB)
+(executables
+ (public_names Parallel KPopCount KPopDB CovidDB)
+ (names Parallel KPopCount KPopDB CovidDB)
  (libraries str unix BiOCamLib)
  (ocamlopt_flags (:standard -O3 -ccopt -O3 -ccopt -static)))
 
 (install
  (section bin)
- (files (KPopDB.exe as KPopDB)))
+ (files
+  (Parallel.exe as Parallel)
+  (KPopCount.exe as KPopCount)
+  (KPopDB.exe as KPopDB)
+  (CovidDB.exe as CovidDB)))
