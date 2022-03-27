@@ -1,5 +1,4 @@
 _build
-*.native
 Parallel
 KPopCount
 KPopDB

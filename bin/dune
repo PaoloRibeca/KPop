@@ -1,0 +1,9 @@
+(executable
+ (public_name KPopDB)
+ (name KPopDB)
+ (libraries str unix BiOCamLib)
+ (ocamlopt_flags (:standard -O3 -ccopt -O3 -ccopt -static)))
+
+(install
+ (section bin)
+ (files (KPopDB.exe as KPopDB)))
