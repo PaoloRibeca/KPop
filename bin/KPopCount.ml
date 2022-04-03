@@ -73,7 +73,7 @@ module Parameters =
     let verbose = ref Defaults.verbose
   end
 
-let version = "0.2"
+let version = "0.3"
 
 let _ =
   Printf.eprintf "This is the KPopCount program (version %s)\n%!" version;
@@ -96,11 +96,16 @@ let _ =
       TA.Default (fun () -> string_of_int !Parameters.max_results_size),
       (fun _ -> Parameters.max_results_size := TA.get_parameter_int_pos ());
     [], None, [ "Input/Output:" ], TA.Optional, (fun _ -> ());
+    [ "-f"; "-F"; "--fasta" ],
+      Some "<fasta_file_name>",
+      [ "FASTA input file containing sequences" ],
+      TA.Optional,
+      (fun _ -> RS.FASTA (TA.get_parameter ()) |> Tools.Misc.accum Parameters.inputs);
     [ "-s"; "-S"; "--single-end" ],
       Some "<fastq_file_name>",
       [ "FASTQ input file containing single-end sequencing reads" ],
       TA.Optional,
-      (fun _ -> RS.SingleEndFile (TA.get_parameter ()) |> Tools.Misc.accum Parameters.inputs);
+      (fun _ -> RS.SingleEndFASTQ (TA.get_parameter ()) |> Tools.Misc.accum Parameters.inputs);
     [ "-p"; "-P"; "--paired-end" ],
       Some "<fastq_file_name1> <fastq_file_name2>",
       [ "FASTQ input files containing paired-end sequencing reads" ],
@@ -108,7 +113,7 @@ let _ =
       (fun _ ->
         let name1 = TA.get_parameter () in
         let name2 = TA.get_parameter () in
-        RS.PairedEndFile (name1, name2) |> Tools.Misc.accum Parameters.inputs);
+        RS.PairedEndFASTQ (name1, name2) |> Tools.Misc.accum Parameters.inputs);
     [ "-l"; "--label" ],
       Some "<output_vector_label>",
       [ "label of the k-mer vector in the output file" ],
@@ -143,7 +148,7 @@ let _ =
   if !Parameters.inputs <> [] then begin
     let store = ref RS.empty in
     List.iter
-      (fun input -> store := RS.add_from_fastq !store input)
+      (fun input -> store := RS.add_from_files !store input)
       !Parameters.inputs;
     let store = !store in
     KMC.compute
