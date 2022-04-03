@@ -1,3 +1,5 @@
+open BiOCamLib
+
 (* We read in a matrix which has conditions as row names
     and a (large) number of tags (genes, k-mers, etc.) as column names.
    Keeping with the convention accepted by R, the first row would be a header,
@@ -14,7 +16,7 @@ module DistanceFunction:
     type mode_t =
       | Fail
       | Infinity
-    val set_mode: mode_t -> unit
+    val [@warning "-32"] set_mode: mode_t -> unit
     val euclidean: t
   
   end
