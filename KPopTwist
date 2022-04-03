@@ -1,0 +1,20 @@
+Rscript --vanilla <(
+cat <<'_____'
+  library(data.table)
+  library(ca)
+  args<-commandArgs(trailingOnly=TRUE)
+  if (is.na(args[3]))
+    args[3]<-"1."
+  stuff<-data.table::fread(args[1],sep="\t",header=TRUE)
+  stuff<-stuff[sort(sample(nrow(stuff),as.integer(nrow(stuff)*as.numeric(args[3]))))]
+  stuff_ca<-ca(stuff)
+  vars<-as.data.frame(100*stuff_ca$sv^2/sum(stuff_ca$sv^2))
+  colnames(vars)<-c("perc_variance")
+  write.table(vars,paste0(args[2],".variance.txt"),sep="\t")
+  stuff_ca_coords=cacoord(stuff_ca,cols=TRUE)
+  write.table(stuff_ca_coords,paste0(args[2],".coords.txt"),sep="\t")
+  # Row names need to be provided separately
+  transform<-t(as.matrix(stuff_ca$rowcoord))/stuff_ca$sv
+  save(transform,file=paste0(args[2],".transform.Rdata"))
+_____
+) $@
