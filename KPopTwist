@@ -1,20 +1,34 @@
+#!/bin/env bash
+
+TABLE="$1"
+OUTPUT="$2"
+POWER="$3"
+
+NPROC=$(( ( $(nproc) + 1 ) / 2 ))
+
+head -1 "$TABLE" | awk -F '\t' '{printf $2; for (i=3;i<=NF;++i) printf "\t"$i; printf "\n"}' > "${OUTPUT}.txt"
+tail -n +2 "$TABLE" | Parallel -t "$NPROC" -- awk -F '\t' '{printf $2; for (i=3;i<=NF;++i) printf "\t"$i; printf "\n"}' >> "${OUTPUT}.txt" &
+tail -n +2 "$TABLE" | Parallel -t "$NPROC" -- awk -F '\t' '{print $1}' > "${OUTPUT}.names.txt" &
+wait
+
 Rscript --vanilla <(
 cat <<'_____'
   library(data.table)
   library(ca)
   args<-commandArgs(trailingOnly=TRUE)
-  if (is.na(args[3]))
-    args[3]<-"1."
+  if (is.na(args[4])||args[4]=="")
+    args[4]<-"1."
   stuff<-data.table::fread(args[1],sep="\t",header=TRUE)
-  stuff<-stuff[sort(sample(nrow(stuff),as.integer(nrow(stuff)*as.numeric(args[3]))))]
+  stuff<-stuff[sort(sample(nrow(stuff),as.integer(nrow(stuff)*as.numeric(args[4]))))]
   stuff_ca<-ca(stuff)
   vars<-as.data.frame(100*stuff_ca$sv^2/sum(stuff_ca$sv^2))
   colnames(vars)<-c("perc_variance")
-  write.table(vars,paste0(args[2],".variance.txt"),sep="\t")
+  write.table(vars,paste0(args[3],".variance.txt"),sep="\t")
   stuff_ca_coords=cacoord(stuff_ca,cols=TRUE)
-  write.table(stuff_ca_coords,paste0(args[2],".coords.txt"),sep="\t")
-  # Row names need to be provided separately
+  write.table(stuff_ca_coords,paste0(args[3],".coords.txt"),sep="\t")
   transform<-t(as.matrix(stuff_ca$rowcoord))/stuff_ca$sv
-  save(transform,file=paste0(args[2],".transform.Rdata"))
+  colnames(transform)<-t(data.table::fread(args[2],sep="\t",header=FALSE))
+  data.table::fwrite(data.table(transform,keep.rownames=FALSE),paste0(args[3],".transform.txt"),sep="\t")
+  #save(transform,file=paste0(args[3],".transform.Rdata"))
 _____
-) $@
+) "${OUTPUT}.txt" "${OUTPUT}.names.txt" "$OUTPUT" "$POWER"
