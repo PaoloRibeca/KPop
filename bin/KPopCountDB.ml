@@ -364,51 +364,61 @@ module KMerDB:
       end;
       !db
     exception WrongFormat of int * string
+    type spectra_parser_state_t =
+    | Header
+    | Body
     let add_files db fnames =
       let db = ref db and n = List.length fnames in
       List.iteri
         (fun i fname ->
-          let input = open_in fname and line_num = ref 1 in
-          let header = input_line input |> Tools.Split.on_char_as_array '\t' in
-          let l = Array.length header in
-          if l <> 2 then
-            WrongNumberOfColumns (!line_num, l, 2) |> raise;
-          add_empty_column_if_needed db header.(1);
-          incr line_num;
-          let col_idx = Hashtbl.find !db.col_names_to_idx header.(1) in
+          let input = open_in fname and line_num = ref 1 and state = ref Header and col_idx = ref 0 in
+          (* Each file can contain one or more spectra, separated by "\t\n" *)
           begin try
             while true do
-              let line = input_line input |> Tools.Split.on_char_as_array '\t' in
-              (* A regular line. The first element is the hash, the second one the count *)
+              let line_s = input_line input in
+              let line = Tools.Split.on_char_as_array '\t' line_s in
               let l = Array.length line in
               if l <> 2 then
                 WrongNumberOfColumns (!line_num, l, 2) |> raise;
-              if Hashtbl.mem !db.row_names_to_idx line.(0) |> not then begin
-                let n_rows = !db.core.n_rows in
-                let aug_n_rows = n_rows + 1 in
-                Hashtbl.add !db.row_names_to_idx line.(0) n_rows;
-                db := {
-                  !db with
-                  core = {
-                    !db.core with
-                    n_rows = aug_n_rows;
-                    (* We have to resize all the relevant containers *)
-                    idx_to_row_names = begin
-                      let res = resize_string_array aug_n_rows !db.core.idx_to_row_names in
-                      res.(n_rows) <- line.(0);
-                      res
-                    end;
-                    storage = IBAVectorMisc.resize_array !db.core.n_cols aug_n_rows !db.core.storage
-                  }
-                }
+              begin match !state with
+              | Header ->
+                add_empty_column_if_needed db line.(1);
+                col_idx := Hashtbl.find !db.col_names_to_idx line.(1);
+                state := Body
+              | Body ->
+                if line_s = "\t" then
+                  (* Separator *)
+                  state := Header
+                else begin
+                  (* A regular line. The first element is the hash, the second one the count *)
+                  if Hashtbl.mem !db.row_names_to_idx line.(0) |> not then begin
+                    let n_rows = !db.core.n_rows in
+                    let aug_n_rows = n_rows + 1 in
+                    Hashtbl.add !db.row_names_to_idx line.(0) n_rows;
+                    db := {
+                      !db with
+                      core = {
+                        !db.core with
+                        n_rows = aug_n_rows;
+                        (* We have to resize all the relevant containers *)
+                        idx_to_row_names = begin
+                          let res = resize_string_array aug_n_rows !db.core.idx_to_row_names in
+                          res.(n_rows) <- line.(0);
+                          res
+                        end;
+                        storage = IBAVectorMisc.resize_array !db.core.n_cols aug_n_rows !db.core.storage
+                      }
+                    }
+                  end;
+                  let row_idx = Hashtbl.find !db.row_names_to_idx line.(0) in
+                  let v =
+                    try
+                      IBAVector.N.of_string line.(1)
+                    with _ ->
+                      WrongFormat (!line_num, line.(1)) |> raise in
+                  !db.core.storage.(!col_idx).IBAVector.+(row_idx) <- v
+                end
               end;
-              let row_idx = Hashtbl.find !db.row_names_to_idx line.(0) in
-              let v =
-                try
-                  IBAVector.N.of_string line.(1)
-                with _ ->
-                  WrongFormat (!line_num, line.(1)) |> raise in
-              !db.core.storage.(col_idx).IBAVector.+(row_idx) <- v;
               incr line_num;
               if !line_num mod 10000 = 0 then
                 Printf.eprintf "\r[%d/%d] File '%s': Read %d lines%!" (i + 1) n fname !line_num
