@@ -22,13 +22,14 @@ cat <<'_____'
   stuff<-stuff[sort(sample(nrow(stuff),as.integer(nrow(stuff)*as.numeric(args[4]))))]
   stuff_ca<-ca(stuff)
   vars<-as.data.frame(100*stuff_ca$sv^2/sum(stuff_ca$sv^2))
-  colnames(vars)<-c("perc_variance")
-  write.table(vars,paste0(args[3],".variance.txt"),sep="\t")
+  colnames(vars)<-c("perc_inertia")
+  write.table(vars,paste0(args[3],".inertia.txt"),sep="\t")
   stuff_ca_coords=cacoord(stuff_ca,cols=TRUE)
-  write.table(stuff_ca_coords,paste0(args[3],".coords.txt"),sep="\t")
-  transform<-t(as.matrix(stuff_ca$rowcoord))/stuff_ca$sv
-  colnames(transform)<-t(data.table::fread(args[2],sep="\t",header=FALSE))
-  data.table::fwrite(data.table(transform,keep.rownames=FALSE),paste0(args[3],".transform.txt"),sep="\t")
-  #save(transform,file=paste0(args[3],".transform.Rdata"))
+  write.table(stuff_ca_coords,paste0(args[3],".twisted.txt"),sep="\t")
+  twister<-t(as.matrix(stuff_ca$rowcoord))/stuff_ca$sv
+  colnames(twister)<-t(data.table::fread(args[2],sep="\t",header=FALSE))
+  data.table::fwrite(data.table(twister,keep.rownames=FALSE),paste0(args[3],".twister.txt"),sep="\t")
 _____
 ) "${OUTPUT}.txt" "${OUTPUT}.names.txt" "$OUTPUT" "$POWER"
+
+# We remove temporary files and convert to binary form
