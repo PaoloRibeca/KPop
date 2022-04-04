@@ -1,251 +1,282 @@
+(*
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*)
+
 open BiOCamLib
 
-(* We read in a matrix which has conditions as row names
-    and a (large) number of tags (genes, k-mers, etc.) as column names.
-   Keeping with the convention accepted by R, the first row would be a header,
-    and the first column the row names.
-   Names might be quoted *)
-
-(* A number of distance functions.
-   They all have signature: float array -> float array -> float *)
-module DistanceFunction:
+module [@warning "-32"] KPopMatrix:
   sig
-    type t = Float.Array.t -> Float.Array.t -> float
-    exception IncompatibleLengths of int * int
-    (* What happens when the vectors have incompatible lengths *)
-    type mode_t =
-      | Fail
-      | Infinity
-    val [@warning "-32"] set_mode: mode_t -> unit
-    val euclidean: t
-  
-  end
-= struct
-    type t = Float.Array.t -> Float.Array.t -> float
-    exception IncompatibleLengths of int * int
-    type mode_t =
-      | Fail
-      | Infinity
-    let mode = ref Fail
-    let set_mode new_mode = mode := new_mode
-    let _proto_ f a b =
-      let length_a = Float.Array.length a and length_b = Float.Array.length b in
-      if length_a <> length_b then begin
-        match !mode with
-        | Fail -> IncompatibleLengths (length_a, length_b) |> raise
-        | Infinity -> infinity
-      end else
-        f a b
-    let euclidean =
-      _proto_
-        (fun a b ->
-          let acc = ref 0. in
-          Float.Array.iter2
-            (fun el_a el_b ->
-              let diff = el_a -. el_b in
-              acc := !acc +. (diff *. diff))
-            a b;
-          sqrt !acc)
-  
-  end
-
-module IntMap = Tools.IntMap
-
-module Matrix:
-  sig
+    type matrix_t =
+      | Twister
+      | Inertia
+      | Twisted
+      | DMatrix
     type t = {
-      (* We number rows and columns starting from 0 *)
-      idx_to_col_names: string array;
-      idx_to_row_names: string array;
-      (* *)
-      storage: Float.Array.t array
+      which: matrix_t;
+      matrix: Matrix.t
     }
-    exception WrongNumberOfColumns of int * int
-    val of_file: string -> t
-    (*val transpose: t -> t*)
-    val get_distance: ?threads:int -> ?elements_per_step:int -> DistanceFunction.t -> t -> t
+    val of_file: matrix_t -> string -> t
+    (* This one discards type information - use at your own risk *)
     val to_file: t -> string -> unit
+    (* TRANSPOSITION IS CURRENTLY UNTESTED AND HENCE DISABLED *)
+    (* val transpose_single_threaded: t -> t
+       val transpose: ?threads:int -> ?elements_per_step:int -> t -> t *)
+    val multiply_matrix_vector: ?threads:int -> ?elements_per_step:int -> t -> Float.Array.t -> Float.Array.t
+    val multiply_matrix_matrix: ?threads:int -> ?elements_per_step:int -> matrix_t -> t -> t -> t
+    val get_distance_matrix: ?threads:int -> ?elements_per_step:int -> Matrix.DistanceFunction.t -> t -> t
+    (* Compute distances between the rows of two matrices - more general version of the previous one *)
+    val get_distance_rowwise: ?threads:int -> ?elements_per_step:int -> Matrix.DistanceFunction.t -> t -> t -> t
+    (* Binary marshalling of the matrix *)
+    val to_binary: t -> string -> unit
+    val of_binary: string -> t
+  end
+= struct
+    type matrix_t =
+      | Twister
+      | Inertia
+      | Twisted
+      | DMatrix
+    type t = {
+      which: matrix_t;
+      matrix: Matrix.t
+    }
+    (* We redefine the implementation for Matrix in order to set the correct KPop types *)
+    let of_file which fname =
+      { which; matrix = Matrix.of_file fname }
+    let to_file m =
+      Matrix.to_file m.matrix
+    (* TRANSPOSITION IS CURRENTLY UNTESTED AND HENCE DISABLED *)
+    (*
+       let transpose_single_threaded m =
+         { m with matrix = Matrix.transpose_single_threaded m.matrix }
+       let transpose ?(threads = 64) ?(elements_per_step = 100) m =
+         { m with matrix = Matrix.transpose ~threads ~elements_per_step m.matrix }
+    *)
+    let multiply_matrix_vector ?(threads = 64) ?(elements_per_step = 100) m v =
+      Matrix.multiply_matrix_vector ~threads ~elements_per_step m.matrix v
+    let multiply_matrix_matrix ?(threads = 64) ?(elements_per_step = 100) which m1 m2 =
+      { which; matrix = Matrix.multiply_matrix_matrix ~threads ~elements_per_step m1.matrix m2.matrix }
+    let get_distance_matrix ?(threads = 64) ?(elements_per_step = 100) distance m =
+      { which = DMatrix; matrix = Matrix.get_distance_matrix ~threads ~elements_per_step distance m.matrix }
+    (* Compute distances between the rows of two matrices - more general version of the previous one *)
+    let get_distance_rowwise ?(threads = 64) ?(elements_per_step = 100) distance m1 m2 =
+      { which = DMatrix; matrix = Matrix.get_distance_rowwise ~threads ~elements_per_step distance m1.matrix m2.matrix }
+
+
+    let archive_version = "2022-04-03"
+
+    exception Incompatible_archive_version of string
+    let to_binary m fname =
+      let output = open_out fname in
+      Printf.eprintf "%s: Outputting DB to file '%s'...%!" __FUNCTION__ fname;
+      "KPopTwistDB_" ^ archive_version |> output_value output;
+      output_value output m;
+      close_out output;
+      Printf.eprintf " done.\n%!"
+    let of_binary fname =
+      let input = open_in fname in
+      Printf.eprintf "%s: Reading DB from file '%s'...%!" __FUNCTION__ fname;
+      let version = (input_value input: string) in
+      if version <> "KPopTwistDB_" ^ archive_version then
+        Incompatible_archive_version version |> raise;
+      let res = (input_value input: t) in
+      close_in input;
+      Printf.eprintf " done.\n%!";
+      res
+
+  end
+
+
+(*
+    module FloatStringMultimap = Tools.OrderedMultimap (Tools.ComparableFloat) (Tools.ComparableString)
+      let res = ref FloatStringMultimap.empty in
+      (* We find the median and filter the result *)
+
+
+            res := FloatStringMultimap.add dist v.idx_to_col_names.(i) !res; 
+
+
+      let res = !res and req_len =
+        match keep_at_most with
+        | None -> d
+        | Some at_most -> at_most
+      and eff_len = ref 0 and median_pos = d / 2 |> ref and median = ref 0. in
+      FloatStringMultimap.iter_set
+        (fun dist set ->
+          let set_len = FloatStringMultimap.ValSet.cardinal set in
+          if !median_pos >= 0 && !median_pos - set_len < 0 then
+            median := dist;
+          median_pos := !median_pos - set_len;
+          if !eff_len < req_len then
+            eff_len := !eff_len + set_len)
+        res;
+      let eff_len = !eff_len and median = !median in
+      (* At this point, we can allocate storage... *)
+      let storage = Array.init eff_len (fun _ -> Float.Array.create 2) and row_names = Array.make eff_len "" in
+      (* ...and fill it *)
+      FloatStringMultimap.iteri
+        (fun i dist key ->
+          row_names.(i) <- key;
+          let arr = storage.(i) in
+          Float.Array.set arr 0 dist;
+          (dist -. median) /. median |> Float.Array.set arr 1)
+        res;
+      Printf.printf "\r                                                             \r%!";
+      { idx_to_col_names = [| "distance"; "z_score" |];
+        idx_to_row_names = row_names;
+        storage = storage }
+*)
+
+
+module [@warning "-32"] Twister:
+  sig
+    type t = {
+      twister: Matrix.t; (* Coordinate transformation *)
+      inertia: Matrix.t  (* Variance per coordinate *)
+    }
+    val to_files: t -> string -> unit
+    val of_files: string -> t
+
+    exception WrongNumberOfColumns of int * int * int
+    exception HeaderExpected of string
+    exception WrongFormat of int * string
+    val twisted_from_files: ?threads:int -> ?elements_per_step:int -> t -> string list -> Matrix.t
+
+    exception Incompatible_archive_version of string
+    val to_binary: t -> string -> unit
+    val of_binary: string -> t
 
   end
 = struct
     type t = {
-      idx_to_col_names: string array;
-      idx_to_row_names: string array;
-      storage: Float.Array.t array
+      twister: Matrix.t;
+      inertia: Matrix.t
     }
-    let to_file m filename =
-      let output = open_out filename in
-      if Array.length m.storage > 0 then begin
-        (* We output the column names *)
-        Array.iteri
-          (fun i name ->
-            if i > 0 then
-              Printf.fprintf output "\t";
-            Printf.fprintf output "\"%s\"" name)
-          m.idx_to_col_names;
-        Printf.fprintf output "\n";
-        (* We output the rows *)
-        Array.iteri
-          (fun i row ->
-            (* We output the row name *)
-            m.idx_to_row_names.(i) |> Printf.fprintf output "\"%s\"";
-            Float.Array.iter (Printf.fprintf output "\t%g") row;
-            Printf.fprintf output "\n")
-          m.storage
-      end;
-      close_out output
-    let _resize_array_ length make blit a idx =
-      let l = length a in
-      if l < idx + 1 then begin
-        let res = make (max (idx + 1) (l * 14 / 10)) in
-        blit a 0 res 0 l;
-        res
-      end else
-        a
-    let add_row_name names row_idx name =
-      names := _resize_array_ Array.length (fun n -> Array.make n "") Array.blit !names row_idx;
-      !names.(row_idx) <- name
-    let add_row storage row_idx dim =
-      storage :=
-        _resize_array_ Array.length (fun n -> Array.make n (Float.Array.create 0)) Array.blit !storage row_idx;
-      !storage.(row_idx) <- Float.Array.create dim;
-      !storage.(row_idx)
-    let strip_quotes s =
-      let l = String.length s in
-      if l = 0 then
-        ""
-      else
-        let s =
-          if s.[0] = '"' then
-            String.sub s 1 (l - 1)
-          else
-            s in
-        let l = String.length s in
-        if l = 0 then
-          ""
-        else
-          if s.[l - 1] = '"' then
-            String.sub s 0 (l - 1)
-          else
-            s
-    exception WrongNumberOfColumns of int * int
-    let of_file filename =
-      let input = open_in filename and line_num = ref 0
-      and num_cols = ref 0 and idx_to_col_names = ref [||] and idx_to_row_names = ref [||]
-      and storage = ref (Float.Array.create 0 |> Array.make 16) and elts_read = ref 0 in
-      begin try
-        while true do
-          let line = input_line input |> Tools.Split.on_char_as_array '\t' in
-          if !line_num = 0 then begin
-            (* We process the header *)
-            let l = Array.length line in
-            if l > 0 then
+
+    let to_files tr prefix =
+      prefix ^ ".KPopTwister.twister.txt" |> Matrix.to_file tr.twister;
+      prefix ^ ".KPopTwister.inertia.txt" |> Matrix.to_file tr.inertia
+    let of_files prefix =
+      { twister = prefix ^ ".KPopTwister.twister.txt" |> Matrix.of_file;
+        inertia = prefix ^ ".KPopTwister.inertia.txt" |> Matrix.of_file }
+
+    (* When everything is properly separated, this should go into a common library file *)
+
+    exception WrongNumberOfColumns of int * int * int
+    exception HeaderExpected of string
+    exception WrongFormat of int * string
+    let add_files f_header f_line f_end fnames =
+      let n = List.length fnames in
+      List.iteri
+        (fun i fname ->
+          let input = open_in fname and line_num = ref 1 in
+          (* Each file can contain one or more spectra *)
+          begin try
+            while true do
+              let line_s = input_line input in
+              let line = Tools.Split.on_char_as_array '\t' line_s in
+              let l = Array.length line in
+              if l <> 2 then
+                WrongNumberOfColumns (!line_num, l, 2) |> raise;
+              (* Each file must begin with a header *)
+              if !line_num = 1 && line.(0) <> "" then
+                HeaderExpected line_s |> raise;
               if line.(0) = "" then begin
-                (* The first name is empty: as many columns as l - 1 *)
-                num_cols := l - 1;
-                idx_to_col_names := Array.make !num_cols "";
-                Array.iteri
-                  (fun i name ->
-                    if i > 0 then
-                      !idx_to_col_names.(i - 1) <- strip_quotes name)
-                  line
-              end else begin
-                (* The first name is not empty: l columns *)
-                num_cols := l;
-                idx_to_col_names := Array.map strip_quotes line
-              end
-          end else begin
-            (* A regular line.
-               The first element is the name *)
-            let l = Array.length line in
-            if l <> !num_cols + 1 then
-              WrongNumberOfColumns (l, !num_cols + 1) |> raise;
-            let red_line_num = !line_num - 1 in
-            let array = add_row storage red_line_num !num_cols in
-            Array.iteri
-              (fun i el ->
-                if i = 0 then
-                  (* The first element is the name *)
-                  add_row_name idx_to_row_names red_line_num (strip_quotes el)
-                else begin
-                  float_of_string el |> Float.Array.set array (i - 1);
-                  incr elts_read;
-                  if !elts_read mod 100000 = 0 then
-                    Printf.printf "\r                                        \rAt row %d: Read %d elements%!"
-                      (!line_num + 1) !elts_read
-                end)
-              line
-          end;
-          incr line_num
-        done
-      with End_of_file ->
-        close_in input;
-        Printf.printf "\r%!"
-      end;
-      let red_line_num = !line_num - 1 in
-      { (* At this point idx_to_row_names and storage might be longer than needed - we resize them *)
-        idx_to_col_names = !idx_to_col_names;
-        idx_to_row_names = Array.sub !idx_to_row_names 0 red_line_num;
-        storage = Array.sub !storage 0 red_line_num }
-    let get_distance ?(threads = 64) ?(elements_per_step = 100) distance m =
-      let d = Array.length m.storage in
-      (* We immediately allocate all the needed memory, as we already know how much we will need *)
-      let storage = Array.init d (fun _ -> Float.Array.create d) in
-      (* Generate points to be computed by the parallel processs *)
-      let i = ref 0 and j = ref 0 and end_reached = ref false and elts_done = ref 0 in
-      Tools.Parallel.process_stream_chunkwise
-        (fun () ->
-          if !end_reached then
-            raise End_of_file
-          else begin
-            (* We only compute 1/2 of the matrix, and symmetrise at the end of the computation *)
-            let res = ref [] and cntr = ref 0 in
-            begin try
-              while !cntr < elements_per_step do
-                Tools.Misc.accum res (!i, !j);
-                incr j;
-                if !j > !i then begin
-                  incr i;
-                  if !i = d then begin
-                    end_reached := true;
-                    raise Exit
-                  end;
-                  j := 0
-                end
-              done
-            with Exit -> ()
-            end;
-            List.rev !res
+                if !line_num > 1 then
+                  f_end !line_num;
+                (* Header *)
+                f_header !line_num line.(1)
+              end else
+                (* A regular line. The first element is the hash, the second one the count *)
+                f_line !line_num line.(0) line.(1);
+              incr line_num;
+              if !line_num mod 10000 = 0 then
+                Printf.eprintf "\r[%d/%d] File '%s': Read %d lines%!" (i + 1) n fname !line_num
+            done
+          with End_of_file ->
+            close_in input;
+            f_end !line_num;
+            Printf.eprintf "\r[%d/%d] File '%s': Read %d lines\n%!" (i + 1) n fname !line_num;
           end)
-        (List.map
-          (* We decorate each matrix element coordinate with the respective distance *)
-          (fun (i, j) ->
-            i, j, distance m.storage.(i) m.storage.(j)))
-        (List.iter
-          (fun (i, j, dist) ->
-            (* The actual memory allocation for the result is only done here *)
-            Float.Array.set storage.(i) j dist;
-            incr elts_done;
-            if !elts_done mod 100 = 0 then
-              Printf.printf "\r                                        \rAt (%d,%d): Read %d elements%!"
-                i j !elts_done))
-        threads;
-      Printf.printf "\r                                        \rSymmetrizing...%!";
-      (* We symmetrise the matrix *)
-      let red_d = d - 1 in
-      for i = 0 to red_d do
-        for j = i + 1 to red_d do
-          Float.Array.get storage.(j) i |> Float.Array.set storage.(i) j
-        done
-      done;
-      Printf.printf "\r                                        \r%!";
-      { idx_to_col_names = m.idx_to_row_names;
-        idx_to_row_names = m.idx_to_row_names;
-        storage = storage }
-  
+        fnames
+
+    (* Strictly speaking, we return the _transposed_ of the matrix product here *)
+    let twisted_from_files ?(threads = 64) ?(elements_per_step = 100) tw fnames =
+      (* We invert the table *)
+      let col_names_to_idx = Hashtbl.create 1024 in
+      Array.iteri
+        (fun i name ->
+          Hashtbl.add col_names_to_idx name i)
+        tw.twister.idx_to_col_names;
+      (* First we read spectra from the files.
+         We have to conform the k-mers to the ones in the twister.
+         As a bonus, we already know the size of the resulting vector *)
+      let curr_label = ref "" and curr_alloc = Float.Array.create 0 |> ref
+      and res_labels = ref [] and res_allocs = ref [] in
+      add_files
+        (fun _ label ->
+          curr_label := label;
+          curr_alloc := Float.Array.make (Array.length tw.twister.idx_to_col_names) 0.)
+        (fun line name v ->
+          let v =
+            try
+              float_of_string v
+            with _ ->
+              WrongFormat (line, v) |> raise in
+          match Hashtbl.find_opt col_names_to_idx name with
+          | Some idx ->
+            (* If there are repeated k-mers, we just accumulate them *)
+            Float.Array.get !curr_alloc idx +. v |> Float.Array.set !curr_alloc idx
+          | None ->
+            (* In this case, we just discard the k-mer *)
+            ())
+        (fun _ ->
+          (* Then, we transform the spectra *)
+          curr_alloc :=
+            (*KPop*)Matrix.multiply_matrix_vector ~threads ~elements_per_step tw.twister !curr_alloc;
+          Tools.Misc.accum res_labels !curr_label;
+          Tools.Misc.accum res_allocs !curr_alloc)
+        fnames;
+      { Matrix.idx_to_col_names = tw.twister.idx_to_row_names;
+        idx_to_row_names = Tools.Misc.array_of_rlist !res_labels;
+        storage = Tools.Misc.array_of_rlist !res_allocs }
+
+    let archive_version = "2022-04-03"
+
+    exception Incompatible_archive_version of string
+    let to_binary t fname =
+      let output = open_out fname in
+      Printf.eprintf "%s: Outputting DB to file '%s'...%!" __FUNCTION__ fname;
+      "KPopTwister_" ^ archive_version |> output_value output;
+      output_value output t;
+      close_out output;
+      Printf.eprintf " done.\n%!"
+    let of_binary fname =
+      let input = open_in fname in
+      Printf.eprintf "%s: Reading DB from file '%s'...%!" __FUNCTION__ fname;
+      let version = (input_value input: string) in
+      if version <> "KPopTwister_" ^ archive_version then
+        Incompatible_archive_version version |> raise;
+      let res = (input_value input: t) in
+      close_in input;
+      Printf.eprintf " done.\n%!";
+      res
+
   end
+
 
 let () =
   let matrix = Matrix.of_file "/dev/stdin" in
-  let distance = Matrix.get_distance DistanceFunction.euclidean matrix in
+  let distance = Matrix.get_distance_matrix Matrix.DistanceFunction.euclidean matrix in
   Matrix.to_file distance Sys.argv.(1)
