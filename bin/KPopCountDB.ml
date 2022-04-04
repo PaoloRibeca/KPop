@@ -1,3 +1,18 @@
+(*
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*)
+
 open BiOCamLib
 
 module IntMap = Tools.IntMap
@@ -28,13 +43,17 @@ Tools.BA.Vector (
 
 (* K-mers are stored as columns, labels as rows *)
 
-module KMerDB:
+module [@warning "-32"] KMerDB:
   sig
     type t
     val make_empty: unit -> t
     (* Adds metadata - the first field must be the label *)
+    exception WrongNumberOfColumns of int * int * int
     val add_meta: t -> string -> t
-    (* Adds text files containing k-mers. The first line must contain the label *)
+    (* Adds text files containing k-mers. The first line must contain the label.
+        Multiple files separated by "\t\n" can be chained in the same input *)
+    exception HeaderExpected of string
+    exception WrongFormat of int * string
     val add_files: t -> string list -> t
     (* Adds a linear combination of vectors - vectors are identified by label *)
     val add_sum_labels: ?threads:int -> t -> string -> string list -> t
@@ -43,8 +62,9 @@ module KMerDB:
     (* Output information about the contents *)
     val output_summary: ?verbose:bool -> t -> unit
     (* Binary marshalling of the database *)
-    val to_file: t -> string -> unit
-    val of_file: string -> t
+    exception Incompatible_archive_version of string
+    val to_binary: t -> string -> unit
+    val of_binary: string -> t
     module Statistics:
       sig
         type tt = t
@@ -60,12 +80,12 @@ module KMerDB:
           (* Could be extended with more moments if needed *)
           *)
           }
-        val [@warning "-32"] empty: t
+        val empty: t
         type table_t = {
           col_stats: t array;
           row_stats: t array
         }
-        val [@warning "-32"] table_of_db: ?threshold:int -> ?power:float -> ?threads:int -> tt -> table_t
+        val table_of_db: ?threshold:int -> ?power:float -> ?threads:int -> tt -> table_t
       end
     module Transformation:
       sig
@@ -78,9 +98,11 @@ module KMerDB:
           | Normalize of function_t
           | CLR of function_t
           | Pseudo of function_t
+        exception Unknown_transformation of string
+        exception Invalid_transformation of string * int * float
         val of_string: string -> t
         val to_string: t -> string
-        val [@warning "-32"] to_function_t: t -> function_t
+        val to_function_t: t -> function_t
       end
     module TableFilter:
       sig
@@ -158,7 +180,7 @@ module KMerDB:
             if exact then
               n
             else
-              max n (l * 2)
+              max n (l * 14 / 10)
           end null in
         Array.blit a 0 res 0 l;
         res
@@ -176,17 +198,17 @@ module KMerDB:
         if exact then
           nx
         else if lx < nx then
-          max nx (lx * 2)
+          max nx (lx * 14 / 10)
         else
           lx
       and eff_ny =
         if exact then
           ny
         else if lx > 0 then begin
-          (* We assume all bigarrays have the same size *)
+          (* We assume all bigarrays to have the same size *)
           let ly = length a.(0) in
           if ly < ny then
-            max ny (ly * 2)
+            max ny (ly * 14 / 10)
           else
             ly
         end else
@@ -215,7 +237,7 @@ module KMerDB:
                 if exact then
                   n
                 else
-                  max n (l * 2)
+                  max n (l * 14 / 10)
               end M.N.zero in
             M.blit a (M.sub res 0 l);
             res
@@ -244,13 +266,13 @@ module KMerDB:
 
     (* *)
     
-    let archive_version = "2022-02-06"
+    let archive_version = "2022-04-03"
 
     exception Incompatible_archive_version of string
-    let to_file db fname =
+    let to_binary db fname =
       let output = open_out fname in
-      Printf.eprintf "Outputting DB to file '%s'...%!" fname;
-      "K-pop_DB_" ^ archive_version |> output_value output;
+      Printf.eprintf "%s: Outputting DB to file '%s'...%!" __FUNCTION__ fname;
+      "KPopCountDB_" ^ archive_version |> output_value output;
       output_value output {
         db.core with
         (* We have to truncate all the containers *)
@@ -262,11 +284,11 @@ module KMerDB:
       };
       close_out output;
       Printf.eprintf " done.\n%!"
-    let of_file fname =
+    let of_binary fname =
       let input = open_in fname in
-      Printf.eprintf "Reading DB from file '%s'...%!" fname;
+      Printf.eprintf "%s: Reading DB from file '%s'...%!" __FUNCTION__ fname;
       let version = (input_value input: string) in
-      if version <> "K-pop_DB_" ^ archive_version then
+      if version <> "KPopCountDB_" ^ archive_version then
         Incompatible_archive_version version |> raise;
       let core = (input_value input: marshalled_t) in
       close_in input;
@@ -311,7 +333,7 @@ module KMerDB:
           if i > 0 && Hashtbl.mem db.meta_names_to_idx name |> not then
             TM.accum missing name)
         header;
-      let missing = Array.of_list (List.rev !missing) in
+      let missing = Tools.Misc.array_of_rlist !missing in
       let db = ref db
       and missing_len = Array.length missing in
       if missing_len > 0 then begin
@@ -363,16 +385,14 @@ module KMerDB:
         Printf.eprintf "\rFile '%s': Read %d lines\n%!" fname !line_num
       end;
       !db
+    exception HeaderExpected of string
     exception WrongFormat of int * string
-    type spectra_parser_state_t =
-    | Header
-    | Body
     let add_files db fnames =
       let db = ref db and n = List.length fnames in
       List.iteri
         (fun i fname ->
-          let input = open_in fname and line_num = ref 1 and state = ref Header and col_idx = ref 0 in
-          (* Each file can contain one or more spectra, separated by "\t\n" *)
+          let input = open_in fname and line_num = ref 1 and col_idx = ref 0 in
+          (* Each file can contain one or more spectra *)
           begin try
             while true do
               let line_s = input_line input in
@@ -380,44 +400,42 @@ module KMerDB:
               let l = Array.length line in
               if l <> 2 then
                 WrongNumberOfColumns (!line_num, l, 2) |> raise;
-              begin match !state with
-              | Header ->
+              (* Each file must begin with a header *)
+              if !line_num = 1 && line.(0) <> "" then
+                HeaderExpected line_s |> raise;
+              if line.(0) = "" then begin
+                (* Header *)
                 add_empty_column_if_needed db line.(1);
                 col_idx := Hashtbl.find !db.col_names_to_idx line.(1);
-                state := Body
-              | Body ->
-                if line_s = "\t" then
-                  (* Separator *)
-                  state := Header
-                else begin
-                  (* A regular line. The first element is the hash, the second one the count *)
-                  if Hashtbl.mem !db.row_names_to_idx line.(0) |> not then begin
-                    let n_rows = !db.core.n_rows in
-                    let aug_n_rows = n_rows + 1 in
-                    Hashtbl.add !db.row_names_to_idx line.(0) n_rows;
-                    db := {
-                      !db with
-                      core = {
-                        !db.core with
-                        n_rows = aug_n_rows;
-                        (* We have to resize all the relevant containers *)
-                        idx_to_row_names = begin
-                          let res = resize_string_array aug_n_rows !db.core.idx_to_row_names in
-                          res.(n_rows) <- line.(0);
-                          res
-                        end;
-                        storage = IBAVectorMisc.resize_array !db.core.n_cols aug_n_rows !db.core.storage
-                      }
+              end else begin
+                (* A regular line. The first element is the hash, the second one the count *)
+                if Hashtbl.mem !db.row_names_to_idx line.(0) |> not then begin
+                  let n_rows = !db.core.n_rows in
+                  let aug_n_rows = n_rows + 1 in
+                  Hashtbl.add !db.row_names_to_idx line.(0) n_rows;
+                  db := {
+                    !db with
+                    core = {
+                      !db.core with
+                      n_rows = aug_n_rows;
+                      (* We have to resize all the relevant containers *)
+                      idx_to_row_names = begin
+                        let res = resize_string_array aug_n_rows !db.core.idx_to_row_names in
+                        res.(n_rows) <- line.(0);
+                        res
+                      end;
+                      storage = IBAVectorMisc.resize_array !db.core.n_cols aug_n_rows !db.core.storage
                     }
-                  end;
-                  let row_idx = Hashtbl.find !db.row_names_to_idx line.(0) in
-                  let v =
-                    try
-                      IBAVector.N.of_string line.(1)
-                    with _ ->
-                      WrongFormat (!line_num, line.(1)) |> raise in
-                  !db.core.storage.(!col_idx).IBAVector.+(row_idx) <- v
-                end
+                  }
+                end;
+                let row_idx = Hashtbl.find !db.row_names_to_idx line.(0) in
+                let v =
+                  try
+                    IBAVector.N.of_string line.(1)
+                  with _ ->
+                    WrongFormat (!line_num, line.(1)) |> raise in
+                (* If there are repeated k-mers, we just accumulate them *)
+                !db.core.storage.(!col_idx).IBAVector.+(row_idx) <- v
               end;
               incr line_num;
               if !line_num mod 10000 = 0 then
@@ -529,7 +547,7 @@ module KMerDB:
                 for i = 0 to red_to_do do
                   processed + i |> compute_one what |> Tools.Misc.accum res
                 done;
-                List.rev !res |> Array.of_list)
+                Tools.Misc.array_of_rlist !res)
               (Tools.Misc.accum res)
               threads;
             let rec binary_merge_arrays processed to_do =
@@ -778,8 +796,8 @@ module KMerDB:
           if i < db.core.n_cols && StringSet.mem col_name filter.filter_columns |> not then
             Tools.Misc.accum cols (col_name ,i))
         db.core.idx_to_col_names;
-      let meta = List.rev !meta |> Array.of_list and rows = List.rev !rows |> Array.of_list
-      and cols = List.rev !cols |> Array.of_list in
+      let meta = Tools.Misc.array_of_rlist !meta and rows = Tools.Misc.array_of_rlist !rows
+      and cols = Tools.Misc.array_of_rlist !cols in
       let n_rows = Array.length rows and n_cols = Array.length cols in
       (* There must be at least one row and one column to print *)
       if (Array.length meta + n_rows) > 0 && n_cols > 0 then begin
@@ -945,7 +963,7 @@ module Parameters =
     let verbose = ref Defaults.verbose
   end
 
-let version = "0.19"
+let version = "0.21"
 
 let _ =
   Printf.eprintf "This is the KPopDB program (version %s)\n%!" version;
@@ -1124,7 +1142,7 @@ let _ =
       | Empty ->
         current := KMerDB.make_empty ()
       | Of_file fname ->
-        current := KMerDB.of_file fname
+        current := KMerDB.of_binary fname
       | Add_meta fname ->
         current := KMerDB.add_meta !current fname
       | Add_files fnames ->
@@ -1138,5 +1156,5 @@ let _ =
       | To_table (filter, fname) ->
         KMerDB.to_table ~filter ~threads:!Parameters.threads !current fname
       | To_file fname ->
-        KMerDB.to_file !current fname)
+        KMerDB.to_binary !current fname)
     program
