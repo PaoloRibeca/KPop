@@ -62,7 +62,7 @@ module [@warning "-32"] KMerDB:
     (* Output information about the contents *)
     val output_summary: ?verbose:bool -> t -> unit
     (* Binary marshalling of the database *)
-    exception Incompatible_archive_version of string
+    exception Incompatible_archive_version of string * string
     val to_binary: t -> string -> unit
     val of_binary: string -> t
     module Statistics:
@@ -268,11 +268,12 @@ module [@warning "-32"] KMerDB:
     
     let archive_version = "2022-04-03"
 
-    exception Incompatible_archive_version of string
+    exception Incompatible_archive_version of string * string
     let to_binary db fname =
       let output = open_out fname in
       Printf.eprintf "%s: Outputting DB to file '%s'...%!" __FUNCTION__ fname;
-      "KPopCountDB_" ^ archive_version |> output_value output;
+      output_value output "KPopCountDB";
+      output_value output archive_version;
       output_value output {
         db.core with
         (* We have to truncate all the containers *)
@@ -287,9 +288,10 @@ module [@warning "-32"] KMerDB:
     let of_binary fname =
       let input = open_in fname in
       Printf.eprintf "%s: Reading DB from file '%s'...%!" __FUNCTION__ fname;
+      let which = (input_value input: string) in
       let version = (input_value input: string) in
-      if version <> "KPopCountDB_" ^ archive_version then
-        Incompatible_archive_version version |> raise;
+      if which <> "KPopCountDB" || version <> archive_version then
+        Incompatible_archive_version (which, version) |> raise;
       let core = (input_value input: marshalled_t) in
       close_in input;
       Printf.eprintf " done.\n%!";
@@ -966,13 +968,13 @@ module Parameters =
 let version = "0.21"
 
 let _ =
-  Printf.eprintf "This is the KPopDB program (version %s)\n%!" version;
+  Printf.eprintf "This is the KPopCountDB program (version %s)\n%!" version;
   Printf.eprintf " (c) 2020-2022 Paolo Ribeca, <paolo.ribeca@gmail.com>\n%!";
   let module TA = Tools.Argv in
   let module TS = Tools.Split in
   let module TM = Tools.Misc in
   TA.parse [
-    [], None, [ "Actions (executed in order of specification):" ], TA.Optional, (fun _ -> ());
+    [], None, [ "Actions (executed delayed and in order of specification):" ], TA.Optional, (fun _ -> ());
     [ "-e"; "-E"; "--empty" ],
       None,
       [ "put an empty database into the register" ],
@@ -1111,7 +1113,7 @@ let _ =
       [ "dump to the specified file the database present in the register" ],
       TA.Optional,
       (fun _ -> To_file (TA.get_parameter ()) |> TM.accum Parameters.program);
-    [], None, [ "Miscellaneous:" ], TA.Optional, (fun _ -> ());
+    [], None, [ "Miscellaneous (executed immediately):" ], TA.Optional, (fun _ -> ());
     [ "-T"; "--threads" ],
       Some "<computing_threads>",
       [ "number of concurrent computing threads to be spawned" ],

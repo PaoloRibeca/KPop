@@ -15,7 +15,7 @@
 
 (* A number of distance functions.
    They all have signature: float array -> float array -> float *)
-module DistanceFunction:
+module Distance:
   sig
     type t = Float.Array.t -> Float.Array.t -> float
     exception IncompatibleLengths of int * int
@@ -77,6 +77,8 @@ include (
       idx_to_row_names: string array;
       storage: Float.Array.t array
     }
+    let empty =
+      { idx_to_col_names = [||]; idx_to_row_names = [||]; storage = [||] }
     let to_file m filename =
       let output = open_out filename in
       if Array.length m.storage > 0 then begin
@@ -436,6 +438,7 @@ include (
       (* Stored row-wise *)
       storage: Float.Array.t array
     }
+    val empty: t
     (* We read in a matrix which has conditions as row names
         and a (large) number of tags (genes, k-mers, etc.) as column names.
       Keeping with the convention accepted by R, the first row would be a header,
@@ -450,9 +453,9 @@ include (
     exception IncompatibleGeometries of string array * string array
     val multiply_matrix_vector: ?threads:int -> ?elements_per_step:int -> t -> Float.Array.t -> Float.Array.t
     val multiply_matrix_matrix: ?threads:int -> ?elements_per_step:int -> t -> t -> t
-    val get_distance_matrix: ?threads:int -> ?elements_per_step:int -> DistanceFunction.t -> t -> t
+    val get_distance_matrix: ?threads:int -> ?elements_per_step:int -> Distance.t -> t -> t
     (* Compute distances between the rows of two matrices - more general version of the previous one *)
-    val get_distance_rowwise: ?threads:int -> ?elements_per_step:int -> DistanceFunction.t -> t -> t -> t
+    val get_distance_rowwise: ?threads:int -> ?elements_per_step:int -> Distance.t -> t -> t -> t
 
   end
 )

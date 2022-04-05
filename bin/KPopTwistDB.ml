@@ -17,40 +17,72 @@ open BiOCamLib
 
 module [@warning "-32"] KPopMatrix:
   sig
-    type matrix_t =
-      | Twister
-      | Inertia
-      | Twisted
-      | DMatrix
+    module Type:
+      sig
+        type t =
+          | Twister
+          | Inertia
+          | Twisted
+          | DMatrix
+        val to_string: t -> string
+        exception Unknown_type of string
+        val of_string: string -> t
+      end
     type t = {
-      which: matrix_t;
+      which: Type.t;
       matrix: Matrix.t
     }
-    val of_file: matrix_t -> string -> t
+    val empty: Type.t -> t
+    val of_file: Type.t -> string -> t
     (* This one discards type information - use at your own risk *)
     val to_file: t -> string -> unit
     (* TRANSPOSITION IS CURRENTLY UNTESTED AND HENCE DISABLED *)
     (* val transpose_single_threaded: t -> t
        val transpose: ?threads:int -> ?elements_per_step:int -> t -> t *)
     val multiply_matrix_vector: ?threads:int -> ?elements_per_step:int -> t -> Float.Array.t -> Float.Array.t
-    val multiply_matrix_matrix: ?threads:int -> ?elements_per_step:int -> matrix_t -> t -> t -> t
-    val get_distance_matrix: ?threads:int -> ?elements_per_step:int -> Matrix.DistanceFunction.t -> t -> t
+    val multiply_matrix_matrix: ?threads:int -> ?elements_per_step:int -> Type.t -> t -> t -> t
+    val get_distance_matrix: ?threads:int -> ?elements_per_step:int -> Matrix.Distance.t -> t -> t
     (* Compute distances between the rows of two matrices - more general version of the previous one *)
-    val get_distance_rowwise: ?threads:int -> ?elements_per_step:int -> Matrix.DistanceFunction.t -> t -> t -> t
+    val get_distance_rowwise: ?threads:int -> ?elements_per_step:int -> Matrix.Distance.t -> t -> t -> t
     (* Binary marshalling of the matrix *)
+    val to_channel: out_channel -> t -> unit
+    val of_channel: in_channel -> t
     val to_binary: t -> string -> unit
     val of_binary: string -> t
+    (* To be used when needed *)
+    exception TwisterExpected
+    exception InertiaExpected
+    exception TwistedExpected
+    exception DMatrixExpected
   end
 = struct
-    type matrix_t =
-      | Twister
-      | Inertia
-      | Twisted
-      | DMatrix
+    module Type =
+      struct
+        type t =
+          | Twister
+          | Inertia
+          | Twisted
+          | DMatrix
+        let to_string = function
+          | Twister -> "KPopTwister"
+          | Inertia -> "KPopInertia"
+          | Twisted -> "KPopTwisted"
+          | DMatrix -> "KPopDMatrix"
+        exception Unknown_type of string
+        let of_string = function
+          | "KPopTwister" -> Twister
+          | "KPopInertia" -> Inertia
+          | "KPopTwisted" -> Twisted
+          | "KPopDMatrix" -> DMatrix
+          | w ->
+            Unknown_type w |> raise
+      end
     type t = {
-      which: matrix_t;
+      which: Type.t;
       matrix: Matrix.t
     }
+    let empty which =
+      { which; matrix = Matrix.empty }
     (* We redefine the implementation for Matrix in order to set the correct KPop types *)
     let of_file which fname =
       { which; matrix = Matrix.of_file fname }
@@ -72,28 +104,37 @@ module [@warning "-32"] KPopMatrix:
     (* Compute distances between the rows of two matrices - more general version of the previous one *)
     let get_distance_rowwise ?(threads = 64) ?(elements_per_step = 100) distance m1 m2 =
       { which = DMatrix; matrix = Matrix.get_distance_rowwise ~threads ~elements_per_step distance m1.matrix m2.matrix }
-
-
+    (* *)
     let archive_version = "2022-04-03"
-
-    exception Incompatible_archive_version of string
+    (* *)
+    exception Incompatible_archive_version of string * string
+    let to_channel output m =
+      Type.to_string m.which |> output_value output;
+      archive_version |> output_value output;
+      output_value output m.matrix
     let to_binary m fname =
       let output = open_out fname in
       Printf.eprintf "%s: Outputting DB to file '%s'...%!" __FUNCTION__ fname;
-      "KPopTwistDB_" ^ archive_version |> output_value output;
-      output_value output m;
+      to_channel output m;
       close_out output;
       Printf.eprintf " done.\n%!"
+    let of_channel input =
+      let which = (input_value input: string) in
+      let version = (input_value input: string) in
+      if version <> archive_version then
+        Incompatible_archive_version (which, version) |> raise;
+      { which = Type.of_string which; matrix = (input_value input: Matrix.t) }
     let of_binary fname =
       let input = open_in fname in
       Printf.eprintf "%s: Reading DB from file '%s'...%!" __FUNCTION__ fname;
-      let version = (input_value input: string) in
-      if version <> "KPopTwistDB_" ^ archive_version then
-        Incompatible_archive_version version |> raise;
-      let res = (input_value input: t) in
+      let res = of_channel input in
       close_in input;
       Printf.eprintf " done.\n%!";
       res
+    exception TwisterExpected
+    exception InertiaExpected
+    exception TwistedExpected
+    exception DMatrixExpected
 
   end
 
@@ -139,37 +180,49 @@ module [@warning "-32"] KPopMatrix:
 *)
 
 
-module [@warning "-32"] Twister:
+module [@warning "-32"] KPopTwister:
   sig
     type t = {
-      twister: Matrix.t; (* Coordinate transformation *)
-      inertia: Matrix.t  (* Variance per coordinate *)
+      twister: KPopMatrix.t; (* Coordinate transformation *)
+      inertia: KPopMatrix.t  (* Variance per coordinate *)
     }
+    val empty: t
     val to_files: t -> string -> unit
+    exception MismatchedTwisterFiles
     val of_files: string -> t
-
+    (* *)
+    exception IncompatibleTwisterAndTwisted
     exception WrongNumberOfColumns of int * int * int
     exception HeaderExpected of string
     exception WrongFormat of int * string
-    val twisted_from_files: ?threads:int -> ?elements_per_step:int -> t -> string list -> Matrix.t
-
-    exception Incompatible_archive_version of string
+    val add_twisted_from_files:
+      ?threads:int -> ?elements_per_step:int -> t -> KPopMatrix.t -> string list -> KPopMatrix.t
+    (* *)
     val to_binary: t -> string -> unit
     val of_binary: string -> t
 
   end
 = struct
     type t = {
-      twister: Matrix.t;
-      inertia: Matrix.t
+      twister: KPopMatrix.t;
+      inertia: KPopMatrix.t
     }
-
+    let empty = { twister = KPopMatrix.empty Twister; inertia = KPopMatrix.empty Inertia }
+    (* *)
     let to_files tr prefix =
-      prefix ^ ".KPopTwister.twister.txt" |> Matrix.to_file tr.twister;
-      prefix ^ ".KPopTwister.inertia.txt" |> Matrix.to_file tr.inertia
+      prefix ^ ".KPopTwister.txt" |> KPopMatrix.to_file tr.twister;
+      prefix ^ ".KPopInertia.txt" |> KPopMatrix.to_file tr.inertia
+    exception MismatchedTwisterFiles
     let of_files prefix =
-      { twister = prefix ^ ".KPopTwister.twister.txt" |> Matrix.of_file;
-        inertia = prefix ^ ".KPopTwister.inertia.txt" |> Matrix.of_file }
+      let twister = prefix ^ ".KPopTwister.txt" |> KPopMatrix.of_file Twister
+      and inertia = prefix ^ ".KPopInertia.txt" |> KPopMatrix.of_file Inertia in
+      (* Let's run at least some checks *)
+      if begin
+        inertia.matrix.idx_to_row_names <> [| "inertia" |] ||
+        twister.matrix.idx_to_row_names <> inertia.matrix.idx_to_col_names
+      end then
+        raise MismatchedTwisterFiles;
+      { twister; inertia }
 
     (* When everything is properly separated, this should go into a common library file *)
 
@@ -212,13 +265,18 @@ module [@warning "-32"] Twister:
         fnames
 
     (* Strictly speaking, we return the _transposed_ of the matrix product here *)
-    let twisted_from_files ?(threads = 64) ?(elements_per_step = 100) tw fnames =
+    exception IncompatibleTwisterAndTwisted
+    let add_twisted_from_files ?(threads = 64) ?(elements_per_step = 100) twister twisted fnames =
+      if twisted.KPopMatrix.which <> Twisted then
+        raise KPopMatrix.TwistedExpected;
+      if twister.twister.matrix.idx_to_row_names <> twisted.matrix.idx_to_col_names then
+        raise IncompatibleTwisterAndTwisted;
       (* We invert the table *)
       let col_names_to_idx = Hashtbl.create 1024 in
       Array.iteri
         (fun i name ->
           Hashtbl.add col_names_to_idx name i)
-        tw.twister.idx_to_col_names;
+        twister.twister.matrix.idx_to_col_names;
       (* First we read spectra from the files.
          We have to conform the k-mers to the ones in the twister.
          As a bonus, we already know the size of the resulting vector *)
@@ -227,7 +285,7 @@ module [@warning "-32"] Twister:
       add_files
         (fun _ label ->
           curr_label := label;
-          curr_alloc := Float.Array.make (Array.length tw.twister.idx_to_col_names) 0.)
+          curr_alloc := Float.Array.make (Array.length twister.twister.matrix.idx_to_col_names) 0.)
         (fun line name v ->
           let v =
             try
@@ -242,41 +300,266 @@ module [@warning "-32"] Twister:
             (* In this case, we just discard the k-mer *)
             ())
         (fun _ ->
-          (* Then, we transform the spectra *)
+          (* We first normalise and then transform the spectrum *)
+          let acc = ref 0. in
+          Float.Array.iter
+            (fun el ->
+              acc := !acc +. el)
+            !curr_alloc;
+          let acc = !acc in
+          if acc <> 0. then
+            Float.Array.iteri
+              (fun i el ->
+                el /. acc |> Float.Array.set !curr_alloc i)
+              !curr_alloc;
           curr_alloc :=
-            (*KPop*)Matrix.multiply_matrix_vector ~threads ~elements_per_step tw.twister !curr_alloc;
+            KPopMatrix.multiply_matrix_vector ~threads ~elements_per_step twister.twister !curr_alloc;
           Tools.Misc.accum res_labels !curr_label;
           Tools.Misc.accum res_allocs !curr_alloc)
         fnames;
-      { Matrix.idx_to_col_names = tw.twister.idx_to_row_names;
-        idx_to_row_names = Tools.Misc.array_of_rlist !res_labels;
-        storage = Tools.Misc.array_of_rlist !res_allocs }
-
-    let archive_version = "2022-04-03"
-
-    exception Incompatible_archive_version of string
+      { KPopMatrix.which = Twisted;
+        matrix = {
+          Matrix.idx_to_col_names = twisted.matrix.idx_to_col_names;
+          idx_to_row_names = Tools.Misc.array_of_rlist !res_labels |> Array.append twisted.matrix.idx_to_row_names;
+          storage = Tools.Misc.array_of_rlist !res_allocs |> Array.append twisted.matrix.storage } }
+    (* *)
     let to_binary t fname =
       let output = open_out fname in
       Printf.eprintf "%s: Outputting DB to file '%s'...%!" __FUNCTION__ fname;
-      "KPopTwister_" ^ archive_version |> output_value output;
-      output_value output t;
+      KPopMatrix.to_channel output t.twister;
+      KPopMatrix.to_channel output t.inertia;
       close_out output;
       Printf.eprintf " done.\n%!"
     let of_binary fname =
       let input = open_in fname in
       Printf.eprintf "%s: Reading DB from file '%s'...%!" __FUNCTION__ fname;
-      let version = (input_value input: string) in
-      if version <> "KPopTwister_" ^ archive_version then
-        Incompatible_archive_version version |> raise;
-      let res = (input_value input: t) in
+      let twister = KPopMatrix.of_channel input in
+      let inertia = KPopMatrix.of_channel input in
       close_in input;
       Printf.eprintf " done.\n%!";
-      res
+      { twister; inertia }
 
   end
 
+(* There are two registers here *)
+type to_do_t =
+  | Empty_twister
+  | Empty_twisted
+  | Binary_to_twister of string
+  | Tables_to_twister of string (* Prefix *)
+  | Binary_to_twisted of string
+  | Table_to_twisted of string
+  | Twister_to_binary of string
+  | Twister_to_tables of string (* Prefix *)
+  | Twisted_to_binary of string
+  | Twisted_to_table of string
+  | Add_files_to_twisted of string list
+  | Twisted_distances_binary of string * string
+  | Twisted_distances_table of string * string
+  | Distances_to_table of string * string
+  | Table_to_distances of string * string
+  (*| Summary*)
 
-let () =
-  let matrix = Matrix.of_file "/dev/stdin" in
-  let distance = Matrix.get_distance_matrix Matrix.DistanceFunction.euclidean matrix in
-  Matrix.to_file distance Sys.argv.(1)
+module Defaults =
+  struct
+    let distance = Matrix.Distance.euclidean
+    let threads = 1
+    let verbose = false
+  end
+
+module Parameters =
+  struct
+    let program = ref []
+    let distance = ref Defaults.distance
+    let threads = ref Defaults.threads
+    let verbose = ref Defaults.verbose
+  end
+
+let version = "0.3"
+
+let _ =
+  Printf.eprintf "This is the KPopTwistDB program (version %s)\n%!" version;
+  Printf.eprintf " (c) 2022 Paolo Ribeca, <paolo.ribeca@gmail.com>\n%!";
+  let module TA = Tools.Argv in
+  let module TS = Tools.Split in
+  let module TM = Tools.Misc in
+  TA.parse [
+    [], None, [ "Actions (executed delayed and in order of specification):" ], TA.Optional, (fun _ -> ());
+    [ "-E"; "--Empty" ],
+      None,
+      [ "put an empty twister database into the twister register" ],
+      TA.Optional,
+      (fun _ -> Empty_twister |> TM.accum Parameters.program);
+    [ "-e"; "--empty" ],
+      None,
+      [ "put an empty twisted database into the twisted register" ],
+      TA.Optional,
+      (fun _ -> Empty_twisted |> TM.accum Parameters.program);
+    [ "-I"; "--Input" ],
+      Some "<binary_file_name>",
+      [ "load to the twister register the database present in the specified file" ],
+      TA.Optional,
+      (fun _ -> Binary_to_twister (TA.get_parameter ()) |> TM.accum Parameters.program);
+    [ "-i"; "--input" ],
+      Some "<binary_file_name>",
+      [ "load to the twisted register the database present in the specified file" ],
+      TA.Optional,
+      (fun _ -> Binary_to_twisted (TA.get_parameter ()) |> TM.accum Parameters.program);
+    [ "--twister-from-tables" ],
+      Some "<table_file_prefix>",
+      [ "load to the twister register the database present in the specified files" ],
+      TA.Optional,
+      (fun _ -> Tables_to_twister (TA.get_parameter ()) |> TM.accum Parameters.program);
+    [ "--twisted-from-table" ],
+      Some "<table_file_name>",
+      [ "load to the twisted register the database present in the specified file" ],
+      TA.Optional,
+      (fun _ -> Table_to_twisted (TA.get_parameter ()) |> TM.accum Parameters.program);
+    [ "-f"; "-F"; "-k"; "-K"; "-a"; "-A";
+      "--add"; "--files"; "--kmers";
+      "--add-files"; "--add-kmers"; "--twisted-add-files"; "--twisted-add-kmers" ],
+      Some "<k-mer_table_file_name>[','...','<k-mer_table_file_name>]",
+      [ "twist k-mers from the specified files through the transformation";
+        "present in the twister register, and add the result";
+        "to the database present in the twisted register" ],
+      TA.Optional,
+      (fun _ -> Add_files_to_twisted (TA.get_parameter () |> TS.on_char_as_list ',') |> TM.accum Parameters.program);
+
+
+(* NEED TO ADD DISTANCE SETTING *)
+
+
+    [ "-d"; "--distances-binary"; "--compute-distances-binary"; "--twisted-compute-distances-binary" ],
+      Some "<twisted_binary_file_name> <distance_binary_file_name>",
+      [ "compute distances between all the vectors present in the twisted register";
+        "and all the vectors present in the specified twisted binary file,";
+        "and output them to the specified distance binary file" ],
+      TA.Optional,
+      (fun _ ->
+        let twisted = TA.get_parameter () in
+        let distances = TA.get_parameter () in
+        Twisted_distances_binary (twisted, distances) |> TM.accum Parameters.program);
+    [ "-D"; "--distances-table"; "--compute-distances-table"; "--twisted-compute-distances-table" ],
+      Some "<twisted_binary_file_name> <distance_table_file_name>",
+      [ "compute distances between all the vectors present in the twisted register";
+        "and all the vectors present in the specified twisted binary file,";
+        "and output them to the specified distance text file" ],
+      TA.Optional,
+      (fun _ ->
+        let twisted = TA.get_parameter () in
+        let distances = TA.get_parameter () in
+        Twisted_distances_table (twisted, distances) |> TM.accum Parameters.program);
+    [ "--distances-binary-to-table" ],
+      Some "<distance_binary_file_name> <distance_table_file_name>",
+      [ "output distances contained in the specified binary file";
+        "to the specified text file" ],
+      TA.Optional,
+      (fun _ ->
+        let binary = TA.get_parameter () in
+        let table = TA.get_parameter () in
+        Distances_to_table (binary, table) |> TM.accum Parameters.program);
+    [ "--distances-table-to-binary" ],
+      Some "<distance_table_file_name> <distance_binary_file_name>",
+      [ "output distances contained in the specified text file";
+        "to the specified binary file" ],
+      TA.Optional,
+      (fun _ ->
+        let table = TA.get_parameter () in
+        let binary = TA.get_parameter () in
+        Table_to_distances (table, binary) |> TM.accum Parameters.program);
+
+(* SOMETHING TO SUMMARISE DISTANCES? *)
+
+    [ "-O"; "--Output" ],
+      Some "<binary_file_name>",
+      [ "dump to the specified file the database present in the twister register" ],
+      TA.Optional,
+      (fun _ -> Twister_to_binary (TA.get_parameter ()) |> TM.accum Parameters.program);
+    [ "-o"; "--output" ],
+      Some "<binary_file_name>",
+      [ "dump to the specified file the database present in the twisted register" ],
+      TA.Optional,
+      (fun _ -> Twisted_to_binary (TA.get_parameter ()) |> TM.accum Parameters.program);
+    [ "--twister-to-tables" ],
+      Some "<text_file_prefix>",
+      [ "dump to the specified files the database present in the twister register" ],
+      TA.Optional,
+      (fun _ -> Twister_to_tables (TA.get_parameter ()) |> TM.accum Parameters.program);
+    [ "--twisted-to-table" ],
+      Some "<text_file_name>",
+      [ "dump to the specified file the database present in the twisted register" ],
+      TA.Optional,
+      (fun _ -> Twisted_to_table (TA.get_parameter ()) |> TM.accum Parameters.program);
+    [], None, [ "Miscellaneous (executed immediately):" ], TA.Optional, (fun _ -> ());
+    [ "-T"; "--threads" ],
+      Some "<computing_threads>",
+      [ "number of concurrent computing threads to be spawned" ],
+      TA.Default (fun () -> string_of_int !Parameters.threads),
+      (fun _ -> Parameters.threads := TA.get_parameter_int_pos ());
+    [ "-v"; "--verbose" ],
+      None,
+      [ "set verbose execution" ],
+      TA.Default (fun () -> string_of_bool !Parameters.verbose),
+      (fun _ -> Parameters.verbose := true);
+    [ "-h"; "--help" ],
+      None,
+      [ "print syntax and exit" ],
+      TA.Optional,
+      (fun _ -> TA.usage (); exit 0)
+  ];
+  let program = List.rev !Parameters.program in
+  if program = [] then begin
+    TA.usage ();
+    exit 0
+  end;
+  let current_twister = ref KPopTwister.empty and current_twisted = KPopMatrix.empty Twisted |> ref in
+
+  (* The addition of an exception handler would be nice *)
+
+  List.iter
+    (function
+      | Empty_twister ->
+        current_twister := KPopTwister.empty
+      | Empty_twisted ->
+        current_twisted := KPopMatrix.empty Twisted
+      | Binary_to_twister fname ->
+        current_twister := KPopTwister.of_binary fname
+      | Tables_to_twister prefix ->
+        current_twister := KPopTwister.of_files prefix
+      | Binary_to_twisted fname ->
+        current_twisted := KPopMatrix.of_binary fname
+      | Table_to_twisted fname ->
+        current_twisted := KPopMatrix.of_file Twisted fname
+      | Twister_to_binary fname ->
+        KPopTwister.to_binary !current_twister fname
+      | Twister_to_tables prefix ->
+        KPopTwister.to_files !current_twister prefix
+      | Twisted_to_binary fname ->
+        KPopMatrix.to_binary !current_twisted fname
+      | Twisted_to_table fname ->
+        KPopMatrix.to_file !current_twisted fname
+      | Add_files_to_twisted fnames ->
+        current_twisted :=
+          KPopTwister.add_twisted_from_files ~threads:!Parameters.threads !current_twister !current_twisted fnames
+      | Twisted_distances_binary (twisted_db_fname, fname) | Twisted_distances_table (twisted_db_fname, fname) as w ->
+        let twisted_db = KPopMatrix.of_binary twisted_db_fname in
+        if twisted_db.which <> Twisted then
+          raise KPopMatrix.TwistedExpected;
+        let distances =
+          KPopMatrix.get_distance_rowwise ~threads:!Parameters.threads !Parameters.distance !current_twisted twisted_db in
+        begin match w with
+        | Twisted_distances_binary _ ->
+          KPopMatrix.to_binary distances fname
+        | Twisted_distances_table _ ->
+          KPopMatrix.to_file distances fname
+        | _ -> assert false
+        end
+      | Distances_to_table (binary, fname) ->
+        let distances = KPopMatrix.of_binary binary in
+        if distances.which <> DMatrix then
+          raise KPopMatrix.DMatrixExpected;
+        KPopMatrix.to_file distances fname
+      | Table_to_distances (table, fname) ->
+        KPopMatrix.to_binary (KPopMatrix.of_file DMatrix table) fname)
+    program
+
