@@ -325,8 +325,9 @@ module [@warning "-32"] KMerDB:
 
     exception WrongNumberOfColumns of int * int * int
     let add_meta db fname =
-      let input = open_in fname and line_num = ref 1 in
+      let input = open_in fname and line_num = ref 0 in
       let header = input_line input |> Tools.Split.on_char_as_array '\t' in
+      incr line_num;
       (* We add the names *)
       let module TM = Tools.Misc in
       let missing = ref [] in
@@ -354,7 +355,6 @@ module [@warning "-32"] KMerDB:
           }
         }
       end;
-      incr line_num;
       let num_header_fields = Array.length header
       and meta_indices =
         Array.mapi
@@ -367,6 +367,7 @@ module [@warning "-32"] KMerDB:
       begin try
         while true do
           let line = input_line input |> Tools.Split.on_char_as_array '\t' in
+          incr line_num;
           (* A regular line. The first element is the vector name, the others the values of meta-data fields *)
           let l = Array.length line in
           if l <> num_header_fields then
@@ -378,7 +379,6 @@ module [@warning "-32"] KMerDB:
               if i > 0 then
                 !db.core.meta.(col_idx).(name_idx) <- line.(i))
             meta_indices;
-          incr line_num;
           if !line_num mod 10 = 0 then
             Printf.eprintf "\rFile '%s': Read %d lines%!" fname !line_num
         done
@@ -409,7 +409,7 @@ module [@warning "-32"] KMerDB:
               if line.(0) = "" then begin
                 (* Header *)
                 add_empty_column_if_needed db line.(1);
-                col_idx := Hashtbl.find !db.col_names_to_idx line.(1);
+                col_idx := Hashtbl.find !db.col_names_to_idx line.(1)
               end else begin
                 (* A regular line. The first element is the hash, the second one the count *)
                 if Hashtbl.mem !db.row_names_to_idx line.(0) |> not then begin

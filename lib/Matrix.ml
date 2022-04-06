@@ -83,11 +83,10 @@ include (
       let output = open_out filename in
       if Array.length m.storage > 0 then begin
         (* We output the column names *)
-        Array.iteri
-          (fun i name ->
-            if i > 0 then
-              Printf.fprintf output "\t";
-            Printf.fprintf output "\"%s\"" name)
+        Printf.fprintf output "\"\"";
+        Array.iter
+          (fun name ->
+            Printf.fprintf output "\t\"%s\"" name)
           m.idx_to_col_names;
         Printf.fprintf output "\n";
         (* We output the rows *)
@@ -154,7 +153,8 @@ include (
             let l = Array.length line in
             if l <> !num_cols + 1 then
               WrongNumberOfColumns (l, !num_cols + 1) |> raise;
-            let line_idx = !line_num - 1 in
+            (* Here we have to subtract _2_ because of the header line *)
+            let line_idx = !line_num - 2 in
             let array = add_row storage line_idx !num_cols in
             Array.iteri
               (fun i el ->
@@ -177,10 +177,12 @@ include (
           Printf.printf "\r(%s): At row %d of file '%s': Read %d elements.            \n%!"
             __FUNCTION__ !line_num filename !elts_read
       end;
+      (* Here we have to subtract 1 because of the header line *)
+      let red_line_num = !line_num - 1 in
       { (* At this point idx_to_row_names and storage might be longer than needed - we resize them *)
         idx_to_col_names = !idx_to_col_names;
-        idx_to_row_names = Array.sub !idx_to_row_names 0 !line_num;
-        storage = Array.sub !storage 0 !line_num }
+        idx_to_row_names = Array.sub !idx_to_row_names 0 red_line_num;
+        storage = Array.sub !storage 0 red_line_num }
     let [@warning "-32"] transpose_single_threaded m =
       { idx_to_col_names = m.idx_to_row_names;
         idx_to_row_names = m.idx_to_col_names;

@@ -184,7 +184,7 @@ module [@warning "-32"] KPopTwister:
     }
     val empty: t
     val to_files: t -> string -> unit
-    exception MismatchedTwisterFiles
+    exception MismatchedTwisterFiles of string array * string array * string array
     val of_files: ?verbose:bool -> string -> t
     (* *)
     exception IncompatibleTwisterAndTwisted
@@ -208,7 +208,7 @@ module [@warning "-32"] KPopTwister:
     let to_files tr prefix =
       prefix ^ ".KPopTwister.txt" |> KPopMatrix.to_file tr.twister;
       prefix ^ ".KPopInertia.txt" |> KPopMatrix.to_file tr.inertia
-    exception MismatchedTwisterFiles
+    exception MismatchedTwisterFiles of string array * string array * string array
     let of_files ?(verbose = false) prefix =
       let twister = prefix ^ ".KPopTwister.txt" |> KPopMatrix.of_file ~verbose Twister
       and inertia = prefix ^ ".KPopInertia.txt" |> KPopMatrix.of_file ~verbose Inertia in
@@ -216,8 +216,18 @@ module [@warning "-32"] KPopTwister:
       if begin
         inertia.matrix.idx_to_row_names <> [| "inertia" |] ||
         twister.matrix.idx_to_row_names <> inertia.matrix.idx_to_col_names
-      end then
-        raise MismatchedTwisterFiles;
+      end then begin
+        Printf.eprintf "ERROR: twister.idx_to_row_names:";
+        Array.iter (fun el -> Printf.eprintf "\t\"%s\"" el) twister.matrix.idx_to_row_names;
+        Printf.eprintf "\nERROR: inertia.idx_to_col_names:";
+        Array.iter (fun el -> Printf.eprintf "\t\"%s\"" el) inertia.matrix.idx_to_col_names;
+        Printf.eprintf "\nERROR: inertia.idx_to_row_names:";
+        Array.iter (fun el -> Printf.eprintf "\t\"%s\"" el) inertia.matrix.idx_to_row_names;
+        Printf.eprintf "\n%!";
+        MismatchedTwisterFiles
+            (twister.matrix.idx_to_row_names, inertia.matrix.idx_to_col_names, inertia.matrix.idx_to_row_names)
+          |> raise
+      end;
       { twister; inertia }
 
     (* When everything is properly separated, this should go into a common library file *)
@@ -360,7 +370,7 @@ module Defaults =
   struct
     let distance = Matrix.Distance.euclidean
     let threads = 1
-    let verbose = false
+    let verbose = true (*false*)
   end
 
 module Parameters =
