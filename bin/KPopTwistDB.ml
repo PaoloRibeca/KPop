@@ -33,16 +33,16 @@ module [@warning "-32"] KPopMatrix:
       matrix: Matrix.t
     }
     val empty: Type.t -> t
-    val of_file: ?verbose:bool -> Type.t -> string -> t
+    val of_file: ?threads:int -> ?bytes_per_step:int -> ?verbose:bool -> Type.t -> string -> t
     (* This one discards type information - use at your own risk *)
-    val to_file: t -> string -> unit
-    val transpose_single_threaded: t -> t
-    val transpose: ?threads:int -> ?elements_per_step:int -> t -> t
-    val multiply_matrix_vector: ?threads:int -> ?elements_per_step:int -> t -> Float.Array.t -> Float.Array.t
-    val multiply_matrix_matrix: ?threads:int -> ?elements_per_step:int -> Type.t -> t -> t -> t
-    val get_distance_matrix: ?threads:int -> ?elements_per_step:int -> Matrix.Distance.t -> t -> t
+    val to_file: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> string -> unit
+    val transpose_single_threaded: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> t
+    val transpose: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> t
+    val multiply_matrix_vector: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> Float.Array.t -> Float.Array.t
+    val multiply_matrix_matrix: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Type.t -> t -> t -> t
+    val get_distance_matrix: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Matrix.Distance.t -> t -> t
     (* Compute distances between the rows of two matrices - more general version of the previous one *)
-    val get_distance_rowwise: ?threads:int -> ?elements_per_step:int -> Matrix.Distance.t -> t -> t -> t
+    val get_distance_rowwise: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Matrix.Distance.t -> t -> t -> t
     (* Binary marshalling of the matrix *)
     val to_channel: out_channel -> t -> unit
     val of_channel: in_channel -> t
@@ -83,23 +83,24 @@ module [@warning "-32"] KPopMatrix:
     let empty which =
       { which; matrix = Matrix.empty }
     (* We redefine the implementation for Matrix in order to set the correct KPop types *)
-    let of_file ?(verbose = false) which fname =
-      { which; matrix = Matrix.of_file ~verbose fname }
-    let to_file m =
-      Matrix.to_file m.matrix
-    let transpose_single_threaded m =
-      { m with matrix = Matrix.transpose_single_threaded m.matrix }
-    let transpose ?(threads = 64) ?(elements_per_step = 100) m =
-      { m with matrix = Matrix.transpose ~threads ~elements_per_step m.matrix }
-    let multiply_matrix_vector ?(threads = 64) ?(elements_per_step = 100) m v =
-      Matrix.multiply_matrix_vector ~threads ~elements_per_step m.matrix v
-    let multiply_matrix_matrix ?(threads = 64) ?(elements_per_step = 100) which m1 m2 =
-      { which; matrix = Matrix.multiply_matrix_matrix ~threads ~elements_per_step m1.matrix m2.matrix }
-    let get_distance_matrix ?(threads = 64) ?(elements_per_step = 100) distance m =
-      { which = DMatrix; matrix = Matrix.get_distance_matrix ~threads ~elements_per_step distance m.matrix }
+    let of_file ?(threads = 1) ?(bytes_per_step = 4194304) ?(verbose = false) which fname =
+      { which; matrix = Matrix.of_file ~threads ~bytes_per_step ~verbose fname }
+    let to_file ?(threads = 1) ?(elements_per_step = 40000) ?(verbose = false) m =
+      Matrix.to_file ~threads ~elements_per_step ~verbose m.matrix
+    let transpose_single_threaded ?(threads = 1) ?(elements_per_step = 40000) ?(verbose = false) m =
+      { m with matrix = Matrix.transpose_single_threaded ~threads ~elements_per_step ~verbose m.matrix }
+    let transpose ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) m =
+      { m with matrix = Matrix.transpose ~threads ~elements_per_step ~verbose m.matrix }
+    let multiply_matrix_vector ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) m v =
+      Matrix.multiply_matrix_vector ~threads ~elements_per_step ~verbose m.matrix v
+    let multiply_matrix_matrix ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) which m1 m2 =
+      { which; matrix = Matrix.multiply_matrix_matrix ~threads ~elements_per_step ~verbose m1.matrix m2.matrix }
+    let get_distance_matrix ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) distance m =
+      { which = DMatrix; matrix = Matrix.get_distance_matrix ~threads ~elements_per_step ~verbose distance m.matrix }
     (* Compute distances between the rows of two matrices - more general version of the previous one *)
-    let get_distance_rowwise ?(threads = 64) ?(elements_per_step = 100) distance m1 m2 =
-      { which = DMatrix; matrix = Matrix.get_distance_rowwise ~threads ~elements_per_step distance m1.matrix m2.matrix }
+    let get_distance_rowwise ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) distance m1 m2 =
+      { which = DMatrix;
+        matrix = Matrix.get_distance_rowwise ~threads ~elements_per_step ~verbose distance m1.matrix m2.matrix }
     (* *)
     let archive_version = "2022-04-03"
     (* *)
@@ -183,16 +184,16 @@ module [@warning "-32"] KPopTwister:
       inertia: KPopMatrix.t  (* Variance per coordinate *)
     }
     val empty: t
-    val to_files: t -> string -> unit
+    val to_files: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> string -> unit
     exception MismatchedTwisterFiles of string array * string array * string array
-    val of_files: ?verbose:bool -> string -> t
+    val of_files: ?threads:int -> ?bytes_per_step:int -> ?verbose:bool -> string -> t
     (* *)
     exception IncompatibleTwisterAndTwisted
     exception WrongNumberOfColumns of int * int * int
     exception HeaderExpected of string
     exception WrongFormat of int * string
     val add_twisted_from_files:
-      ?threads:int -> ?elements_per_step:int -> t -> KPopMatrix.t -> string list -> KPopMatrix.t
+      ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> KPopMatrix.t -> string list -> KPopMatrix.t
     (* *)
     val to_binary: t -> string -> unit
     val of_binary: string -> t
@@ -205,13 +206,13 @@ module [@warning "-32"] KPopTwister:
     }
     let empty = { twister = KPopMatrix.empty Twister; inertia = KPopMatrix.empty Inertia }
     (* *)
-    let to_files tr prefix =
-      prefix ^ ".KPopTwister.txt" |> KPopMatrix.to_file tr.twister;
-      prefix ^ ".KPopInertia.txt" |> KPopMatrix.to_file tr.inertia
+    let to_files ?(threads = 1) ?(elements_per_step = 40000) ?(verbose = false) tr prefix =
+      prefix ^ ".KPopTwister.txt" |> KPopMatrix.to_file ~threads ~elements_per_step ~verbose tr.twister;
+      prefix ^ ".KPopInertia.txt" |> KPopMatrix.to_file ~threads ~elements_per_step ~verbose tr.inertia
     exception MismatchedTwisterFiles of string array * string array * string array
-    let of_files ?(verbose = false) prefix =
-      let twister = prefix ^ ".KPopTwister.txt" |> KPopMatrix.of_file ~verbose Twister
-      and inertia = prefix ^ ".KPopInertia.txt" |> KPopMatrix.of_file ~verbose Inertia in
+    let of_files ?(threads = 1) ?(bytes_per_step = 4194304) ?(verbose = false) prefix =
+      let twister = prefix ^ ".KPopTwister.txt" |> KPopMatrix.of_file ~threads ~bytes_per_step ~verbose Twister
+      and inertia = prefix ^ ".KPopInertia.txt" |> KPopMatrix.of_file ~threads ~bytes_per_step ~verbose Inertia in
       (* Let's run at least some checks *)
       if begin
         inertia.matrix.idx_to_row_names <> [| "inertia" |] ||
@@ -272,7 +273,7 @@ module [@warning "-32"] KPopTwister:
 
     (* Strictly speaking, we return the _transposed_ of the matrix product here *)
     exception IncompatibleTwisterAndTwisted
-    let add_twisted_from_files ?(threads = 64) ?(elements_per_step = 100) twister twisted fnames =
+    let add_twisted_from_files ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) twister twisted fnames =
       if twisted.KPopMatrix.which <> Twisted then
         raise KPopMatrix.TwistedExpected;
       if twister.twister.matrix.idx_to_row_names <> twisted.matrix.idx_to_col_names then
@@ -319,7 +320,7 @@ module [@warning "-32"] KPopTwister:
                 el /. acc |> Float.Array.set !curr_alloc i)
               !curr_alloc;
           curr_alloc :=
-            KPopMatrix.multiply_matrix_vector ~threads ~elements_per_step twister.twister !curr_alloc;
+            KPopMatrix.multiply_matrix_vector ~threads ~elements_per_step ~verbose twister.twister !curr_alloc;
           Tools.Misc.accum res_labels !curr_label;
           Tools.Misc.accum res_allocs !curr_alloc)
         fnames;
@@ -547,41 +548,44 @@ let _ =
       | Binary_to_twister fname ->
         current_twister := KPopTwister.of_binary fname
       | Tables_to_twister prefix ->
-        current_twister := KPopTwister.of_files ~verbose:!Parameters.verbose prefix
+        current_twister := KPopTwister.of_files ~threads:!Parameters.threads ~verbose:!Parameters.verbose prefix
       | Binary_to_twisted fname ->
         current_twisted := KPopMatrix.of_binary fname
       | Table_to_twisted fname ->
-        current_twisted := KPopMatrix.of_file ~verbose:!Parameters.verbose Twisted fname
+        current_twisted := KPopMatrix.of_file ~threads:!Parameters.threads ~verbose:!Parameters.verbose Twisted fname
       | Twister_to_binary fname ->
         KPopTwister.to_binary !current_twister fname
       | Twister_to_tables prefix ->
-        KPopTwister.to_files !current_twister prefix
+        KPopTwister.to_files ~threads:!Parameters.threads ~verbose:!Parameters.verbose !current_twister prefix
       | Twisted_to_binary fname ->
         KPopMatrix.to_binary !current_twisted fname
       | Twisted_to_table fname ->
-        KPopMatrix.to_file !current_twisted fname
+        KPopMatrix.to_file ~threads:!Parameters.threads ~verbose:!Parameters.verbose !current_twisted fname
       | Add_files_to_twisted fnames ->
         current_twisted :=
-          KPopTwister.add_twisted_from_files ~threads:!Parameters.threads !current_twister !current_twisted fnames
+          KPopTwister.add_twisted_from_files
+            ~threads:!Parameters.threads ~verbose:!Parameters.verbose !current_twister !current_twisted fnames
       | Twisted_distances_binary (twisted_db_fname, fname) | Twisted_distances_table (twisted_db_fname, fname) as w ->
         let twisted_db = KPopMatrix.of_binary twisted_db_fname in
         if twisted_db.which <> Twisted then
           raise KPopMatrix.TwistedExpected;
         let distances =
-          KPopMatrix.get_distance_rowwise ~threads:!Parameters.threads !Parameters.distance !current_twisted twisted_db in
+          KPopMatrix.get_distance_rowwise
+            ~verbose:!Parameters.verbose ~threads:!Parameters.threads !Parameters.distance !current_twisted twisted_db in
         begin match w with
         | Twisted_distances_binary _ ->
           KPopMatrix.to_binary distances fname
         | Twisted_distances_table _ ->
-          KPopMatrix.to_file distances fname
+          KPopMatrix.to_file ~threads:!Parameters.threads ~verbose:!Parameters.verbose distances fname
         | _ -> assert false
         end
       | Distances_to_table (binary, fname) ->
         let distances = KPopMatrix.of_binary binary in
         if distances.which <> DMatrix then
           raise KPopMatrix.DMatrixExpected;
-        KPopMatrix.to_file distances fname
+        KPopMatrix.to_file ~threads:!Parameters.threads ~verbose:!Parameters.verbose distances fname
       | Table_to_distances (table, fname) ->
-        KPopMatrix.to_binary (KPopMatrix.of_file ~verbose:!Parameters.verbose DMatrix table) fname)
+        KPopMatrix.to_binary
+          (KPopMatrix.of_file ~threads:!Parameters.threads ~verbose:!Parameters.verbose DMatrix table) fname)
     program
 

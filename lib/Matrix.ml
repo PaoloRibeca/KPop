@@ -79,7 +79,7 @@ include (
     }
     let empty =
       { idx_to_col_names = [||]; idx_to_row_names = [||]; storage = [||] }
-    let to_file m filename =
+    let [@warning "-27"] to_file ?(threads = 1) ?(elements_per_step = 40000) ?(verbose = false) m filename =
       let output = open_out filename in
       if Array.length m.storage > 0 then begin
         (* We output the column names *)
@@ -126,7 +126,7 @@ include (
           else
             s
     exception WrongNumberOfColumns of int * int
-    let of_file ?(verbose = false) filename =
+    let [@warning "-27"] of_file ?(threads = 1) ?(bytes_per_step = 4194304) ?(verbose = false) filename =
       let input = open_in filename and line_num = ref 0
       and num_cols = ref 0 and idx_to_col_names = ref [||] and idx_to_row_names = ref [||]
       and storage = ref (Float.Array.create 0 |> Array.make 16) and elts_read = ref 0 in
@@ -164,7 +164,7 @@ include (
                 else begin
                   float_of_string el |> Float.Array.set array (i - 1);
                   incr elts_read;
-                  if !elts_read mod 100000 = 0 && verbose then
+                  if verbose && !elts_read mod 100000 = 0 then
                     Printf.printf "\r(%s): At row %d of file '%s': Read %d elements%!            \r"
                       __FUNCTION__ !line_num filename !elts_read
                 end)
@@ -183,7 +183,7 @@ include (
         idx_to_col_names = !idx_to_col_names;
         idx_to_row_names = Array.sub !idx_to_row_names 0 red_line_num;
         storage = Array.sub !storage 0 red_line_num }
-    let [@warning "-32"] transpose_single_threaded m =
+    let [@warning "-27"] transpose_single_threaded ?(threads = 1) ?(elements_per_step = 1) ?(verbose = false) m =
       { idx_to_col_names = m.idx_to_row_names;
         idx_to_row_names = m.idx_to_col_names;
         storage =
@@ -191,7 +191,7 @@ include (
             (fun old_col ->
               Float.Array.init (Array.length m.idx_to_row_names)
                 (fun old_row -> Float.Array.get m.storage.(old_row) old_col)) }
-    let [@warning "-32"] transpose ?(threads = 64) ?(elements_per_step = 1) m =
+    let transpose ?(threads = 1) ?(elements_per_step = 1) ?(verbose = false) m =
       let row_num = Array.length m.idx_to_col_names and col_num = Array.length m.idx_to_row_names in
       let storage = Array.init row_num (fun _ -> Float.Array.create 0) in
       (* Generate points to be computed by the parallel processs *)
@@ -223,15 +223,16 @@ include (
           (fun (i, row_i) ->
             storage.(i) <- row_i;
             incr elts_done;
-            if !elts_done mod elements_per_step = 0 then
+            if verbose && !elts_done mod elements_per_step = 0 then
               Printf.printf "\r(%s): Done %d/%d rows%!            \r" __FUNCTION__ !elts_done row_num))
         threads;
-      Printf.printf "\r(%s): Done %d/%d rows.            \n%!" __FUNCTION__ !elts_done row_num;
+      if verbose then
+        Printf.printf "\r(%s): Done %d/%d rows.            \n%!" __FUNCTION__ !elts_done row_num;
       { idx_to_col_names = m.idx_to_row_names;
         idx_to_row_names = m.idx_to_col_names;
         storage = storage }
     exception IncompatibleGeometries of string array * string array
-    let multiply_matrix_vector ?(threads = 64) ?(elements_per_step = 100) m v =
+    let multiply_matrix_vector ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) m v =
       if Array.length m.idx_to_col_names <> Float.Array.length v then
         IncompatibleGeometries (m.idx_to_col_names, Array.make (Float.Array.length v) "") |> raise;
       let d = Array.length m.idx_to_row_names in
@@ -270,12 +271,13 @@ include (
             (* Only here do we actually fill out the memory for the result *)
             Float.Array.set res i el;
             incr elts_done;
-            if !elts_done mod elements_per_step = 0 then
+            if verbose && !elts_done mod elements_per_step = 0 then
               Printf.printf "\r(%s): Done %d/%d elements%!            \r" __FUNCTION__ !elts_done d))
         threads;
-      Printf.printf "\r(%s): Done %d/%d elements.            \n%!" __FUNCTION__ !elts_done d;
+      if verbose then
+        Printf.printf "\r(%s): Done %d/%d elements.            \n%!" __FUNCTION__ !elts_done d;
       res
-    let multiply_matrix_matrix ?(threads = 64) ?(elements_per_step = 100) m1 m2 =
+    let multiply_matrix_matrix ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) m1 m2 =
       if m1.idx_to_col_names <> m2.idx_to_row_names then
         IncompatibleGeometries (m1.idx_to_col_names, m2.idx_to_row_names) |> raise;
       let row_num = Array.length m1.idx_to_row_names and col_num = Array.length m2.idx_to_col_names in
@@ -321,14 +323,15 @@ include (
             (* Only here do we actually fill out the memory for the result *)
             Float.Array.set storage.(i) j el;
             incr elts_done;
-            if !elts_done mod elements_per_step = 0 then
+            if verbose && !elts_done mod elements_per_step = 0 then
               Printf.printf "\r(%s): Done %d/%d elements%!            \r" __FUNCTION__ !elts_done prod))
         threads;
-      Printf.printf "\r(%s): Done %d/%d elements.            \n%!" __FUNCTION__ !elts_done prod;
+      if verbose then
+        Printf.printf "\r(%s): Done %d/%d elements.            \n%!" __FUNCTION__ !elts_done prod;
       { idx_to_col_names = m2.idx_to_col_names;
         idx_to_row_names = m1.idx_to_row_names;
         storage = storage }
-    let get_distance_matrix ?(threads = 64) ?(elements_per_step = 100) distance m =
+    let get_distance_matrix ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) distance m =
       let d = Array.length m.idx_to_row_names in
       (* We immediately allocate all the needed memory, as we already know how much we will need *)
       let storage = Array.init d (fun _ -> Float.Array.create d) in
@@ -368,11 +371,13 @@ include (
             (* Only here do we actually fill out the memory for the result *)
             Float.Array.set storage.(i) j dist;
             incr elts_done;
-            if !elts_done mod elements_per_step = 0 then
+            if verbose && !elts_done mod elements_per_step = 0 then
               Printf.printf "\r(%s): Done %d/%d elements%!            \r" __FUNCTION__ !elts_done total))
         threads;
-      Printf.printf "\r(%s): Done %d/%d elements.            \n%!" __FUNCTION__ !elts_done total;
-      Printf.printf "(%s): Symmetrizing...%!" __FUNCTION__;
+      if verbose then begin
+        Printf.printf "\r(%s): Done %d/%d elements.            \n%!" __FUNCTION__ !elts_done total;
+        Printf.printf "(%s): Symmetrizing...%!" __FUNCTION__
+      end;
       (* We symmetrise the matrix *)
       let red_d = d - 1 in
       for i = 0 to red_d do
@@ -380,11 +385,12 @@ include (
           Float.Array.get storage.(j) i |> Float.Array.set storage.(i) j
         done
       done;
-      Printf.printf " done.\n%!";
+      if verbose then
+        Printf.printf " done.\n%!";
       { idx_to_col_names = m.idx_to_row_names;
         idx_to_row_names = m.idx_to_row_names;
         storage = storage }
-    let get_distance_rowwise ?(threads = 64) ?(elements_per_step = 100) distance m1 m2 =
+    let get_distance_rowwise ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) distance m1 m2 =
       if m1.idx_to_col_names <> m2.idx_to_col_names then
         IncompatibleGeometries (m1.idx_to_col_names, m2.idx_to_col_names) |> raise;
       let r1 = Array.length m1.idx_to_row_names and r2 = Array.length m2.idx_to_row_names in
@@ -424,10 +430,11 @@ include (
           (fun (i, j, dist) ->
             Float.Array.set storage.(i) j dist;
             incr elts_done;
-            if !elts_done mod elements_per_step = 0 then
+            if verbose && !elts_done mod elements_per_step = 0 then
               Printf.printf "\r(%s): Done %d/%d elements%!            \r" __FUNCTION__ prod !elts_done))
         threads;
-      Printf.printf "\r(%s): Done %d/%d elements.            \n%!" __FUNCTION__ prod !elts_done;
+      if verbose then
+        Printf.printf "\r(%s): Done %d/%d elements.            \n%!" __FUNCTION__ prod !elts_done;
       { idx_to_col_names = m2.idx_to_row_names;
         idx_to_row_names = m1.idx_to_row_names;
         storage = storage }
@@ -447,16 +454,20 @@ include (
         and the first column the row names.
       Names might be quoted *)
     exception WrongNumberOfColumns of int * int
-    val of_file: ?verbose:bool -> string -> t
-    val to_file: t -> string -> unit
-    val transpose_single_threaded: t -> t
-    val transpose: ?threads:int -> ?elements_per_step:int -> t -> t
+    val of_file: ?threads:int -> ?bytes_per_step:int -> ?verbose:bool -> string -> t
+    val to_file: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> string -> unit
+    val transpose_single_threaded: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> t
+    val transpose: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> t
     exception IncompatibleGeometries of string array * string array
-    val multiply_matrix_vector: ?threads:int -> ?elements_per_step:int -> t -> Float.Array.t -> Float.Array.t
-    val multiply_matrix_matrix: ?threads:int -> ?elements_per_step:int -> t -> t -> t
-    val get_distance_matrix: ?threads:int -> ?elements_per_step:int -> Distance.t -> t -> t
+    val multiply_matrix_vector:
+      ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> Float.Array.t -> Float.Array.t
+    val multiply_matrix_matrix:
+      ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> t -> t
+    val get_distance_matrix:
+      ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Distance.t -> t -> t
     (* Compute distances between the rows of two matrices - more general version of the previous one *)
-    val get_distance_rowwise: ?threads:int -> ?elements_per_step:int -> Distance.t -> t -> t -> t
+    val get_distance_rowwise:
+      ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Distance.t -> t -> t -> t
 
   end
 )
