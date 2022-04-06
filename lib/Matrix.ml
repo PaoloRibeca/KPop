@@ -99,14 +99,6 @@ include (
           m.storage
       end;
       close_out output
-    let add_row_name names row_idx name =
-      names := Misc._resize_array_ Array.length (fun n -> Array.make n "") Array.blit !names row_idx;
-      !names.(row_idx) <- name
-    let add_row storage row_idx dim =
-      storage :=
-        Misc._resize_array_ Array.length (fun n -> Array.make n (Float.Array.create 0)) Array.blit !storage row_idx;
-      !storage.(row_idx) <- Float.Array.create dim;
-      !storage.(row_idx)
     let strip_quotes s =
       let l = String.length s in
       if l = 0 then
@@ -125,64 +117,84 @@ include (
             String.sub s 0 (l - 1)
           else
             s
-    exception WrongNumberOfColumns of int * int
-    let [@warning "-27"] of_file ?(threads = 1) ?(bytes_per_step = 4194304) ?(verbose = false) filename =
+    exception WrongNumberOfColumns of int * int * int
+    let of_file ?(threads = 1) ?(bytes_per_step = 4194304) ?(verbose = false) filename =
       let input = open_in filename and line_num = ref 0
-      and num_cols = ref 0 and idx_to_col_names = ref [||] and idx_to_row_names = ref [||]
-      and storage = ref (Float.Array.create 0 |> Array.make 16) and elts_read = ref 0 in
+      and idx_to_col_names = ref [||] and idx_to_row_names = ref [] and storage = ref [] in
       begin try
-        while true do
-          let line = input_line input |> Tools.Split.on_char_as_array '\t' in
-          incr line_num;
-          if !line_num = 1 then begin
-            (* We process the header *)
-            let l = Array.length line in
-            if l > 0 then begin
-              (* We assume the matrix always to have row names, and ignore the first name in the header if present *)
-              num_cols := l - 1;
-              idx_to_col_names := Array.make !num_cols "";
+        (* We process the header *)
+        let line = input_line input |> Tools.Split.on_char_as_array '\t' in
+        incr line_num;
+        let l = Array.length line in
+        (* We assume the matrix always to have row names, and ignore the first name in the header if present *)
+        let num_cols = l - 1 in
+        idx_to_col_names := Array.make num_cols "";
+        Array.iteri
+          (fun i name ->
+            if i > 0 then
+              !idx_to_col_names.(i - 1) <- strip_quotes name)
+          line;
+        (* We process the rest of the lines in parallel. The first element will be the name *)
+        let end_reached = ref false and elts_read = ref 0 in
+        Tools.Parallel.process_stream_chunkwise
+          (fun () ->
+            if !end_reached then
+              raise End_of_file
+            else begin
+              let res = ref [] and cntr = ref 0 in
+              begin try
+                while !cntr < bytes_per_step do
+                  let line = input_line input in
+                  incr line_num;
+                  Tools.Misc.accum res (!line_num, line);
+                  cntr := !cntr + String.length line
+                done
+              with End_of_file ->
+                end_reached := true;
+                if !res = [] then
+                  raise End_of_file
+              end;
+              List.rev !res
+            end)
+          (List.map
+            (fun (line_num, line) ->
+              (* We decorate the line number with the results of parsing the line *)
+              let line = Tools.Split.on_char_as_array '\t' line in
+              let l = Array.length line in
+              if l <> num_cols + 1 then
+                WrongNumberOfColumns (line_num, l, num_cols + 1) |> raise;
+              let array = Float.Array.create num_cols in
               Array.iteri
-                (fun i name ->
+                (fun i el ->
                   if i > 0 then
-                    !idx_to_col_names.(i - 1) <- strip_quotes name)
-                line
-            end
-          end else begin
-            (* A regular line.
-               The first element is the name *)
-            let l = Array.length line in
-            if l <> !num_cols + 1 then
-              WrongNumberOfColumns (l, !num_cols + 1) |> raise;
-            (* Here we have to subtract _2_ because of the header line *)
-            let line_idx = !line_num - 2 in
-            let array = add_row storage line_idx !num_cols in
-            Array.iteri
-              (fun i el ->
-                if i = 0 then
-                  (* The first element is the name *)
-                  add_row_name idx_to_row_names line_idx (strip_quotes el)
-                else begin
-                  float_of_string el |> Float.Array.set array (i - 1);
-                  incr elts_read;
-                  if verbose && !elts_read mod 100000 = 0 then
-                    Printf.printf "\r(%s): At row %d of file '%s': Read %d elements%!            \r"
-                      __FUNCTION__ !line_num filename !elts_read
-                end)
-              line
-          end
-        done
-      with End_of_file ->
+                    (* The first element is the name *)
+                    float_of_string el |> Float.Array.set array (i - 1))
+                line;
+              line_num, strip_quotes line.(0), array))
+          (List.iter
+            (fun (obs_line_num, name, numbers) ->
+              incr line_num;
+              assert (obs_line_num = !line_num);
+              (* Only here do we actually fill out the memory for the result *)
+              Tools.Misc.accum idx_to_row_names name;
+              Tools.Misc.accum storage numbers;
+              let new_elts_read = !elts_read + num_cols in
+              if verbose && new_elts_read / 100000 > !elts_read / 100000 then
+                Printf.printf "\r(%s): On line %d of file '%s': Read %d elements%!            \r"
+                  __FUNCTION__ !line_num filename !elts_read;
+              elts_read := new_elts_read))
+          threads;
         close_in input;
         if verbose then
-          Printf.printf "\r(%s): At row %d of file '%s': Read %d elements.            \n%!"
+          Printf.printf "\r(%s): On line %d of file '%s': Read %d elements.            \n%!"
             __FUNCTION__ !line_num filename !elts_read
+      with End_of_file ->
+        (* Empty file *)
+        close_in input
       end;
-      (* Here we have to subtract 1 because of the header line *)
-      let red_line_num = !line_num - 1 in
-      { (* At this point idx_to_row_names and storage might be longer than needed - we resize them *)
-        idx_to_col_names = !idx_to_col_names;
-        idx_to_row_names = Array.sub !idx_to_row_names 0 red_line_num;
-        storage = Array.sub !storage 0 red_line_num }
+      { idx_to_col_names = !idx_to_col_names;
+        idx_to_row_names = Tools.Misc.array_of_rlist !idx_to_row_names;
+        storage = Tools.Misc.array_of_rlist !storage }
     let [@warning "-27"] transpose_single_threaded ?(threads = 1) ?(elements_per_step = 1) ?(verbose = false) m =
       { idx_to_col_names = m.idx_to_row_names;
         idx_to_row_names = m.idx_to_col_names;
@@ -453,7 +465,7 @@ include (
       Keeping with the convention accepted by R, the first row would be a header,
         and the first column the row names.
       Names might be quoted *)
-    exception WrongNumberOfColumns of int * int
+    exception WrongNumberOfColumns of int * int * int
     val of_file: ?threads:int -> ?bytes_per_step:int -> ?verbose:bool -> string -> t
     val to_file: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> string -> unit
     val transpose_single_threaded: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> t
