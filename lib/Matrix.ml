@@ -127,14 +127,15 @@ include (
           else
             s
     exception WrongNumberOfColumns of int * int
-    let of_file filename =
+    let of_file ?(verbose = false) filename =
       let input = open_in filename and line_num = ref 0
       and num_cols = ref 0 and idx_to_col_names = ref [||] and idx_to_row_names = ref [||]
       and storage = ref (Float.Array.create 0 |> Array.make 16) and elts_read = ref 0 in
       begin try
         while true do
           let line = input_line input |> Tools.Split.on_char_as_array '\t' in
-          if !line_num = 0 then begin
+          incr line_num;
+          if !line_num = 1 then begin
             (* We process the header *)
             let l = Array.length line in
             if l > 0 then begin
@@ -153,33 +154,33 @@ include (
             let l = Array.length line in
             if l <> !num_cols + 1 then
               WrongNumberOfColumns (l, !num_cols + 1) |> raise;
-            let red_line_num = !line_num - 1 in
-            let array = add_row storage red_line_num !num_cols in
+            let line_idx = !line_num - 1 in
+            let array = add_row storage line_idx !num_cols in
             Array.iteri
               (fun i el ->
                 if i = 0 then
                   (* The first element is the name *)
-                  add_row_name idx_to_row_names red_line_num (strip_quotes el)
+                  add_row_name idx_to_row_names line_idx (strip_quotes el)
                 else begin
                   float_of_string el |> Float.Array.set array (i - 1);
                   incr elts_read;
-                  if !elts_read mod 100000 = 0 then
-                    Printf.printf "\r                                                             \r%sAt row %d: Read %d elements%!"
-                      __FUNCTION__ (!line_num + 1) !elts_read
+                  if !elts_read mod 100000 = 0 && verbose then
+                    Printf.printf "\r(%s): At row %d of file '%s': Read %d elements%!            \r"
+                      __FUNCTION__ !line_num filename !elts_read
                 end)
               line
-          end;
-          incr line_num
+          end
         done
       with End_of_file ->
         close_in input;
-        Printf.printf "\r                                                             \r%!"
+        if verbose then
+          Printf.printf "\r(%s): At row %d of file '%s': Read %d elements.            \n%!"
+            __FUNCTION__ !line_num filename !elts_read
       end;
-      let red_line_num = !line_num - 1 in
       { (* At this point idx_to_row_names and storage might be longer than needed - we resize them *)
         idx_to_col_names = !idx_to_col_names;
-        idx_to_row_names = Array.sub !idx_to_row_names 0 red_line_num;
-        storage = Array.sub !storage 0 red_line_num }
+        idx_to_row_names = Array.sub !idx_to_row_names 0 !line_num;
+        storage = Array.sub !storage 0 !line_num }
     let [@warning "-32"] transpose_single_threaded m =
       { idx_to_col_names = m.idx_to_row_names;
         idx_to_row_names = m.idx_to_col_names;
@@ -203,7 +204,7 @@ include (
               while !cntr < elements_per_step do
                 Tools.Misc.accum res !i;
                 incr i;
-                if !i = col_num then begin
+                if !i = row_num then begin (* The original columns *)
                   end_reached := true;
                   raise Exit
                 end
@@ -213,7 +214,7 @@ include (
             List.rev !res
           end)
         (List.map
-          (* We transpose the original columns into rows *)
+          (* The new row is the original column *)
           (fun i ->
             i, Float.Array.init col_num (fun col -> Float.Array.get m.storage.(col) i)))
         (List.iter
@@ -221,18 +222,17 @@ include (
             storage.(i) <- row_i;
             incr elts_done;
             if !elts_done mod elements_per_step = 0 then
-              Printf.printf "\r                                                             \r%s: At (%d): Done %d rows%!"
-                __FUNCTION__ i !elts_done))
+              Printf.printf "\r(%s): Done %d/%d rows%!            \r" __FUNCTION__ !elts_done row_num))
         threads;
-      Printf.printf "\r                                                             \r%!";
+      Printf.printf "\r(%s): Done %d/%d rows.            \n%!" __FUNCTION__ !elts_done row_num;
       { idx_to_col_names = m.idx_to_row_names;
         idx_to_row_names = m.idx_to_col_names;
         storage = storage }
     exception IncompatibleGeometries of string array * string array
     let multiply_matrix_vector ?(threads = 64) ?(elements_per_step = 100) m v =
-      let d = Array.length m.idx_to_col_names in
-      if Float.Array.length v <> d then
+      if Array.length m.idx_to_col_names <> Float.Array.length v then
         IncompatibleGeometries (m.idx_to_col_names, Array.make (Float.Array.length v) "") |> raise;
+      let d = Array.length m.idx_to_row_names in
       (* We immediately allocate all the needed memory, as we already know how much we will need *)
       let res = Float.Array.create d and i = ref 0 and end_reached = ref false and elts_done = ref 0 in
       Tools.Parallel.process_stream_chunkwise
@@ -269,10 +269,9 @@ include (
             Float.Array.set res i el;
             incr elts_done;
             if !elts_done mod elements_per_step = 0 then
-              Printf.printf "\r                                                             \r%s: At (%d): Done %d elements%!"
-                __FUNCTION__ i !elts_done))
+              Printf.printf "\r(%s): Done %d/%d elements%!            \r" __FUNCTION__ !elts_done d))
         threads;
-      Printf.printf "\r                                                             \r%!";
+      Printf.printf "\r(%s): Done %d/%d elements.            \n%!" __FUNCTION__ !elts_done d;
       res
     let multiply_matrix_matrix ?(threads = 64) ?(elements_per_step = 100) m1 m2 =
       if m1.idx_to_col_names <> m2.idx_to_row_names then
@@ -281,7 +280,8 @@ include (
       (* We immediately allocate all the needed memory, as we already know how much we will need *)
       let storage = Array.init row_num (fun _ -> Float.Array.create col_num) in
       (* Generate points to be computed by the parallel processs *)
-      let i = ref 0 and j = ref 0 and end_reached = ref false and elts_done = ref 0 in
+      let i = ref 0 and j = ref 0 and end_reached = ref false
+      and prod = row_num * col_num and elts_done = ref 0 in
       Tools.Parallel.process_stream_chunkwise
         (fun () ->
           if !end_reached then
@@ -320,19 +320,19 @@ include (
             Float.Array.set storage.(i) j el;
             incr elts_done;
             if !elts_done mod elements_per_step = 0 then
-              Printf.printf "\r                                                             \r%s: At (%d,%d): Done %d elements%!"
-                __FUNCTION__ i j !elts_done))
+              Printf.printf "\r(%s): Done %d/%d elements%!            \r" __FUNCTION__ !elts_done prod))
         threads;
-      Printf.printf "\r                                                             \r%!";
-      { idx_to_col_names = m2.idx_to_row_names;
+      Printf.printf "\r(%s): Done %d/%d elements.            \n%!" __FUNCTION__ !elts_done prod;
+      { idx_to_col_names = m2.idx_to_col_names;
         idx_to_row_names = m1.idx_to_row_names;
         storage = storage }
     let get_distance_matrix ?(threads = 64) ?(elements_per_step = 100) distance m =
-      let d = Array.length m.storage in
+      let d = Array.length m.idx_to_row_names in
       (* We immediately allocate all the needed memory, as we already know how much we will need *)
       let storage = Array.init d (fun _ -> Float.Array.create d) in
       (* Generate points to be computed by the parallel processs *)
-      let i = ref 0 and j = ref 0 and end_reached = ref false and elts_done = ref 0 in
+      let i = ref 0 and j = ref 0 and end_reached = ref false
+      and total = (d * (d + 1)) / 2 and elts_done = ref 0 in
       Tools.Parallel.process_stream_chunkwise
         (fun () ->
           if !end_reached then
@@ -367,10 +367,10 @@ include (
             Float.Array.set storage.(i) j dist;
             incr elts_done;
             if !elts_done mod elements_per_step = 0 then
-              Printf.printf "\r                                                             \r%s: At (%d,%d): Done %d elements%!"
-                __FUNCTION__ i j !elts_done))
+              Printf.printf "\r(%s): Done %d/%d elements%!            \r" __FUNCTION__ !elts_done total))
         threads;
-      Printf.printf "\r                                                             \r%sSymmetrizing...%!" __FUNCTION__;
+      Printf.printf "\r(%s): Done %d/%d elements.            \n%!" __FUNCTION__ !elts_done total;
+      Printf.printf "(%s): Symmetrizing...%!" __FUNCTION__;
       (* We symmetrise the matrix *)
       let red_d = d - 1 in
       for i = 0 to red_d do
@@ -378,7 +378,7 @@ include (
           Float.Array.get storage.(j) i |> Float.Array.set storage.(i) j
         done
       done;
-      Printf.printf "\r                                                             \r%!";
+      Printf.printf " done.\n%!";
       { idx_to_col_names = m.idx_to_row_names;
         idx_to_row_names = m.idx_to_row_names;
         storage = storage }
@@ -389,7 +389,8 @@ include (
       (* We immediately allocate all the needed memory, as we already know how much we will need *)
       let storage = Array.init r1 (fun _ -> Float.Array.create r2) in
       (* Generate points to be computed by the parallel processs *)
-      let i = ref 0 and j = ref 0 and end_reached = ref false and elts_done = ref 0 in
+      let i = ref 0 and j = ref 0 and end_reached = ref false
+      and prod = r1 * r2 and elts_done = ref 0 in
       Tools.Parallel.process_stream_chunkwise
         (fun () ->
           if !end_reached then
@@ -422,10 +423,9 @@ include (
             Float.Array.set storage.(i) j dist;
             incr elts_done;
             if !elts_done mod elements_per_step = 0 then
-              Printf.printf "\r                                                             \r%s: At (%d): Done %d elements%!"
-                __FUNCTION__ i !elts_done))
+              Printf.printf "\r(%s): Done %d/%d elements%!            \r" __FUNCTION__ prod !elts_done))
         threads;
-      Printf.printf "\r                                                             \r%!";
+      Printf.printf "\r(%s): Done %d/%d elements.            \n%!" __FUNCTION__ prod !elts_done;
       { idx_to_col_names = m2.idx_to_row_names;
         idx_to_row_names = m1.idx_to_row_names;
         storage = storage }
@@ -445,11 +445,10 @@ include (
         and the first column the row names.
       Names might be quoted *)
     exception WrongNumberOfColumns of int * int
-    val of_file: string -> t
+    val of_file: ?verbose:bool -> string -> t
     val to_file: t -> string -> unit
-    (* TRANSPOSITION IS CURRENTLY UNTESTED AND HENCE DISABLED *)
-    (* val transpose_single_threaded: t -> t
-       val transpose: ?threads:int -> ?elements_per_step:int -> t -> t *)
+    val transpose_single_threaded: t -> t
+    val transpose: ?threads:int -> ?elements_per_step:int -> t -> t
     exception IncompatibleGeometries of string array * string array
     val multiply_matrix_vector: ?threads:int -> ?elements_per_step:int -> t -> Float.Array.t -> Float.Array.t
     val multiply_matrix_matrix: ?threads:int -> ?elements_per_step:int -> t -> t -> t

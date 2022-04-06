@@ -33,12 +33,11 @@ module [@warning "-32"] KPopMatrix:
       matrix: Matrix.t
     }
     val empty: Type.t -> t
-    val of_file: Type.t -> string -> t
+    val of_file: ?verbose:bool -> Type.t -> string -> t
     (* This one discards type information - use at your own risk *)
     val to_file: t -> string -> unit
-    (* TRANSPOSITION IS CURRENTLY UNTESTED AND HENCE DISABLED *)
-    (* val transpose_single_threaded: t -> t
-       val transpose: ?threads:int -> ?elements_per_step:int -> t -> t *)
+    val transpose_single_threaded: t -> t
+    val transpose: ?threads:int -> ?elements_per_step:int -> t -> t
     val multiply_matrix_vector: ?threads:int -> ?elements_per_step:int -> t -> Float.Array.t -> Float.Array.t
     val multiply_matrix_matrix: ?threads:int -> ?elements_per_step:int -> Type.t -> t -> t -> t
     val get_distance_matrix: ?threads:int -> ?elements_per_step:int -> Matrix.Distance.t -> t -> t
@@ -84,17 +83,14 @@ module [@warning "-32"] KPopMatrix:
     let empty which =
       { which; matrix = Matrix.empty }
     (* We redefine the implementation for Matrix in order to set the correct KPop types *)
-    let of_file which fname =
-      { which; matrix = Matrix.of_file fname }
+    let of_file ?(verbose = false) which fname =
+      { which; matrix = Matrix.of_file ~verbose fname }
     let to_file m =
       Matrix.to_file m.matrix
-    (* TRANSPOSITION IS CURRENTLY UNTESTED AND HENCE DISABLED *)
-    (*
-       let transpose_single_threaded m =
-         { m with matrix = Matrix.transpose_single_threaded m.matrix }
-       let transpose ?(threads = 64) ?(elements_per_step = 100) m =
-         { m with matrix = Matrix.transpose ~threads ~elements_per_step m.matrix }
-    *)
+    let transpose_single_threaded m =
+      { m with matrix = Matrix.transpose_single_threaded m.matrix }
+    let transpose ?(threads = 64) ?(elements_per_step = 100) m =
+      { m with matrix = Matrix.transpose ~threads ~elements_per_step m.matrix }
     let multiply_matrix_vector ?(threads = 64) ?(elements_per_step = 100) m v =
       Matrix.multiply_matrix_vector ~threads ~elements_per_step m.matrix v
     let multiply_matrix_matrix ?(threads = 64) ?(elements_per_step = 100) which m1 m2 =
@@ -114,7 +110,7 @@ module [@warning "-32"] KPopMatrix:
       output_value output m.matrix
     let to_binary m fname =
       let output = open_out fname in
-      Printf.eprintf "%s: Outputting DB to file '%s'...%!" __FUNCTION__ fname;
+      Printf.eprintf "(%s): Outputting DB to file '%s'...%!" __FUNCTION__ fname;
       to_channel output m;
       close_out output;
       Printf.eprintf " done.\n%!"
@@ -126,7 +122,7 @@ module [@warning "-32"] KPopMatrix:
       { which = Type.of_string which; matrix = (input_value input: Matrix.t) }
     let of_binary fname =
       let input = open_in fname in
-      Printf.eprintf "%s: Reading DB from file '%s'...%!" __FUNCTION__ fname;
+      Printf.eprintf "(%s): Reading DB from file '%s'...%!" __FUNCTION__ fname;
       let res = of_channel input in
       close_in input;
       Printf.eprintf " done.\n%!";
@@ -189,7 +185,7 @@ module [@warning "-32"] KPopTwister:
     val empty: t
     val to_files: t -> string -> unit
     exception MismatchedTwisterFiles
-    val of_files: string -> t
+    val of_files: ?verbose:bool -> string -> t
     (* *)
     exception IncompatibleTwisterAndTwisted
     exception WrongNumberOfColumns of int * int * int
@@ -213,9 +209,9 @@ module [@warning "-32"] KPopTwister:
       prefix ^ ".KPopTwister.txt" |> KPopMatrix.to_file tr.twister;
       prefix ^ ".KPopInertia.txt" |> KPopMatrix.to_file tr.inertia
     exception MismatchedTwisterFiles
-    let of_files prefix =
-      let twister = prefix ^ ".KPopTwister.txt" |> KPopMatrix.of_file Twister
-      and inertia = prefix ^ ".KPopInertia.txt" |> KPopMatrix.of_file Inertia in
+    let of_files ?(verbose = false) prefix =
+      let twister = prefix ^ ".KPopTwister.txt" |> KPopMatrix.of_file ~verbose Twister
+      and inertia = prefix ^ ".KPopInertia.txt" |> KPopMatrix.of_file ~verbose Inertia in
       (* Let's run at least some checks *)
       if begin
         inertia.matrix.idx_to_row_names <> [| "inertia" |] ||
@@ -325,14 +321,14 @@ module [@warning "-32"] KPopTwister:
     (* *)
     let to_binary t fname =
       let output = open_out fname in
-      Printf.eprintf "%s: Outputting DB to file '%s'...%!" __FUNCTION__ fname;
+      Printf.eprintf "(%s): Outputting DB to file '%s'...%!" __FUNCTION__ fname;
       KPopMatrix.to_channel output t.twister;
       KPopMatrix.to_channel output t.inertia;
       close_out output;
       Printf.eprintf " done.\n%!"
     let of_binary fname =
       let input = open_in fname in
-      Printf.eprintf "%s: Reading DB from file '%s'...%!" __FUNCTION__ fname;
+      Printf.eprintf "(%s): Reading DB from file '%s'...%!" __FUNCTION__ fname;
       let twister = KPopMatrix.of_channel input in
       let inertia = KPopMatrix.of_channel input in
       close_in input;
@@ -396,25 +392,29 @@ let _ =
       TA.Optional,
       (fun _ -> Empty_twisted |> TM.accum Parameters.program);
     [ "-I"; "--Input" ],
-      Some "<binary_file_name>",
-      [ "load to the twister register the database present in the specified file" ],
+      Some "<binary_file_prefix>",
+      [ "load to the twister register the database present in the specified file";
+        " (which must have extension .KPopTwister)" ],
       TA.Optional,
-      (fun _ -> Binary_to_twister (TA.get_parameter ()) |> TM.accum Parameters.program);
+      (fun _ -> Binary_to_twister (TA.get_parameter () ^ ".KPopTwister") |> TM.accum Parameters.program);
     [ "-i"; "--input" ],
-      Some "<binary_file_name>",
-      [ "load to the twisted register the database present in the specified file" ],
+      Some "<binary_file_prefix>",
+      [ "load to the twisted register the database present in the specified file";
+        " (which must have extension .KPopTwisted)" ],
       TA.Optional,
-      (fun _ -> Binary_to_twisted (TA.get_parameter ()) |> TM.accum Parameters.program);
+      (fun _ -> Binary_to_twisted (TA.get_parameter () ^ ".KPopTwisted") |> TM.accum Parameters.program);
     [ "--twister-from-tables" ],
       Some "<table_file_prefix>",
-      [ "load to the twister register the database present in the specified files" ],
+      [ "load to the twister register the database present in the specified files";
+        " (which must have extensions .KPopTwister.txt and .KPopInertia.txt)" ],
       TA.Optional,
       (fun _ -> Tables_to_twister (TA.get_parameter ()) |> TM.accum Parameters.program);
     [ "--twisted-from-table" ],
-      Some "<table_file_name>",
-      [ "load to the twisted register the database present in the specified file" ],
+      Some "<table_file_prefix>",
+      [ "load to the twisted register the database present in the specified file";
+        " (which must have extension .KPopTwisted.txt)" ],
       TA.Optional,
-      (fun _ -> Table_to_twisted (TA.get_parameter ()) |> TM.accum Parameters.program);
+      (fun _ -> Table_to_twisted (TA.get_parameter () ^ ".KPopTwisted.txt") |> TM.accum Parameters.program);
     [ "-f"; "-F"; "-k"; "-K"; "-a"; "-A";
       "--add"; "--files"; "--kmers";
       "--add-files"; "--add-kmers"; "--twisted-add-files"; "--twisted-add-kmers" ],
@@ -430,68 +430,80 @@ let _ =
 
 
     [ "-d"; "--distances-binary"; "--compute-distances-binary"; "--twisted-compute-distances-binary" ],
-      Some "<twisted_binary_file_name> <distance_binary_file_name>",
+      Some "<twisted_binary_file_prefix> <distance_binary_file_prefix>",
       [ "compute distances between all the vectors present in the twisted register";
-        "and all the vectors present in the specified twisted binary file,";
-        "and output them to the specified distance binary file" ],
+        "and all the vectors present in the specified twisted binary file";
+        " (which must have extension .KPopTwisted),";
+        "and output them to the specified distance binary file";
+        " (which will be given extension .KPopDMatrix)" ],
       TA.Optional,
       (fun _ ->
-        let twisted = TA.get_parameter () in
-        let distances = TA.get_parameter () in
+        let twisted = TA.get_parameter () ^ ".KPopTwisted" in
+        let distances = TA.get_parameter () ^ ".KPopDMatrix" in
         Twisted_distances_binary (twisted, distances) |> TM.accum Parameters.program);
     [ "-D"; "--distances-table"; "--compute-distances-table"; "--twisted-compute-distances-table" ],
-      Some "<twisted_binary_file_name> <distance_table_file_name>",
+      Some "<twisted_binary_file_prefix> <distance_table_file_prefix>",
       [ "compute distances between all the vectors present in the twisted register";
-        "and all the vectors present in the specified twisted binary file,";
-        "and output them to the specified distance text file" ],
+        "and all the vectors present in the specified twisted binary file";
+        " (which must have extension .KPopTwisted),";
+        "and output them to the specified distance text file";
+        " (which will be given extension .KPopDMatrix.txt)" ],
       TA.Optional,
       (fun _ ->
-        let twisted = TA.get_parameter () in
-        let distances = TA.get_parameter () in
+        let twisted = TA.get_parameter () ^ ".KPopTwisted" in
+        let distances = TA.get_parameter () ^ ".KPopDMatrix.txt" in
         Twisted_distances_table (twisted, distances) |> TM.accum Parameters.program);
     [ "--distances-binary-to-table" ],
-      Some "<distance_binary_file_name> <distance_table_file_name>",
+      Some "<distance_binary_file_prefix> <distance_table_file_prefix>",
       [ "output distances contained in the specified binary file";
-        "to the specified text file" ],
+        " (which must have extension .KPopDMatrix)";
+        "to the specified text file";
+        " (which will be given extension .KPopDMatrix.txt)" ],
       TA.Optional,
       (fun _ ->
-        let binary = TA.get_parameter () in
-        let table = TA.get_parameter () in
+        let binary = TA.get_parameter () ^ ".KPopDMatrix" in
+        let table = TA.get_parameter () ^ ".KPopDMatrix.txt" in
         Distances_to_table (binary, table) |> TM.accum Parameters.program);
     [ "--distances-table-to-binary" ],
-      Some "<distance_table_file_name> <distance_binary_file_name>",
+      Some "<distance_table_file_prefix> <distance_binary_file_prefix>",
       [ "output distances contained in the specified text file";
-        "to the specified binary file" ],
+        " (which must have extension .KPopDMatrix.txt)";
+        "to the specified binary file";
+        " (which will be given extension .KPopDMatrix)" ],
       TA.Optional,
       (fun _ ->
-        let table = TA.get_parameter () in
-        let binary = TA.get_parameter () in
+        let table = TA.get_parameter () ^ ".KPopDMatrix.txt" in
+        let binary = TA.get_parameter () ^ ".KPopDMatrix" in
         Table_to_distances (table, binary) |> TM.accum Parameters.program);
 
 (* SOMETHING TO SUMMARISE DISTANCES? *)
 
     [ "-O"; "--Output" ],
-      Some "<binary_file_name>",
-      [ "dump to the specified file the database present in the twister register" ],
+      Some "<binary_file_prefix>",
+      [ "dump the database present in the twister register to the specified file";
+        " (which will be given extension .KPopTwister)" ],
       TA.Optional,
-      (fun _ -> Twister_to_binary (TA.get_parameter ()) |> TM.accum Parameters.program);
+      (fun _ -> Twister_to_binary (TA.get_parameter () ^ ".KPopTwister") |> TM.accum Parameters.program);
     [ "-o"; "--output" ],
-      Some "<binary_file_name>",
-      [ "dump to the specified file the database present in the twisted register" ],
+      Some "<binary_file_prefix>",
+      [ "dump the database present in the twisted register to the specified file";
+        " (which will be given extension .KPopTwisted)" ],
       TA.Optional,
-      (fun _ -> Twisted_to_binary (TA.get_parameter ()) |> TM.accum Parameters.program);
+      (fun _ -> Twisted_to_binary (TA.get_parameter () ^ ".KPopTwisted") |> TM.accum Parameters.program);
     [ "--twister-to-tables" ],
       Some "<text_file_prefix>",
-      [ "dump to the specified files the database present in the twister register" ],
+      [ "dump the database present in the twister register to the specified files";
+        " (which will be given extension .KPopTwister.txt and .KPopInertia.txt)" ],
       TA.Optional,
       (fun _ -> Twister_to_tables (TA.get_parameter ()) |> TM.accum Parameters.program);
     [ "--twisted-to-table" ],
-      Some "<text_file_name>",
-      [ "dump to the specified file the database present in the twisted register" ],
+      Some "<text_file_prefix>",
+      [ "dump the database present in the twisted register to the specified file";
+        " (which will be given extension .KPopTwisted.txt)" ],
       TA.Optional,
-      (fun _ -> Twisted_to_table (TA.get_parameter ()) |> TM.accum Parameters.program);
+      (fun _ -> Twisted_to_table (TA.get_parameter () ^ ".KPopTwisted.txt") |> TM.accum Parameters.program);
     [], None, [ "Miscellaneous (executed immediately):" ], TA.Optional, (fun _ -> ());
-    [ "-T"; "--threads" ],
+    [ "-t"; "-T"; "--threads" ],
       Some "<computing_threads>",
       [ "number of concurrent computing threads to be spawned" ],
       TA.Default (fun () -> string_of_int !Parameters.threads),
@@ -525,11 +537,11 @@ let _ =
       | Binary_to_twister fname ->
         current_twister := KPopTwister.of_binary fname
       | Tables_to_twister prefix ->
-        current_twister := KPopTwister.of_files prefix
+        current_twister := KPopTwister.of_files ~verbose:!Parameters.verbose prefix
       | Binary_to_twisted fname ->
         current_twisted := KPopMatrix.of_binary fname
       | Table_to_twisted fname ->
-        current_twisted := KPopMatrix.of_file Twisted fname
+        current_twisted := KPopMatrix.of_file ~verbose:!Parameters.verbose Twisted fname
       | Twister_to_binary fname ->
         KPopTwister.to_binary !current_twister fname
       | Twister_to_tables prefix ->
@@ -560,6 +572,6 @@ let _ =
           raise KPopMatrix.DMatrixExpected;
         KPopMatrix.to_file distances fname
       | Table_to_distances (table, fname) ->
-        KPopMatrix.to_binary (KPopMatrix.of_file DMatrix table) fname)
+        KPopMatrix.to_binary (KPopMatrix.of_file ~verbose:!Parameters.verbose DMatrix table) fname)
     program
 

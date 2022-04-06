@@ -271,7 +271,7 @@ module [@warning "-32"] KMerDB:
     exception Incompatible_archive_version of string * string
     let to_binary db fname =
       let output = open_out fname in
-      Printf.eprintf "%s: Outputting DB to file '%s'...%!" __FUNCTION__ fname;
+      Printf.eprintf "(%s): Outputting DB to file '%s'...%!" __FUNCTION__ fname;
       output_value output "KPopCountDB";
       output_value output archive_version;
       output_value output {
@@ -287,7 +287,7 @@ module [@warning "-32"] KMerDB:
       Printf.eprintf " done.\n%!"
     let of_binary fname =
       let input = open_in fname in
-      Printf.eprintf "%s: Reading DB from file '%s'...%!" __FUNCTION__ fname;
+      Printf.eprintf "(%s): Reading DB from file '%s'...%!" __FUNCTION__ fname;
       let which = (input_value input: string) in
       let version = (input_value input: string) in
       if which <> "KPopCountDB" || version <> archive_version then
@@ -393,11 +393,12 @@ module [@warning "-32"] KMerDB:
       let db = ref db and n = List.length fnames in
       List.iteri
         (fun i fname ->
-          let input = open_in fname and line_num = ref 1 and col_idx = ref 0 in
+          let input = open_in fname and line_num = ref 0 and col_idx = ref 0 in
           (* Each file can contain one or more spectra *)
           begin try
             while true do
               let line_s = input_line input in
+              incr line_num;
               let line = Tools.Split.on_char_as_array '\t' line_s in
               let l = Array.length line in
               if l <> 2 then
@@ -439,7 +440,6 @@ module [@warning "-32"] KMerDB:
                 (* If there are repeated k-mers, we just accumulate them *)
                 !db.core.storage.(!col_idx).IBAVector.+(row_idx) <- v
               end;
-              incr line_num;
               if !line_num mod 10000 = 0 then
                 Printf.eprintf "\r[%d/%d] File '%s': Read %d lines%!" (i + 1) n fname !line_num
             done

@@ -2,14 +2,33 @@
 
 TABLE="$1"
 OUTPUT="$2"
-POWER="$3"
+SAMPLING_FRACTION="$3"
+if [[ "$SAMPLING_FRACTION" == "" ]]; then
+  SAMPLING_FRACTION="1."
+fi
+
+VERSION="0.7"
+
+echo "This is the KPopTwist program (version ${VERSION})"
+echo " (c) 2022 Paolo Ribeca, <paolo.ribeca@gmail.com>"
+
+if [[ "$TABLE" == "" || "$OUTPUT" == "" ]]; then
+  echo "Usage:"
+  echo "  $0 <input_table_filename> <output_table_prefix> [<sampling_fraction>]"
+  exit 1
+fi
 
 NPROC=$(( ( $(nproc) + 1 ) / 2 ))
+TMPDIR=$(mktemp -d -p . KPopTwist-XXXXXXXXXX)
 
-head -1 "$TABLE" | awk -F '\t' '{printf $2; for (i=3;i<=NF;++i) printf "\t"$i; printf "\n"}' > "${OUTPUT}.txt"
-tail -n +2 "$TABLE" | Parallel -t "$NPROC" -- awk -F '\t' '{printf $2; for (i=3;i<=NF;++i) printf "\t"$i; printf "\n"}' >> "${OUTPUT}.txt" &
-tail -n +2 "$TABLE" | Parallel -t "$NPROC" -- awk -F '\t' '{print $1}' > "${OUTPUT}.names.txt" &
+echo "$(date +"%c"): [1/12] Splitting table..."
+head -1 "$TABLE" | awk -F '\t' '{printf $2; for (i=3;i<=NF;++i) printf "\t"$i; printf "\n"}' > "${TMPDIR}/TABLE.txt"
+tail -n +2 "$TABLE" | Parallel -t "$NPROC" -- awk -F '\t' '{printf $2; for (i=3;i<=NF;++i) printf "\t"$i; printf "\n"}' >> "${TMPDIR}/TABLE.txt" &
+tail -n +2 "$TABLE" | Parallel -t "$NPROC" -- awk -F '\t' '{print $1}' > "${TMPDIR}/NAMES.txt" &
 wait
+
+export R_DATATABLE_NUM_PROCS_PERCENT=100
+#export R_DATATABLE_THROTTLE=1000000
 
 Rscript --vanilla <(
 cat <<'_____'
@@ -18,18 +37,40 @@ cat <<'_____'
   args<-commandArgs(trailingOnly=TRUE)
   if (is.na(args[4])||args[4]=="")
     args[4]<-"1."
+  cat(format(Sys.time(),"%c: [2/12] Reading table...\n"))
   stuff<-data.table::fread(args[1],sep="\t",header=TRUE)
+  cat(format(Sys.time(),"%c: [3/12] Resampling table...\n"))
   stuff<-stuff[sort(sample(nrow(stuff),as.integer(nrow(stuff)*as.numeric(args[4]))))]
+  cat(format(Sys.time(),"%c: [4/12] Transforming table...\n"))
   stuff_ca<-ca(stuff)
-  vars<-as.data.frame(100*stuff_ca$sv^2/sum(stuff_ca$sv^2))
-  colnames(vars)<-c("perc_inertia")
-  write.table(vars,paste0(args[3],".inertia.txt"),sep="\t")
-  stuff_ca_coords=cacoord(stuff_ca,cols=TRUE)
-  write.table(stuff_ca_coords,paste0(args[3],".twisted.txt"),sep="\t")
-  twister<-t(as.matrix(stuff_ca$rowcoord))/stuff_ca$sv
-  colnames(twister)<-t(data.table::fread(args[2],sep="\t",header=FALSE))
-  data.table::fwrite(data.table(twister,keep.rownames=FALSE),paste0(args[3],".twister.txt"),sep="\t")
+  cat(format(Sys.time(),"%c: [5/12] Writing twisted...\n"))
+  coords<-cacoord(stuff_ca,cols=TRUE)
+  data.table::fwrite(as.data.table(coords,keep.rownames=TRUE),paste0(args[3],".KPopTwisted.txt"),quote=TRUE,sep="\t",buffMB=64)
+  cat(format(Sys.time(),"%c: [6/12] Writing inertia...\n"))
+  vars<-t(stuff_ca$sv^2/sum(stuff_ca$sv^2))
+  colnames(vars)<-colnames(coords)
+  rownames(vars)<-c("inertia")
+  data.table::fwrite(as.data.table(vars,keep.rownames=TRUE),paste0(args[3],".KPopInertia.txt"),quote=TRUE,sep="\t",buffMB=64)
+  cat(format(Sys.time(),"%c: [7/12] Normalizing table...\n"))
+  twister<-as.data.table(stuff_ca$rowcoord)[,Map("/",.SD,data.table::transpose(as.data.table(stuff_ca$sv)))]
+  cat(format(Sys.time(),"%c: [8/12] Transposing table...\n"))
+  twister<-data.table::transpose(twister)
+  colnames(twister)<-t(data.table::fread(args[2],sep="\t",header=FALSE)) # Why t() would work so much better here is anybody's guess
+  rownames(twister)<-colnames(coords)
+  cat(format(Sys.time(),"%c: [9/12] Writing twister...\n"))
+  data.table::fwrite(twister,paste0(args[3],".KPopTwister.txt"),row.names=TRUE,quote=TRUE,sep="\t",buffMB=64)
 _____
-) "${OUTPUT}.txt" "${OUTPUT}.names.txt" "$OUTPUT" "$POWER"
+) "${TMPDIR}/TABLE.txt" "${TMPDIR}/NAMES.txt" "$OUTPUT" "$SAMPLING_FRACTION"
 
-# We remove temporary files and convert to binary form
+# We convert the results to binary form and remove temporary files
+echo "$(date +"%c"): [10/12] Encoding twisted..."
+KPopTwistDB --twisted-from-table "$OUTPUT" -o "$OUTPUT" -T "$NPROC" > /dev/null 2>&1
+echo "$(date +"%c"): [11/12] Encoding twister..."
+KPopTwistDB --twister-from-tables "$OUTPUT" -O "$OUTPUT" -T "$NPROC" > /dev/null 2>&1
+echo "$(date +"%c"): [12/12] Cleaning up..."
+rm "${TMPDIR}/TABLE.txt" "${TMPDIR}/NAMES.txt"
+rmdir "${TMPDIR}"
+rm "${OUTPUT}.KPopTwisted.txt" "${OUTPUT}.KPopInertia.txt" "${OUTPUT}.KPopTwister.txt"
+
+echo "$(date +"%c"): All done."
+
