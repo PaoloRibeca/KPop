@@ -15,7 +15,7 @@
 
 open BiOCamLib
 
-module IntMap = Tools.IntMap
+module IntSet = Tools.IntSet
 module StringSet = Tools.StringSet
 module StringMap = Tools.StringMap
 
@@ -51,14 +51,19 @@ module [@warning "-32"] KMerDB:
     exception WrongNumberOfColumns of int * int * int
     val add_meta: t -> string -> t
     (* Adds text files containing k-mers. The first line must contain the label.
-        Multiple files separated by "\t\n" can be chained in the same input *)
+       Multiple files separated by "\t\n" can be chained in the same input *)
     exception HeaderExpected of string
     exception WrongFormat of int * string
+    (* Add files contaning k-mers. Multiple files can be chained *)
     val add_files: t -> string list -> t
-    (* Adds a linear combination of vectors - vectors are identified by label *)
-    val add_sum_labels: ?threads:int -> t -> string -> string list -> t
-    (* Adds a linear combination of vectors - vectors are identified by regexps on metadata fields *)
-    val add_sum_regexps: ?threads:int -> t -> string -> (string * Str.regexp) list -> t
+    (* Select column names identified by regexps on metadata fields *)
+    val selected_from_regexps: t -> (string * Str.regexp) list -> StringSet.t
+    val selected_negate: t -> StringSet.t -> StringSet.t
+    (* Add a linear combination of the vectors having the given labels,
+        and name it as directed *)
+    val add_sum_selected: ?threads:int -> t -> string -> StringSet.t -> t
+    (* Remove the vectors with the given labels *)
+    val remove_selected: t -> StringSet.t -> t
     (* Output information about the contents *)
     val output_summary: ?verbose:bool -> t -> unit
     (* Binary marshalling of the database *)
@@ -171,7 +176,7 @@ module [@warning "-32"] KMerDB:
       Printf.printf "[Meta-data fields (%d)]:" (Array.length db.core.idx_to_meta_names);
       Array.iter (Printf.printf " '%s'") db.core.idx_to_meta_names;
       Printf.printf "\n%!"
-    
+    (* *)
     let resize_array ?(exact = false) n null a =
       let l = Array.length a in
       if n > l then begin
@@ -191,7 +196,7 @@ module [@warning "-32"] KMerDB:
         a
     let resize_string_array ?(exact = false) n a =
       resize_array ~exact n "" a
-
+    (* *)
     let _resize_t_array_ ?(exact = false) length resize create_null nx ny a =
       let lx = Array.length a in
       let eff_nx =
@@ -263,11 +268,31 @@ module [@warning "-32"] KMerDB:
       end
     module IBAVectorMisc = BAVectorMisc (IBAVector)
     module FBAVectorMisc = BAVectorMisc (FBAVector)
-
+    (* Utility functions *)
+    let invert_table a =
+      let res = Hashtbl.create (Array.length a) in
+      Array.iteri (fun i name -> Hashtbl.add res name i) a;
+      res
+    let add_empty_column_if_needed db label =
+      let n_cols = !db.core.n_cols in
+      let aug_n_cols = n_cols + 1 in
+      if Hashtbl.mem !db.col_names_to_idx label |> not then begin
+        Hashtbl.add !db.col_names_to_idx label n_cols; (* THIS ONE CHANGES !db *)
+        db := {
+          !db with
+          core = {
+            !db.core with
+            n_cols = aug_n_cols;
+            (* We have to resize all the relevant containers *)
+            idx_to_col_names = Array.append !db.core.idx_to_col_names [| label |];
+            meta = resize_string_array_array aug_n_cols !db.core.n_meta !db.core.meta;
+            storage = IBAVectorMisc.resize_array aug_n_cols !db.core.n_rows !db.core.storage
+          }
+        }
+      end
     (* *)
-    
     let archive_version = "2022-04-03"
-
+    (* *)
     exception Incompatible_archive_version of string * string
     let to_binary db fname =
       let output = open_out fname in
@@ -295,34 +320,11 @@ module [@warning "-32"] KMerDB:
       let core = (input_value input: marshalled_t) in
       close_in input;
       Printf.eprintf " done.\n%!";
-      let invert_table a =
-        let res = Hashtbl.create (Array.length a) in
-        Array.iteri (fun i name -> Hashtbl.add res name i) a;
-        res in
       { core = core;
         col_names_to_idx = invert_table core.idx_to_col_names;
         row_names_to_idx = invert_table core.idx_to_row_names;
         meta_names_to_idx = invert_table core.idx_to_meta_names }
-    
-    (* Utility function *)
-    let add_empty_column_if_needed db label =
-      let n_cols = !db.core.n_cols in
-      let aug_n_cols = n_cols + 1 in
-      if Hashtbl.mem !db.col_names_to_idx label |> not then begin
-        Hashtbl.add !db.col_names_to_idx label n_cols; (* THIS ONE CHANGES !db *)
-        db := {
-          !db with
-          core = {
-            !db.core with
-            n_cols = aug_n_cols;
-            (* We have to resize all the relevant containers *)
-            idx_to_col_names = Array.append !db.core.idx_to_col_names [| label |];
-            meta = resize_string_array_array aug_n_cols !db.core.n_meta !db.core.meta;
-            storage = IBAVectorMisc.resize_array aug_n_cols !db.core.n_rows !db.core.storage
-          }
-        }
-      end
-
+    (* *)
     exception WrongNumberOfColumns of int * int * int
     let add_meta db fname =
       let input = open_in fname and line_num = ref 0 in
@@ -449,7 +451,7 @@ module [@warning "-32"] KMerDB:
           end)
         fnames;
       !db
-
+    (* *)
     module Statistics =
       struct
         type tt = t
@@ -574,75 +576,8 @@ module [@warning "-32"] KMerDB:
           { col_stats = compute_all Col;
             row_stats = compute_all Row }
       end
-
-    (* It should be OK to have the same label on both LHS and RHS, as a temporary vector is used *)
-    let add_sum_labels ?(threads = 1) db new_label labels =
-      (* Here we want no thresholding and linear statistics *)
-      let stats = Statistics.table_of_db ~threshold:0 ~power:1. ~threads db and db = ref db in
-      Printf.eprintf "Adding/replacing vector '%s': [%!" new_label;
-      add_empty_column_if_needed db new_label;
-      let num_cols = ref 0 and max_norm = ref 0. in
-      List.iter
-        (fun label ->
-          Printf.eprintf " '%s'%!" label;
-          match Hashtbl.find_opt !db.col_names_to_idx label with
-          | Some col_idx ->
-            incr num_cols;
-            max_norm := max !max_norm stats.col_stats.(col_idx).sum
-          | None ->
-            Printf.eprintf "(NOT FOUND)%!")
-        labels;
-      let num_cols = !num_cols and max_norm = !max_norm in
-      Printf.eprintf " ] n=%d max_norm=%.16g [%!" num_cols max_norm;
-      let red_n_rows = !db.core.n_rows - 1 and res = FBAVector.init !db.core.n_rows 0. in
-      (* We normalise columns *separately* before adding them *)
-      List.iter
-        (fun label ->
-          match Hashtbl.find_opt !db.col_names_to_idx label with
-          | Some col_idx ->
-            Printf.eprintf ".%!";
-            let col = !db.core.storage.(col_idx)
-            and norm = stats.col_stats.(col_idx).sum in
-            for i = 0 to red_n_rows do
-              res.FBAVector.+(i) <- IBAVector.N.to_float col.IBAVector.=(i) *. max_norm /. norm
-            done
-          | None -> ())
-        labels;
-      let new_col_idx = Hashtbl.find !db.col_names_to_idx new_label in
-      let new_col = !db.core.storage.(new_col_idx) and norm = ref 0. in
-      for i = 0 to red_n_rows do
-        let res_i = IBAVector.N.of_float res.FBAVector.=(i) in
-        (* Actual copy to storage *)
-        new_col.IBAVector.=(i) <- res_i;
-        norm := !norm +. IBAVector.N.to_float res_i
-      done;
-      Printf.eprintf "] norm=%.16g\n%!" !norm;
-      (* If metadata is present in the database, we generate some for the new column too *)
-      if !db.core.n_meta > 0 then begin
-        (* For each metadata field, we compute the intersection of the values across all selected columns *)
-        let res = Array.make !db.core.n_meta Tools.StringSet.empty in
-        List.iter
-          (fun label ->
-            match Hashtbl.find_opt !db.col_names_to_idx label with
-            | Some col_idx ->
-              let col = !db.core.meta.(col_idx)
-              and red_n_meta = !db.core.n_meta - 1 in
-              for i = 0 to red_n_meta do
-                res.(i) <- Tools.StringSet.add col.(i) res.(i)
-              done
-            | None -> ())
-          labels;
-        !db.core.meta.(new_col_idx) <-
-          Array.map
-            (fun set ->
-              if Tools.StringSet.cardinal set = 1 then
-                Tools.StringSet.min_elt set
-              else
-                "")
-            res
-      end;
-      !db
-    let add_sum_regexps ?(threads = 1) db new_label regexps =
+    (* *)
+    let selected_from_regexps db regexps =
       (* We iterate over the columns *)
       Printf.eprintf "Selecting columns... [%!";
       List.iter
@@ -650,7 +585,7 @@ module [@warning "-32"] KMerDB:
           if what <> "" && Hashtbl.find_opt db.meta_names_to_idx what = None then
             Printf.eprintf " (WARNING: Metadata field '%s' not found, no column will match)%!" what)
         regexps;
-      let res = ref [] in
+      let res = ref StringSet.empty in
       Array.iteri
         (fun n_col col_name ->
           if begin
@@ -669,15 +604,109 @@ module [@warning "-32"] KMerDB:
                     Str.string_match regexp db.core.meta.(n_col).(found) 0)
               true regexps
           end then
-            Tools.Misc.accum res col_name)
+            res := StringSet.add col_name !res)
         db.core.idx_to_col_names;
-      List.iter (Printf.eprintf " '%s'%!") !res;
+      StringSet.iter (Printf.eprintf " '%s'%!") !res;
       Printf.eprintf " ] done.\n%!";
-      if !res <> [] then
-        add_sum_labels ~threads db new_label !res
-      else
-        db
-
+      !res
+    let selected_negate db selection =
+      StringSet.diff (Array.to_list db.core.idx_to_col_names |> StringSet.of_list) selection
+    (* It should be OK to have the same label on both LHS and RHS, as a temporary vector is used *)
+    let add_sum_selected ?(threads = 1) db new_label selection =
+      (* Here we want no thresholding and linear statistics *)
+      let stats = Statistics.table_of_db ~threshold:0 ~power:1. ~threads db and db = ref db in
+      Printf.eprintf "Adding/replacing vector '%s': [%!" new_label;
+      add_empty_column_if_needed db new_label;
+      let num_cols = ref 0 and max_norm = ref 0. in
+      StringSet.iter
+        (fun label ->
+          Printf.eprintf " '%s'%!" label;
+          match Hashtbl.find_opt !db.col_names_to_idx label with
+          | Some col_idx ->
+            incr num_cols;
+            max_norm := max !max_norm stats.col_stats.(col_idx).sum
+          | None ->
+            Printf.eprintf "(NOT FOUND)%!")
+        selection;
+      let num_cols = !num_cols and max_norm = !max_norm in
+      Printf.eprintf " ] n=%d max_norm=%.16g [%!" num_cols max_norm;
+      let red_n_rows = !db.core.n_rows - 1 and res = FBAVector.init !db.core.n_rows 0. in
+      (* We normalise columns *separately* before adding them *)
+      StringSet.iter
+        (fun label ->
+          match Hashtbl.find_opt !db.col_names_to_idx label with
+          | Some col_idx ->
+            Printf.eprintf ".%!";
+            let col = !db.core.storage.(col_idx)
+            and norm = stats.col_stats.(col_idx).sum in
+            for i = 0 to red_n_rows do
+              res.FBAVector.+(i) <- IBAVector.N.to_float col.IBAVector.=(i) *. max_norm /. norm
+            done
+          | None -> ())
+        selection;
+      let new_col_idx = Hashtbl.find !db.col_names_to_idx new_label in
+      let new_col = !db.core.storage.(new_col_idx) and norm = ref 0. in
+      for i = 0 to red_n_rows do
+        let res_i = IBAVector.N.of_float res.FBAVector.=(i) in
+        (* Actual copy to storage *)
+        new_col.IBAVector.=(i) <- res_i;
+        norm := !norm +. IBAVector.N.to_float res_i
+      done;
+      Printf.eprintf "] norm=%.16g\n%!" !norm;
+      (* If metadata is present in the database, we generate some for the new column too *)
+      if !db.core.n_meta > 0 then begin
+        (* For each metadata field, we compute the intersection of the values across all selected columns *)
+        let res = Array.make !db.core.n_meta StringSet.empty in
+        StringSet.iter
+          (fun label ->
+            match Hashtbl.find_opt !db.col_names_to_idx label with
+            | Some col_idx ->
+              let col = !db.core.meta.(col_idx)
+              and red_n_meta = !db.core.n_meta - 1 in
+              for i = 0 to red_n_meta do
+                res.(i) <- StringSet.add col.(i) res.(i)
+              done
+            | None -> ())
+          selection;
+        !db.core.meta.(new_col_idx) <-
+          Array.map
+            (fun set ->
+              if StringSet.cardinal set = 1 then
+                StringSet.min_elt set
+              else
+                "")
+            res
+      end;
+      !db
+    let remove_selected db selected =
+      (* First, we compute the indices of the columns to be kept *)
+      let idxs = ref IntSet.empty in
+      Array.iteri
+        (fun col_idx col_name ->
+          if StringSet.mem col_name selected |> not then
+            idxs := IntSet.add col_idx !idxs)
+        db.core.idx_to_col_names;
+      let idxs = !idxs in
+      let n = IntSet.cardinal idxs in
+      let filter_array a null =
+        let filtered = Array.make n null and i = ref 0 in
+        IntSet.iter
+          (fun col_idx ->
+            filtered.(!i) <- a.(col_idx);
+            incr i)
+          idxs;
+        filtered in
+      let core =
+        { db.core with
+          n_cols = n;
+          idx_to_col_names = filter_array db.core.idx_to_col_names "";
+          meta = filter_array db.core.meta [||];
+          storage = filter_array db.core.storage IBAVector.empty } in
+      { core = core;
+        col_names_to_idx = invert_table core.idx_to_col_names;
+        row_names_to_idx = invert_table core.idx_to_row_names;
+        meta_names_to_idx = invert_table core.idx_to_meta_names }
+    (* *)
     module Transformation =
       struct
         type function_t =
@@ -944,10 +973,24 @@ type to_do_t =
   | Of_file of string
   | Add_meta of string
   | Add_files of string list
-  | Add_sum_labels of string * string list
-  | Add_sum_regexps of string * (string * Str.regexp) list
+  | Add_sum_selected of string (* The new label *)
+  | Remove_selected
   | Summary
-  | To_table of (KMerDB.TableFilter.t * string)
+  | Selected_from_labels of StringSet.t
+  | Selected_from_regexps of (string * Str.regexp) list
+  | Selected_negate
+  | Selected_print
+  | Selected_clear
+  | Selected_to_table_filter
+  | Table_emit_row_names of bool
+  | Table_emit_col_names of bool
+  | Table_emit_metadata of bool
+  | Table_transpose of bool
+  | Table_threshold of int
+  | Table_power of float
+  | Table_transform of KMerDB.Transformation.t
+  | Table_emit_zero_rows of bool
+  | To_table of string
   | To_file of string
   
 module Defaults =
@@ -960,12 +1003,11 @@ module Defaults =
 module Parameters =
   struct
     let program = ref []
-    let table_filter = ref Defaults.table_filter
     let threads = ref Defaults.threads
     let verbose = ref Defaults.verbose
   end
 
-let version = "0.21"
+let version = "0.23"
 
 let _ =
   Printf.eprintf "This is the KPopCountDB program (version %s)\n%!" version;
@@ -995,119 +1037,128 @@ let _ =
       [ "add to the database present in the register k-mers from the specified files" ],
       TA.Optional,
       (fun _ -> Add_files (TA.get_parameter () |> TS.on_char_as_list ',') |> TM.accum Parameters.program);
-    [ "-l"; "-L"; "--labels"; "--add-vector-by-labels" ],
-      Some "<new_vector_label>'='<vector_label>[','...','<vector_label>]",
-      [ "add to the database present in the register (or replace if new label exists)";
-        "a linear combination of the vectors having the specified labels" ],
-      TA.Optional,
-      (fun _ ->
-        match TA.get_parameter () |> TS.on_char_as_list '=' with
-        | [ new_label; labels ] ->
-          Add_sum_labels (new_label, labels |> TS.on_char_as_list ',') |> TM.accum Parameters.program
-        | w ->
-          TA.usage ();
-          List.length w - 1 |>
-            Printf.sprintf "Option '-l': Wrong number of assignments (expected 1, found %d)" |>
-            TA.parse_error); (* parse_error exits the program *)
-    [ "-r"; "-R"; "--regexps"; "--add-vector-by-regexps" ],
-      Some "<new_vector_label>'='<metadata_field>'~'<regexp>[','...','<metadata_field>'~'<regexp>]",
-      [ "add to the database present in the register a linear combination";
-        "of the vectors whose metadata fields match the specified regexps.";
-        "An empty metadata field means the labels" ],
-      TA.Optional,
-      (fun _ ->
-        match TA.get_parameter () |> TS.on_char_as_list '=' with
-        | [ new_label; fields_and_regexps ] ->
-          Add_sum_regexps begin
-            new_label,
-            List.map
-              (fun l ->
-                let res = TS.on_char_as_list '~' l in
-                if List.length res <> 2 then begin
-                  TA.usage ();
-                  List.length res |>
-                    Printf.sprintf "Option '-r': Wrong number of fields in list (expected 2, found %d)" |>
-                    TA.parse_error (* parse_error exits the program *)
-                end;
-                List.nth res 0, List.nth res 1 |> Str.regexp)
-              (fields_and_regexps |> TS.on_char_as_list ',')
-          end |> TM.accum Parameters.program
-          | w ->
-            TA.usage ();
-            List.length w - 1 |>
-              Printf.sprintf "Option '-l': Wrong number of assignments (expected 1, found %d)" |>
-              TA.parse_error); (* parse_error exits the program *)
-    [ "-s"; "-S"; "--summary" ],
+    [ "--summary" ],
       None,
       [ "print a summary of the database present in the register" ],
       TA.Optional,
       (fun _ -> Summary |> TM.accum Parameters.program);
+    [ "-l"; "-L"; "--labels"; "--selection-from-labels" ],
+      Some "<vector_label>[','...','<vector_label>]",
+      [ "put into the selection register the specified labels" ],
+      TA.Optional,
+      (fun _ ->
+        let labels = TA.get_parameter () in
+        if labels <> "" then
+        Selected_from_labels (labels |> TS.on_char_as_list ',' |> StringSet.of_list)
+          |> TM.accum Parameters.program);
+    [ "-r"; "-R"; "--regexps"; "--selection-from-regexps" ],
+      Some "<metadata_field>'~'<regexp>[','...','<metadata_field>'~'<regexp>]",
+      [ "put into the selection register the labels of the vectors";
+        "whose metadata fields match the specified regexps.";
+        "An empty metadata field matches the labels" ],
+      TA.Optional,
+      (fun _ ->
+        Selected_from_regexps begin
+          List.map
+            (fun l ->
+              let res = TS.on_char_as_list '~' l in
+              if List.length res <> 2 then begin
+                TA.usage ();
+                List.length res |>
+                  Printf.sprintf "Option '-r': Wrong number of fields in list (expected 2, found %d)" |>
+                  TA.parse_error (* parse_error exits the program *)
+              end;
+              List.nth res 0, List.nth res 1 |> Str.regexp)
+            (TA.get_parameter () |> TS.on_char_as_list ',')
+        end |> TM.accum Parameters.program);
+    [ "-a"; "-A"; "--add-sum-selection"; "--selection-add-sum" ],
+      Some "<new_vector_label>",
+      [ "add to the database present in the register (or replace if the new label exists)";
+        "a linear combination of the vectors whose labels are in the selection register" ],
+      TA.Optional,
+      (fun _ -> Add_sum_selected (TA.get_parameter ()) |> TM.accum Parameters.program);
+    [ "-d"; "-D"; "--delete"; "--selection-remove" ],
+      None,
+      [ "remove from the table the vectors whose labels are in the selection register" ],
+      TA.Optional,
+      (fun _ -> Remove_selected |> TM.accum Parameters.program);
+    [ "-n"; "-N"; "--selection-negate" ],
+      None,
+      [ "negate the labels that are present in the selection register" ],
+      TA.Optional,
+      (fun _ -> Selected_negate |> TM.accum Parameters.program);
+    [ "-p"; "-P"; "--selection-print" ],
+      None,
+      [ "print the labels that are present in the selection register" ],
+      TA.Optional,
+      (fun _ -> Selected_print |> TM.accum Parameters.program);
+    [ "-c"; "-C"; "--selection-clear" ],
+      None,
+      [ "purges the selection register" ],
+      TA.Optional,
+      (fun _ -> Selected_clear |> TM.accum Parameters.program);
+    [ "-s"; "-S"; "--selection-to-table-filter" ],
+      None,
+      [ "filters out vectors whose labels are present in the selection register";
+        "when writing the database as a tab-separated file" ],
+      TA.Optional,
+      (fun _ -> Selected_to_table_filter |> TM.accum Parameters.program);
     [ "--table-emit-row-names" ],
       Some "'true'|'false'",
       [ "whether to emit row names for the database present in the register";
         "when writing it as a tab-separated file" ],
-      TA.Default (fun () -> string_of_bool !Parameters.table_filter.print_row_names),
-      (fun _ -> Parameters.table_filter := { !Parameters.table_filter with print_row_names = TA.get_parameter_boolean () });
+      TA.Default (fun () -> string_of_bool Defaults.table_filter.print_row_names),
+      (fun _ -> Table_emit_row_names (TA.get_parameter_boolean ()) |> TM.accum Parameters.program);
     [ "--table-emit-col-names" ],
       Some "'true'|'false'",
       [ "whether to emit column names for the database present in the register";
         "when writing it as a tab-separated file" ],
-      TA.Default (fun () -> string_of_bool !Parameters.table_filter.print_col_names),
-      (fun _ -> Parameters.table_filter := { !Parameters.table_filter with print_col_names = TA.get_parameter_boolean () });
+      TA.Default (fun () -> string_of_bool Defaults.table_filter.print_col_names),
+      (fun _ -> Table_emit_col_names (TA.get_parameter_boolean ()) |> TM.accum Parameters.program);
     [ "--table-emit-metadata" ],
       Some "'true'|'false'",
       [ "whether to emit metadata for the database present in the register";
         "when writing it as a tab-separated file" ],
-      TA.Default (fun () -> string_of_bool !Parameters.table_filter.print_metadata),
-      (fun _ -> Parameters.table_filter := { !Parameters.table_filter with print_metadata = TA.get_parameter_boolean () });
+      TA.Default (fun () -> string_of_bool Defaults.table_filter.print_metadata),
+      (fun _ -> Table_emit_metadata (TA.get_parameter_boolean ()) |> TM.accum Parameters.program);
     [ "--table-transpose" ],
       Some "'true'|'false'",
       [ "whether to transpose the database present in the register";
         "before writing it as a tab-separated file";
         "(if 'true' : rows are vector names, columns are (metadata and) k-mer names;";
         " if 'false': rows are (metadata and) k-mer names, columns are vector names)" ],
-      TA.Default (fun () -> string_of_bool !Parameters.table_filter.transpose),
-      (fun _ -> Parameters.table_filter := { !Parameters.table_filter with transpose = TA.get_parameter_boolean () });
+      TA.Default (fun () -> string_of_bool Defaults.table_filter.transpose),
+      (fun _ -> Table_transpose (TA.get_parameter_boolean ()) |> TM.accum Parameters.program);
     [ "--table-threshold" ],
       Some "<non_negative_integer>",
       [ "set to zero all counts that are less than this threshold";
         "before transforming and outputting them" ],
-      TA.Default (fun () -> string_of_int !Parameters.table_filter.threshold),
-      (fun _ -> Parameters.table_filter := { !Parameters.table_filter with threshold = TA.get_parameter_int_non_neg () });
+      TA.Default (fun () -> string_of_int Defaults.table_filter.threshold),
+      (fun _ -> Table_threshold (TA.get_parameter_int_non_neg ()) |> TM.accum Parameters.program);
     [ "--table-power" ],
       Some "<non_negative_float>",
       [ "raise counts to this power before transforming and outputting them.";
         "A power of 0 when the 'pseudocount' method is used";
         "performs a logarithmic transformation" ],
-      TA.Default (fun () -> string_of_float !Parameters.table_filter.power),
-      (fun _ -> Parameters.table_filter := { !Parameters.table_filter with power = TA.get_parameter_float_non_neg () });
+      TA.Default (fun () -> string_of_float Defaults.table_filter.power),
+      (fun _ -> Table_power (TA.get_parameter_float_non_neg ()) |> TM.accum Parameters.program);
     [ "--table-transform"; "--table-transformation" ],
       Some "'none'|'normalize'|'pseudocount'|'clr'",
       [ "transformation to apply to table elements before outputting them" ],
-      TA.Default (fun () -> KMerDB.Transformation.to_string !Parameters.table_filter.transform),
-      (fun _ ->
-        Parameters.table_filter :=
-          { !Parameters.table_filter with transform = TA.get_parameter () |> KMerDB.Transformation.of_string });
+      TA.Default (fun () -> KMerDB.Transformation.to_string Defaults.table_filter.transform),
+      (fun _ -> Table_transform (TA.get_parameter () |> KMerDB.Transformation.of_string) |> TM.accum Parameters.program);
     [ "--table-emit-zero-rows" ],
       Some "'true'|'false'",
       [ "whether to emit rows whose elements are all zero";
         "when writing the database as a tab-separated file" ],
-      TA.Default (fun () -> string_of_bool !Parameters.table_filter.print_zero_rows),
-      (fun _ -> Parameters.table_filter := { !Parameters.table_filter with print_zero_rows = TA.get_parameter_boolean () });
-    [ "--table-filter-columns" ],
-      Some "[<vector_label>','...','<vector_label>]",
-      [ "do not emit the vectors having the specified labels";
-        "when writing the database as a tab-separated file" ],
-      TA.Optional,
-      (fun _ ->
-        Parameters.table_filter :=
-        { !Parameters.table_filter with filter_columns = TA.get_parameter () |> TS.on_char_as_list ',' |> StringSet.of_list });
+      TA.Default (fun () -> string_of_bool Defaults.table_filter.print_zero_rows),
+      (fun _ -> Table_emit_zero_rows (TA.get_parameter_boolean ()) |> TM.accum Parameters.program);
     [ "-t"; "--table" ],
       Some "<file_name>",
       [ "write as a tab-separated file the database present in the register";
         "(rows are k-mer names, columns are vector names)" ],
       TA.Optional,
-      (fun _ -> To_table (!Parameters.table_filter, TA.get_parameter ()) |> TM.accum Parameters.program);
+      (fun _ -> To_table (TA.get_parameter ()) |> TM.accum Parameters.program);
     [ "-o"; "-O"; "--output" ],
       Some "<binary_file_name>",
       [ "dump to the specified file the database present in the register" ],
@@ -1135,7 +1186,9 @@ let _ =
     TA.usage ();
     exit 0
   end;
-  let current = KMerDB.make_empty () |> ref in
+  (* These are the three registers available to the program *)
+  let current = KMerDB.make_empty () |> ref and selected = ref StringSet.empty
+  and table_filter = ref KMerDB.TableFilter.default in
   
   (* The addition of an exception handler would be nice *)
   
@@ -1149,14 +1202,44 @@ let _ =
         current := KMerDB.add_meta !current fname
       | Add_files fnames ->
         current := KMerDB.add_files !current fnames
-      | Add_sum_labels (new_label, labels) ->
-        current := KMerDB.add_sum_labels ~threads:!Parameters.threads !current new_label labels
-      | Add_sum_regexps (new_label, regexps) ->
-        current := KMerDB.add_sum_regexps ~threads:!Parameters.threads !current new_label regexps
+      | Add_sum_selected new_label ->
+        current := KMerDB.add_sum_selected ~threads:!Parameters.threads !current new_label !selected
+      | Remove_selected ->
+        current := KMerDB.remove_selected !current !selected
       | Summary ->
         KMerDB.output_summary ~verbose:!Parameters.verbose !current
-      | To_table (filter, fname) ->
-        KMerDB.to_table ~filter ~threads:!Parameters.threads !current fname
+      | Selected_from_labels labels ->
+        selected := labels
+      | Selected_from_regexps regexps ->
+        selected := KMerDB.selected_from_regexps !current regexps
+      | Selected_negate ->
+        selected := KMerDB.selected_negate !current !selected
+      | Selected_print ->
+        Printf.eprintf "Currently selected vectors = [";
+        StringSet.iter (Printf.eprintf " '%s'%!") !selected;
+        Printf.eprintf " ].\n%!"
+      | Selected_clear ->
+        selected := StringSet.empty
+      | Selected_to_table_filter ->
+        table_filter := { !table_filter with filter_columns = !selected }
+      | Table_emit_row_names whether ->
+        table_filter := { !table_filter with print_row_names = whether }
+      | Table_emit_col_names whether ->
+        table_filter := { !table_filter with print_col_names = whether }
+      | Table_emit_metadata whether ->
+        table_filter := { !table_filter with print_metadata = whether }
+      | Table_transpose whether ->
+        table_filter := { !table_filter with transpose = whether }
+      | Table_threshold threshold ->
+        table_filter := { !table_filter with threshold = threshold }
+      | Table_power power ->
+        table_filter := { !table_filter with power = power }
+      | Table_transform transform ->
+        table_filter := { !table_filter with transform = transform }
+      | Table_emit_zero_rows whether ->
+        table_filter := { !table_filter with print_zero_rows = whether }
+      | To_table fname ->
+        KMerDB.to_table ~filter:!table_filter ~threads:!Parameters.threads !current fname
       | To_file fname ->
         KMerDB.to_binary !current fname)
     program
