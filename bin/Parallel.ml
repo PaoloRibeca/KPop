@@ -16,7 +16,11 @@ module Misc =
 module Defaults =
   struct
     let lines_per_block = 10000
-    let threads = 1
+    let threads =
+      try
+        Tools.Subprocess.spawn_and_read_single_line "nproc" |> int_of_string
+      with _ ->
+        1
     let verbose = false
     let debug = false
   end
@@ -68,7 +72,8 @@ let () =
     [], None, [ "Miscellaneous" ], TA.Optional, (fun _ -> ());
     [ "-t"; "--threads" ],
       Some "<positive_integer>",
-      [ "number of computing threads to be used" ],
+      [ "number of concurrent computing threads to be spawned";
+        " (default automatically detected from your configuration)" ],
       TA.Default (fun () -> string_of_int !Parameters.threads),
       (fun _ -> Parameters.threads := TA.get_parameter_int_pos ());
     [ "-v"; "--verbose" ],

@@ -58,7 +58,13 @@ module Defaults =
     let k = 12
     let max_results_size = 16777216 (* Or: 4^12 *)
     let output = ""
-    (*let threads = 1*)
+(*
+    let threads =
+      try
+        Tools.Subprocess.spawn_and_read_single_line "nproc" |> int_of_string
+      with _ ->
+        1
+*)
     let verbose = false
   end
 
@@ -128,7 +134,8 @@ let _ =
 (*
     [ "-t"; "-T"; "--threads" ],
       Some "<computing_threads>",
-      [ "number of concurrent computing threads to be spawned" ],
+      [ "number of concurrent computing threads to be spawned";
+        " (default automatically detected from your configuration)" ],
       TA.Default (fun () -> string_of_int !Parameters.threads),
       (fun _ -> Parameters.threads := TA.get_parameter_int_pos ());
 *)

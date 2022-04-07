@@ -1,30 +1,31 @@
 #!/bin/env bash
 
-TABLE="$1"
-OUTPUT="$2"
-SAMPLING_FRACTION="$3"
+PREFIX="$1"
+SAMPLING_FRACTION="$2"
 if [[ "$SAMPLING_FRACTION" == "" ]]; then
   SAMPLING_FRACTION="1."
 fi
 
-VERSION="0.7"
+VERSION="0.8"
 
 echo "This is the KPopTwist program (version ${VERSION})"
 echo " (c) 2022 Paolo Ribeca, <paolo.ribeca@gmail.com>"
 
-if [[ "$TABLE" == "" || "$OUTPUT" == "" ]]; then
+if [[ "$PREFIX" == "" ]]; then
   echo "Usage:"
-  echo "  $0 <input_table_filename> <output_table_prefix> [<sampling_fraction>]"
+  echo "  $0 <input_table_prefix> [<sampling_fraction>]"
   exit 1
 fi
 
-NPROC=$(( ( $(nproc) + 1 ) / 2 ))
 TMPDIR=$(mktemp -d -p . KPopTwist-XXXXXXXXXX)
 
-echo "$(date +"%c"): [1/12] Splitting table..."
-head -1 "$TABLE" | awk -F '\t' '{printf $2; for (i=3;i<=NF;++i) printf "\t"$i; printf "\n"}' > "${TMPDIR}/TABLE.txt"
-tail -n +2 "$TABLE" | Parallel -t "$NPROC" -- awk -F '\t' '{printf $2; for (i=3;i<=NF;++i) printf "\t"$i; printf "\n"}' >> "${TMPDIR}/TABLE.txt" &
-tail -n +2 "$TABLE" | Parallel -t "$NPROC" -- awk -F '\t' '{print $1}' > "${TMPDIR}/NAMES.txt" &
+# We generate and split the plain text table, so that R can import it
+echo "$(date +"%c"): [1/13] Exporting table..."
+KPopCountDB -i "$PREFIX" -t "$PREFIX" > /dev/null 2>&1
+echo "$(date +"%c"): [2/13] Splitting table..."
+head -1 "${PREFIX}.KPopCountDB.txt" | awk -F '\t' '{printf $2; for (i=3;i<=NF;++i) printf "\t"$i; printf "\n"}' > "${TMPDIR}/TABLE.txt"
+tail -n +2 "${PREFIX}.KPopCountDB.txt" | Parallel -- awk -F '\t' '{printf $2; for (i=3;i<=NF;++i) printf "\t"$i; printf "\n"}' >> "${TMPDIR}/TABLE.txt" &
+tail -n +2 "${PREFIX}.KPopCountDB.txt" | Parallel -- awk -F '\t' '{print $1}' > "${TMPDIR}/NAMES.txt" &
 wait
 
 export R_DATATABLE_NUM_PROCS_PERCENT=100
@@ -37,40 +38,41 @@ cat <<'_____'
   args<-commandArgs(trailingOnly=TRUE)
   if (is.na(args[4])||args[4]=="")
     args[4]<-"1."
-  cat(format(Sys.time(),"%c: [2/12] Reading table...\n"))
+  cat(format(Sys.time(),"%c: [3/13] Reading table...\n"))
   stuff<-data.table::fread(args[1],sep="\t",header=TRUE)
-  cat(format(Sys.time(),"%c: [3/12] Resampling table...\n"))
+  cat(format(Sys.time(),"%c: [4/13] Resampling table...\n"))
   stuff<-stuff[sort(sample(nrow(stuff),as.integer(nrow(stuff)*as.numeric(args[4]))))]
-  cat(format(Sys.time(),"%c: [4/12] Transforming table...\n"))
+  cat(format(Sys.time(),"%c: [5/13] Transforming table...\n"))
   stuff_ca<-ca(stuff)
-  cat(format(Sys.time(),"%c: [5/12] Writing twisted...\n"))
+  cat(format(Sys.time(),"%c: [6/13] Writing twisted...\n"))
   coords<-cacoord(stuff_ca,cols=TRUE)
   data.table::fwrite(as.data.table(coords,keep.rownames=TRUE),paste0(args[3],".KPopTwisted.txt"),quote=TRUE,sep="\t",buffMB=64)
-  cat(format(Sys.time(),"%c: [6/12] Writing inertia...\n"))
+  cat(format(Sys.time(),"%c: [7/13] Writing inertia...\n"))
   vars<-t(stuff_ca$sv^2/sum(stuff_ca$sv^2))
   colnames(vars)<-colnames(coords)
   rownames(vars)<-c("inertia")
   data.table::fwrite(as.data.table(vars,keep.rownames=TRUE),paste0(args[3],".KPopInertia.txt"),quote=TRUE,sep="\t",buffMB=64)
-  cat(format(Sys.time(),"%c: [7/12] Normalizing table...\n"))
+  cat(format(Sys.time(),"%c: [8/13] Normalizing table...\n"))
   twister<-as.data.table(stuff_ca$rowcoord)[,Map("/",.SD,data.table::transpose(as.data.table(stuff_ca$sv)))]
-  cat(format(Sys.time(),"%c: [8/12] Transposing table...\n"))
+  cat(format(Sys.time(),"%c: [9/13] Transposing table...\n"))
   twister<-data.table::transpose(twister)
   colnames(twister)<-t(data.table::fread(args[2],sep="\t",header=FALSE)) # Why t() would work so much better here is anybody's guess
   rownames(twister)<-colnames(coords)
-  cat(format(Sys.time(),"%c: [9/12] Writing twister...\n"))
+  cat(format(Sys.time(),"%c: [10/13] Writing twister...\n"))
   data.table::fwrite(twister,paste0(args[3],".KPopTwister.txt"),row.names=TRUE,quote=TRUE,sep="\t",buffMB=64)
 _____
-) "${TMPDIR}/TABLE.txt" "${TMPDIR}/NAMES.txt" "$OUTPUT" "$SAMPLING_FRACTION"
+) "${TMPDIR}/TABLE.txt" "${TMPDIR}/NAMES.txt" "$PREFIX" "$SAMPLING_FRACTION"
 
 # We convert the results to binary form and remove temporary files
-echo "$(date +"%c"): [10/12] Encoding twisted..."
-KPopTwistDB --twisted-from-table "$OUTPUT" -o "$OUTPUT" -T "$NPROC" > /dev/null 2>&1
-echo "$(date +"%c"): [11/12] Encoding twister..."
-KPopTwistDB --twister-from-tables "$OUTPUT" -O "$OUTPUT" -T "$NPROC" > /dev/null 2>&1
-echo "$(date +"%c"): [12/12] Cleaning up..."
+echo "$(date +"%c"): [11/13] Encoding twisted..."
+KPopTwistDB --twisted-from-table "$PREFIX" -o "$PREFIX" > /dev/null 2>&1
+echo "$(date +"%c"): [12/13] Encoding twister..."
+KPopTwistDB --twister-from-tables "$PREFIX" -O "$PREFIX" > /dev/null 2>&1
+echo "$(date +"%c"): [13/13] Cleaning up..."
+rm "${PREFIX}.KPopCountDB.txt"
 rm "${TMPDIR}/TABLE.txt" "${TMPDIR}/NAMES.txt"
 rmdir "${TMPDIR}"
-rm "${OUTPUT}.KPopTwisted.txt" "${OUTPUT}.KPopInertia.txt" "${OUTPUT}.KPopTwister.txt"
+rm "${PREFIX}.KPopTwisted.txt" "${PREFIX}.KPopInertia.txt" "${PREFIX}.KPopTwister.txt"
 
 echo "$(date +"%c"): All done."
 

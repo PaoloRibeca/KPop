@@ -1004,7 +1004,11 @@ type to_do_t =
 module Defaults =
   struct
     let table_filter = KMerDB.TableFilter.default
-    let threads = 1
+    let threads =
+      try
+        Tools.Subprocess.spawn_and_read_single_line "nproc" |> int_of_string
+      with _ ->
+        1
     let verbose = false
   end
 
@@ -1178,7 +1182,8 @@ let _ =
     [], None, [ "Miscellaneous (executed immediately):" ], TA.Optional, (fun _ -> ());
     [ "-T"; "--threads" ],
       Some "<computing_threads>",
-      [ "number of concurrent computing threads to be spawned" ],
+      [ "number of concurrent computing threads to be spawned";
+        " (default automatically detected from your configuration)" ],
       TA.Default (fun () -> string_of_int !Parameters.threads),
       (fun _ -> Parameters.threads := TA.get_parameter_int_pos ());
     [ "-v"; "--verbose" ],
