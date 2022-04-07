@@ -70,6 +70,7 @@ module [@warning "-32"] KMerDB:
     exception Incompatible_archive_version of string * string
     val to_binary: t -> string -> unit
     val of_binary: string -> t
+    val make_filename_binary: string -> string
     module Statistics:
       sig
         type tt = t
@@ -126,6 +127,7 @@ module [@warning "-32"] KMerDB:
       end
     (* Readable output *)
     val to_table: ?filter:TableFilter.t -> ?threads:int -> t -> string -> unit
+    val make_filename_table: string -> string
 
   end
 = struct
@@ -165,17 +167,17 @@ module [@warning "-32"] KMerDB:
       meta_names_to_idx = Hashtbl.create 16
     }
     let output_summary ?(verbose = false) db =
-      Printf.printf "[Vector labels (%d)]:" (Array.length db.core.idx_to_col_names);
-      Array.iter (Printf.printf " '%s'") db.core.idx_to_col_names;
-      Printf.printf "\n%!";
+      Printf.eprintf "[Vector labels (%d)]:" (Array.length db.core.idx_to_col_names);
+      Array.iter (Printf.eprintf " '%s'") db.core.idx_to_col_names;
+      Printf.eprintf "\n%!";
       if verbose then begin
-        Printf.printf "[K-mer hashes (%d)]:" (Array.length db.core.idx_to_row_names);
-        Array.iter (Printf.printf " '%s'") db.core.idx_to_row_names;
-        Printf.printf "\n%!"
+        Printf.eprintf "[K-mer hashes (%d)]:" (Array.length db.core.idx_to_row_names);
+        Array.iter (Printf.eprintf " '%s'") db.core.idx_to_row_names;
+        Printf.eprintf "\n%!"
       end;
-      Printf.printf "[Meta-data fields (%d)]:" (Array.length db.core.idx_to_meta_names);
-      Array.iter (Printf.printf " '%s'") db.core.idx_to_meta_names;
-      Printf.printf "\n%!"
+      Printf.eprintf "[Meta-data fields (%d)]:" (Array.length db.core.idx_to_meta_names);
+      Array.iter (Printf.eprintf " '%s'") db.core.idx_to_meta_names;
+      Printf.eprintf "\n%!"
     (* *)
     let resize_array ?(exact = false) n null a =
       let l = Array.length a in
@@ -324,6 +326,9 @@ module [@warning "-32"] KMerDB:
         col_names_to_idx = invert_table core.idx_to_col_names;
         row_names_to_idx = invert_table core.idx_to_row_names;
         meta_names_to_idx = invert_table core.idx_to_meta_names }
+    let make_filename_binary = function
+      | w when String.length w >= 5 && String.sub w 0 5 = "/dev/" -> w
+      | prefix -> prefix ^ ".KPopCountDB"
     (* *)
     exception WrongNumberOfColumns of int * int * int
     let add_meta db fname =
@@ -965,6 +970,9 @@ module [@warning "-32"] KMerDB:
         Printf.eprintf "\rWriting table to file '%s': done %d/%d lines.\n%!" fname n_done n_done
       end;
       close_out output
+    let make_filename_table = function
+      | w when String.length w >= 5 && String.sub w 0 5 = "/dev/" -> w
+      | prefix -> prefix ^ ".KPopCountDB.txt"
 
   end
 
@@ -1007,7 +1015,7 @@ module Parameters =
     let verbose = ref Defaults.verbose
   end
 
-let version = "0.23"
+let version = "0.25"
 
 let _ =
   Printf.eprintf "This is the KPopCountDB program (version %s)\n%!" version;
@@ -1023,10 +1031,11 @@ let _ =
       TA.Optional,
       (fun _ -> Empty |> TM.accum Parameters.program);
     [ "-i"; "-I"; "--input" ],
-      Some "<binary_file_name>",
-      [ "load to the register the database present in the specified file" ],
+      Some "<binary_file_prefix>",
+      [ "load to the register the database present in the specified file";
+        " (which must have extension .KPopCountDB)" ],
       TA.Optional,
-      (fun _ -> Of_file (TA.get_parameter ()) |> TM.accum Parameters.program);
+      (fun _ -> Of_file (TA.get_parameter () |> KMerDB.make_filename_binary) |> TM.accum Parameters.program);
     [ "-m"; "-M"; "--metadata"; "--add-metadata" ],
       Some "<metadata_table_file_name>",
       [ "add to the database present in the register metadata from the specified file" ],
@@ -1125,8 +1134,8 @@ let _ =
       Some "'true'|'false'",
       [ "whether to transpose the database present in the register";
         "before writing it as a tab-separated file";
-        "(if 'true' : rows are vector names, columns are (metadata and) k-mer names;";
-        " if 'false': rows are (metadata and) k-mer names, columns are vector names)" ],
+        " (if 'true' : rows are vector names, columns are (metadata and) k-mer names;";
+        "  if 'false': rows are (metadata and) k-mer names, columns are vector names)" ],
       TA.Default (fun () -> string_of_bool Defaults.table_filter.transpose),
       (fun _ -> Table_transpose (TA.get_parameter_boolean ()) |> TM.accum Parameters.program);
     [ "--table-threshold" ],
@@ -1154,16 +1163,18 @@ let _ =
       TA.Default (fun () -> string_of_bool Defaults.table_filter.print_zero_rows),
       (fun _ -> Table_emit_zero_rows (TA.get_parameter_boolean ()) |> TM.accum Parameters.program);
     [ "-t"; "--table" ],
-      Some "<file_name>",
-      [ "write as a tab-separated file the database present in the register";
-        "(rows are k-mer names, columns are vector names)" ],
+      Some "<file_prefix>",
+      [ "write the database present in the register as a tab-separated file";
+        " (rows are k-mer names, columns are vector names;";
+        "  the file will be given extension .KPopCountDB.txt)" ],
       TA.Optional,
-      (fun _ -> To_table (TA.get_parameter ()) |> TM.accum Parameters.program);
+      (fun _ -> To_table (TA.get_parameter () |> KMerDB.make_filename_table) |> TM.accum Parameters.program);
     [ "-o"; "-O"; "--output" ],
-      Some "<binary_file_name>",
-      [ "dump to the specified file the database present in the register" ],
+      Some "<binary_file_prefix>",
+      [ "dump the database present in the register to the specified file";
+        " (which will be given extension .KPopCountDB)" ],
       TA.Optional,
-      (fun _ -> To_file (TA.get_parameter ()) |> TM.accum Parameters.program);
+      (fun _ -> To_file (TA.get_parameter () |> KMerDB.make_filename_binary) |> TM.accum Parameters.program);
     [], None, [ "Miscellaneous (executed immediately):" ], TA.Optional, (fun _ -> ());
     [ "-T"; "--threads" ],
       Some "<computing_threads>",

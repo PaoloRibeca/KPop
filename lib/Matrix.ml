@@ -180,13 +180,13 @@ include (
               Tools.Misc.accum storage numbers;
               let new_elts_read = !elts_read + num_cols in
               if verbose && new_elts_read / 100000 > !elts_read / 100000 then
-                Printf.printf "\r(%s): On line %d of file '%s': Read %d elements%!            \r"
+                Printf.eprintf "\r(%s): On line %d of file '%s': Read %d elements%!            \r"
                   __FUNCTION__ !line_num filename !elts_read;
               elts_read := new_elts_read))
           threads;
         close_in input;
         if verbose then
-          Printf.printf "\r(%s): On line %d of file '%s': Read %d elements.            \n%!"
+          Printf.eprintf "\r(%s): On line %d of file '%s': Read %d elements.            \n%!"
             __FUNCTION__ !line_num filename !elts_read
       with End_of_file ->
         (* Empty file *)
@@ -236,10 +236,10 @@ include (
             storage.(i) <- row_i;
             incr elts_done;
             if verbose && !elts_done mod elements_per_step = 0 then
-              Printf.printf "\r(%s): Done %d/%d rows%!            \r" __FUNCTION__ !elts_done row_num))
+              Printf.eprintf "\r(%s): Done %d/%d rows%!            \r" __FUNCTION__ !elts_done row_num))
         threads;
       if verbose then
-        Printf.printf "\r(%s): Done %d/%d rows.            \n%!" __FUNCTION__ !elts_done row_num;
+        Printf.eprintf "\r(%s): Done %d/%d rows.            \n%!" __FUNCTION__ !elts_done row_num;
       { idx_to_col_names = m.idx_to_row_names;
         idx_to_row_names = m.idx_to_col_names;
         storage = storage }
@@ -284,10 +284,10 @@ include (
             Float.Array.set res i el;
             incr elts_done;
             if verbose && !elts_done mod elements_per_step = 0 then
-              Printf.printf "\r(%s): Done %d/%d elements%!            \r" __FUNCTION__ !elts_done d))
+              Printf.eprintf "\r(%s): Done %d/%d elements%!            \r" __FUNCTION__ !elts_done d))
         threads;
       if verbose then
-        Printf.printf "\r(%s): Done %d/%d elements.            \n%!" __FUNCTION__ !elts_done d;
+        Printf.eprintf "\r(%s): Done %d/%d elements.            \n%!" __FUNCTION__ !elts_done d;
       res
     let multiply_matrix_matrix ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) m1 m2 =
       if m1.idx_to_col_names <> m2.idx_to_row_names then
@@ -336,10 +336,10 @@ include (
             Float.Array.set storage.(i) j el;
             incr elts_done;
             if verbose && !elts_done mod elements_per_step = 0 then
-              Printf.printf "\r(%s): Done %d/%d elements%!            \r" __FUNCTION__ !elts_done prod))
+              Printf.eprintf "\r(%s): Done %d/%d elements%!            \r" __FUNCTION__ !elts_done prod))
         threads;
       if verbose then
-        Printf.printf "\r(%s): Done %d/%d elements.            \n%!" __FUNCTION__ !elts_done prod;
+        Printf.eprintf "\r(%s): Done %d/%d elements.            \n%!" __FUNCTION__ !elts_done prod;
       { idx_to_col_names = m2.idx_to_col_names;
         idx_to_row_names = m1.idx_to_row_names;
         storage = storage }
@@ -384,11 +384,11 @@ include (
             Float.Array.set storage.(i) j dist;
             incr elts_done;
             if verbose && !elts_done mod elements_per_step = 0 then
-              Printf.printf "\r(%s): Done %d/%d elements%!            \r" __FUNCTION__ !elts_done total))
+              Printf.eprintf "\r(%s): Done %d/%d elements%!            \r" __FUNCTION__ !elts_done total))
         threads;
       if verbose then begin
-        Printf.printf "\r(%s): Done %d/%d elements.            \n%!" __FUNCTION__ !elts_done total;
-        Printf.printf "(%s): Symmetrizing...%!" __FUNCTION__
+        Printf.eprintf "\r(%s): Done %d/%d elements.            \n%!" __FUNCTION__ !elts_done total;
+        Printf.eprintf "(%s): Symmetrizing...%!" __FUNCTION__
       end;
       (* We symmetrise the matrix *)
       let red_d = d - 1 in
@@ -398,7 +398,7 @@ include (
         done
       done;
       if verbose then
-        Printf.printf " done.\n%!";
+        Printf.eprintf " done.\n%!";
       { idx_to_col_names = m.idx_to_row_names;
         idx_to_row_names = m.idx_to_row_names;
         storage = storage }
@@ -443,10 +443,10 @@ include (
             Float.Array.set storage.(i) j dist;
             incr elts_done;
             if verbose && !elts_done mod elements_per_step = 0 then
-              Printf.printf "\r(%s): Done %d/%d elements%!            \r" __FUNCTION__ prod !elts_done))
+              Printf.eprintf "\r(%s): Done %d/%d elements%!            \r" __FUNCTION__ prod !elts_done))
         threads;
       if verbose then
-        Printf.printf "\r(%s): Done %d/%d elements.            \n%!" __FUNCTION__ prod !elts_done;
+        Printf.eprintf "\r(%s): Done %d/%d elements.            \n%!" __FUNCTION__ prod !elts_done;
       { idx_to_col_names = m2.idx_to_row_names;
         idx_to_row_names = m1.idx_to_row_names;
         storage = storage }
