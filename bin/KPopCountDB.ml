@@ -41,11 +41,260 @@ Tools.BA.Vector (
   end
 )
 
-(* K-mers are stored as columns, labels as rows *)
-
-module [@warning "-32"] KMerDB:
+module [@warning "-32"] rec Transformation:
   sig
-    type t
+    (* Transformation function *)
+    type t =
+      | None
+      | Normalize of int * float
+      | CLR of int * float
+      | Pseudo of int * float
+    exception Invalid_transformation of string * int * float
+    val compute: which:t -> col_num:int -> col_stats:Statistics.t -> row_num:int -> row_stats:Statistics.t -> int -> float
+    type parameters_t = {
+      which: string;
+      threshold: int;
+      power: float
+    }
+    exception Unknown_transformation of string
+    val of_parameters: parameters_t -> t
+    val to_parameters: t -> parameters_t
+  end
+= struct
+    type t =
+      | None
+      | Normalize of int * float
+      | CLR of int * float
+      | Pseudo of int * float
+    exception Invalid_transformation of string * int * float
+    let epsilon = 0.1
+    let [@warning "-27"] compute ~which ~col_num ~col_stats ~row_num ~row_stats counts =
+      match which with
+      | None ->
+        float_of_int counts
+      | Normalize (threshold, power) ->
+        if counts >= threshold then
+          (float_of_int counts ** power) /. col_stats.Statistics.sum
+        else
+          0.
+      | CLR (threshold, power) ->
+        let v =
+          if counts >= threshold then
+            float_of_int counts
+          else
+            0. in
+        let v = max v epsilon in
+        (log v *. power) -. (col_stats.Statistics.sum_log /. float_of_int col_stats.non_zero)
+      | Pseudo (threshold, power) ->
+        if power < 0. then
+          Invalid_transformation ("pseudocounts", threshold, power) |> raise;
+        let counts = float_of_int counts in
+        let v =
+          if power = 0. then
+            (float_of_int col_stats.Statistics.max) *. log ((counts +. 1.) /. float_of_int threshold)
+          else begin
+            let red_threshold = threshold - 1 |> float_of_int |> max 0. in
+            let c_p = red_threshold ** power in
+            if power < 1. then
+              ((counts ** power) -. c_p) *. ((float_of_int col_stats.Statistics.max) ** (1. -. power)) /. power
+            else
+              ((counts ** power) -. c_p) /. ((float_of_int threshold ** power) -. c_p)
+          end in
+        floor v /. col_stats.sum |> max 0.
+    type parameters_t = {
+      which: string;
+      threshold: int;
+      power: float
+    }
+    exception Unknown_transformation of string
+    let of_parameters { which; threshold; power } =
+      match which with
+      | "none" ->
+        None
+      | "normalize" | "normalise" | "norm" ->
+        Normalize (threshold, power)
+      | "clr" | "CLR" ->
+        CLR (threshold, power)
+      | "pseudocounts" | "pseudo" ->
+        Pseudo (threshold, power)
+      | s ->
+        Unknown_transformation s |> raise
+    let to_parameters = function
+      | None -> { which = "none"; threshold = 1; power = 1. }
+      | Normalize (threshold, power) -> { which = "normalize"; threshold; power }
+      | CLR (threshold, power) -> { which = "clr"; threshold; power }
+      | Pseudo (threshold, power) -> { which = "pseudocounts"; threshold; power }
+  end
+and [@warning "-32"] Statistics:
+  sig
+    type t = {
+      non_zero: int;
+      min: int;
+      max: int;
+      sum: float;
+      sum_log: float
+      (*
+      mean: float;
+      variance: float
+      (* Could be extended with more moments if needed *)
+      *)
+      }
+    val empty: t
+    type table_t = {
+      col_stats: t array;
+      row_stats: t array
+    }
+    val table_of_db: ?threads:int -> ?verbose:bool -> Transformation.t -> KMerDB.t -> table_t
+  end
+= struct
+    type t = {
+      non_zero: int;
+      min: int;
+      max: int;
+      sum: float;
+      sum_log: float
+      (*
+      mean: float;
+      variance: float
+      *)
+    }
+    let empty = {
+      non_zero = 0;
+      min = 0;
+      max = 0;
+      sum = 0.;
+      sum_log = 0.
+      (*
+      mean = 0.;
+      variance = 0.
+      *)
+    }
+    type table_t = {
+      col_stats: t array;
+      row_stats: t array
+    }
+    (*
+    let resize_statistics_array ?(exact = false) n a =
+      resize_array ~exact n empty_statistics a
+    *)
+    type col_or_row_t =
+    | Col
+    | Row
+    let col_or_row_to_string = function
+    | Col -> "column"
+    | Row -> "row"
+    let table_of_db ?(threads = 1) ?(verbose = false) transf db =
+      let { Transformation.threshold; power; _ } = Transformation.to_parameters transf in
+      let core = db.KMerDB.core in
+      let compute_one what n =
+        let non_zero = ref 0 and min = ref 0 and max = ref 0 and sum = ref 0. and sum_log = ref 0.
+        and red_len =
+          match what with
+          | Col ->
+            core.n_rows - 1
+          | Row ->
+            core.n_cols - 1 in
+        for i = 0 to red_len do
+          let v =
+            match what with
+            | Col ->
+              IBAVector.N.to_int core.storage.(n).IBAVector.=(i)
+            | Row ->
+              IBAVector.N.to_int core.storage.(i).IBAVector.=(n) in
+          let v =
+            if v >= threshold then
+              v
+            else
+              0 in
+          if v <> 0 then begin
+            incr non_zero;
+            let f_v = float_of_int v in
+            min := Stdlib.min !min v;
+            max := Stdlib.max !max v;
+            sum := !sum +. (f_v ** power);
+            sum_log := !sum_log +. (log f_v *. power)
+          end
+        done;
+        { non_zero = !non_zero;
+          min = !min;
+          max = !max;
+          sum = !sum;
+          sum_log = !sum_log } in
+      let compute_all what =
+        let n =
+          match what with
+          | Col ->
+            core.n_cols
+          | Row ->
+            core.n_rows in
+        let step = n / threads / 5 |> max 1 and processed = ref 0 and res = ref [] in
+        Tools.Parallel.process_stream_chunkwise
+          (fun () ->
+            if verbose then
+              Printf.eprintf "\rComputing %s statistics [%d/%d]%!" (col_or_row_to_string what) !processed n;
+            let to_do = n - !processed in
+            if to_do > 0 then begin
+              let to_do = min to_do step in
+              let res = !processed, to_do in
+              processed := !processed + to_do;
+              res
+            end else
+              raise End_of_file)
+          (fun (processed, to_do) ->
+            let res = ref [] and red_to_do = to_do - 1 in
+            for i = 0 to red_to_do do
+              processed + i |> compute_one what |> Tools.Misc.accum res
+            done;
+            Tools.Misc.array_of_rlist !res)
+          (Tools.Misc.accum res)
+          threads;
+        let rec binary_merge_arrays processed to_do =
+          match processed, to_do with
+          | [], [] ->
+            [||]
+          | [], [a] ->
+            a
+          | [res], [] ->
+            res
+          | [res], [a] ->
+            Array.append res a
+          | _, [] ->
+            List.rev processed |> binary_merge_arrays []
+          | _, [a] ->
+            a :: processed |> List.rev |> binary_merge_arrays []
+          | _, a1 :: a2 :: tl ->
+            binary_merge_arrays ((Array.append a1 a2) :: processed) tl in
+        let res = List.rev !res |> binary_merge_arrays [] in
+        if verbose then
+          Printf.eprintf "\rComputing %s statistics [%d/%d]\n%!" (col_or_row_to_string what) n n;
+        res in
+      { col_stats = compute_all Col;
+        row_stats = compute_all Row }
+  end
+and KMerDB:
+(*
+  K-mers are stored as columns, labels as rows
+*)
+  sig
+    type marshalled_t = {
+      n_cols: int; (* The number of vectors *)
+      n_rows: int; (* The number of k-mers *)
+      n_meta: int; (* The number of metadata fields *)
+      (* We number rows, columns and metadata fields starting from 0 *)
+      idx_to_col_names: string array;
+      idx_to_row_names: string array;
+      idx_to_meta_names: string array;
+      (* *)
+      meta: string array array; (* Dims = n_cols * n_meta *)
+      storage: IBAVector.t array (* Frequencies are stored as integers. Dims = n_cols * n_rows *)
+    }
+    type t = {
+      core: marshalled_t;
+      (* Inverted hashes for parsing *)
+      col_names_to_idx: (string, int) Hashtbl.t; (* Labels *)
+      row_names_to_idx: (string, int) Hashtbl.t; (* Hashes *)
+      meta_names_to_idx: (string, int) Hashtbl.t (* Metadata fields *)
+    }
     val make_empty: unit -> t
     (* Adds metadata - the first field must be the label *)
     exception WrongNumberOfColumns of int * int * int
@@ -71,45 +320,6 @@ module [@warning "-32"] KMerDB:
     val to_binary: ?verbose:bool -> t -> string -> unit
     val of_binary: ?verbose:bool -> string -> t
     val make_filename_binary: string -> string
-    module Statistics:
-      sig
-        type tt = t
-        type t = {
-          non_zero: int;
-          min: int;
-          max: int;
-          sum: float;
-          sum_log: float
-          (*
-          mean: float;
-          variance: float
-          (* Could be extended with more moments if needed *)
-          *)
-          }
-        val empty: t
-        type table_t = {
-          col_stats: t array;
-          row_stats: t array
-        }
-        val table_of_db: ?threshold:int -> ?power:float -> ?threads:int -> ?verbose:bool -> tt -> table_t
-      end
-    module Transformation:
-      sig
-        (* Transformation function *)
-        type function_t =
-          threshold:int -> power:float ->
-          col_num:int -> col_stats:Statistics.t -> row_num:int -> row_stats:Statistics.t -> int -> float
-        type t =
-          | None of function_t
-          | Normalize of function_t
-          | CLR of function_t
-          | Pseudo of function_t
-        exception Unknown_transformation of string
-        exception Invalid_transformation of string * int * float
-        val of_string: string -> t
-        val to_string: t -> string
-        val to_function_t: t -> function_t
-      end
     module TableFilter:
       sig
         type t = {
@@ -117,11 +327,10 @@ module [@warning "-32"] KMerDB:
           print_col_names: bool;
           print_metadata: bool;
           transpose: bool;
-          threshold: int;
-          power: float;
           transform: Transformation.t;
           print_zero_rows: bool;
-          filter_columns: StringSet.t
+          filter_columns: StringSet.t;
+          precision: int
         }
         val default: t
       end
@@ -132,25 +341,22 @@ module [@warning "-32"] KMerDB:
   end
 = struct
     type marshalled_t = {
-      n_cols: int; (* The number of vectors *)
-      n_rows: int; (* The number of k-mers *)
-      n_meta: int; (* The number of metadata fields *)
-      (* We number rows, columns and metadata fields starting from 0 *)
+      n_cols: int;
+      n_rows: int;
+      n_meta: int;
       idx_to_col_names: string array;
       idx_to_row_names: string array;
       idx_to_meta_names: string array;
-      (* *)
-      meta: string array array; (* Dims = n_cols * n_meta *)
-      storage: IBAVector.t array (* Frequencies are stored as integers. Dims = n_cols * n_rows *)
+      meta: string array array;
+      storage: IBAVector.t array
     }
     type t = {
       core: marshalled_t;
-      (* Inverted hashes for parsing *)
-      col_names_to_idx: (string, int) Hashtbl.t; (* Labels *)
-      row_names_to_idx: (string, int) Hashtbl.t; (* Hashes *)
-      meta_names_to_idx: (string, int) Hashtbl.t (* Metadata fields *)
+      col_names_to_idx: (string, int) Hashtbl.t;
+      row_names_to_idx: (string, int) Hashtbl.t;
+      meta_names_to_idx: (string, int) Hashtbl.t
     }
-
+    (* *)
     let make_empty () = {
       core = {
         n_cols = 0;
@@ -280,17 +486,15 @@ module [@warning "-32"] KMerDB:
       let aug_n_cols = n_cols + 1 in
       if Hashtbl.mem !db.col_names_to_idx label |> not then begin
         Hashtbl.add !db.col_names_to_idx label n_cols; (* THIS ONE CHANGES !db *)
-        db := {
-          !db with
-          core = {
-            !db.core with
-            n_cols = aug_n_cols;
-            (* We have to resize all the relevant containers *)
-            idx_to_col_names = Array.append !db.core.idx_to_col_names [| label |];
-            meta = resize_string_array_array aug_n_cols !db.core.n_meta !db.core.meta;
-            storage = IBAVectorMisc.resize_array aug_n_cols !db.core.n_rows !db.core.storage
-          }
-        }
+        db :=
+          { !db with
+            core =
+            { !db.core with
+              n_cols = aug_n_cols;
+              (* We have to resize all the relevant containers *)
+              idx_to_col_names = Array.append !db.core.idx_to_col_names [| label |];
+              meta = resize_string_array_array aug_n_cols !db.core.n_meta !db.core.meta;
+              storage = IBAVectorMisc.resize_array aug_n_cols !db.core.n_rows !db.core.storage } }
       end
     (* *)
     let archive_version = "2022-04-03"
@@ -355,16 +559,14 @@ module [@warning "-32"] KMerDB:
           (fun i name -> !db.core.n_meta + i |> Hashtbl.add !db.meta_names_to_idx name)
           missing;
         let n_meta = !db.core.n_meta + missing_len in
-        db := {
-          !db with
-          core = {
-            !db.core with
-            n_meta = n_meta;
-            (* We have to resize all the relevant containers *)
-            idx_to_meta_names = Array.append !db.core.idx_to_meta_names missing;
-            meta = resize_string_array_array !db.core.n_cols n_meta !db.core.meta
-          }
-        }
+        db :=
+          { !db with
+            core =
+              { !db.core with
+                n_meta;
+                (* We have to resize all the relevant containers *)
+                idx_to_meta_names = Array.append !db.core.idx_to_meta_names missing;
+                meta = resize_string_array_array !db.core.n_cols n_meta !db.core.meta } }
       end;
       let num_header_fields = Array.length header
       and meta_indices =
@@ -428,20 +630,18 @@ module [@warning "-32"] KMerDB:
                   let n_rows = !db.core.n_rows in
                   let aug_n_rows = n_rows + 1 in
                   Hashtbl.add !db.row_names_to_idx line.(0) n_rows;
-                  db := {
-                    !db with
-                    core = {
-                      !db.core with
-                      n_rows = aug_n_rows;
-                      (* We have to resize all the relevant containers *)
-                      idx_to_row_names = begin
-                        let res = resize_string_array aug_n_rows !db.core.idx_to_row_names in
-                        res.(n_rows) <- line.(0);
-                        res
-                      end;
-                      storage = IBAVectorMisc.resize_array !db.core.n_cols aug_n_rows !db.core.storage
-                    }
-                  }
+                  db :=
+                    { !db with
+                      core =
+                        { !db.core with
+                          n_rows = aug_n_rows;
+                          (* We have to resize all the relevant containers *)
+                          idx_to_row_names = begin
+                            let res = resize_string_array aug_n_rows !db.core.idx_to_row_names in
+                            res.(n_rows) <- line.(0);
+                            res
+                          end;
+                          storage = IBAVectorMisc.resize_array !db.core.n_cols aug_n_rows !db.core.storage } }
                 end;
                 let row_idx = Hashtbl.find !db.row_names_to_idx line.(0) in
                 let v =
@@ -462,133 +662,6 @@ module [@warning "-32"] KMerDB:
           end)
         fnames;
       !db
-    (* *)
-    module Statistics =
-      struct
-        type tt = t
-        type t = {
-          non_zero: int;
-          min: int;
-          max: int;
-          sum: float;
-          sum_log: float
-          (*
-          mean: float;
-          variance: float
-          *)
-        }
-        let empty = {
-          non_zero = 0;
-          min = 0;
-          max = 0;
-          sum = 0.;
-          sum_log = 0.
-          (*
-          mean = 0.;
-          variance = 0.
-          *)
-        }
-        type table_t = {
-          col_stats: t array;
-          row_stats: t array
-        }
-        (*
-        let resize_statistics_array ?(exact = false) n a =
-          resize_array ~exact n empty_statistics a
-        *)
-        type col_or_row_t =
-        | Col
-        | Row
-        let col_or_row_to_string = function
-        | Col -> "column"
-        | Row -> "row"
-        let table_of_db ?(threshold = 1) ?(power = 1.) ?(threads = 1) ?(verbose = false) db =
-          let core = db.core in
-          let compute_one what n =
-            let non_zero = ref 0 and min = ref 0 and max = ref 0 and sum = ref 0. and sum_log = ref 0.
-            and red_len =
-              match what with
-              | Col ->
-                core.n_rows - 1
-              | Row ->
-                core.n_cols - 1 in
-            for i = 0 to red_len do
-              let v =
-                match what with
-                | Col ->
-                  IBAVector.N.to_int core.storage.(n).IBAVector.=(i)
-                | Row ->
-                  IBAVector.N.to_int core.storage.(i).IBAVector.=(n) in
-              let v =
-                if v >= threshold then
-                  v
-                else
-                  0 in
-              if v <> 0 then begin
-                incr non_zero;
-                let f_v = float_of_int v in
-                min := Stdlib.min !min v;
-                max := Stdlib.max !max v;
-                sum := !sum +. (f_v ** power);
-                sum_log := !sum_log +. (log f_v *. power)
-              end
-            done;
-            { non_zero = !non_zero;
-              min = !min;
-              max = !max;
-              sum = !sum;
-              sum_log = !sum_log } in
-          let compute_all what =
-            let n =
-              match what with
-              | Col ->
-                core.n_cols
-              | Row ->
-                core.n_rows in
-            let step = n / threads / 5 |> max 1 and processed = ref 0 and res = ref [] in
-            Tools.Parallel.process_stream_chunkwise
-              (fun () ->
-                if verbose then
-                  Printf.eprintf "\rComputing %s statistics [%d/%d]%!" (col_or_row_to_string what) !processed n;
-                let to_do = n - !processed in
-                if to_do > 0 then begin
-                  let to_do = min to_do step in
-                  let res = !processed, to_do in
-                  processed := !processed + to_do;
-                  res
-                end else
-                  raise End_of_file)
-              (fun (processed, to_do) ->
-                let res = ref [] and red_to_do = to_do - 1 in
-                for i = 0 to red_to_do do
-                  processed + i |> compute_one what |> Tools.Misc.accum res
-                done;
-                Tools.Misc.array_of_rlist !res)
-              (Tools.Misc.accum res)
-              threads;
-            let rec binary_merge_arrays processed to_do =
-              match processed, to_do with
-              | [], [] ->
-                [||]
-              | [], [a] ->
-                a
-              | [res], [] ->
-                res
-              | [res], [a] ->
-                Array.append res a
-              | _, [] ->
-                List.rev processed |> binary_merge_arrays []
-              | _, [a] ->
-                a :: processed |> List.rev |> binary_merge_arrays []
-              | _, a1 :: a2 :: tl ->
-                binary_merge_arrays ((Array.append a1 a2) :: processed) tl in
-            let res = List.rev !res |> binary_merge_arrays [] in
-            if verbose then
-              Printf.eprintf "\rComputing %s statistics [%d/%d]\n%!" (col_or_row_to_string what) n n;
-            res in
-          { col_stats = compute_all Col;
-            row_stats = compute_all Row }
-      end
     (* *)
     let selected_from_regexps ?(verbose = false) db regexps =
       (* We iterate over the columns *)
@@ -630,7 +703,8 @@ module [@warning "-32"] KMerDB:
     (* It should be OK to have the same label on both LHS and RHS, as a temporary vector is used *)
     let add_sum_selected ?(threads = 1) ?(verbose = false) db new_label selection =
       (* Here we want no thresholding and linear statistics *)
-      let stats = Statistics.table_of_db ~threshold:0 ~power:1. ~threads ~verbose db and db = ref db in
+      let transf = Transformation.of_parameters { which = "normalize"; threshold = 1; power = 1. } in
+      let stats = Statistics.table_of_db ~threads ~verbose transf db and db = ref db in
       if verbose then
         Printf.eprintf "Adding/replacing vector '%s': [%!" new_label;
       add_empty_column_if_needed db new_label;
@@ -729,74 +803,6 @@ module [@warning "-32"] KMerDB:
         row_names_to_idx = invert_table core.idx_to_row_names;
         meta_names_to_idx = invert_table core.idx_to_meta_names }
     (* *)
-    module Transformation =
-      struct
-        type function_t =
-          threshold:int -> power:float ->
-          col_num:int -> col_stats:Statistics.t -> row_num:int -> row_stats:Statistics.t -> int -> float
-        type t =
-        | None of function_t
-        | Normalize of function_t
-        | CLR of function_t
-        | Pseudo of function_t
-        let [@warning "-27"] none ~threshold ~power ~col_num ~col_stats ~row_num ~row_stats counts =
-          float_of_int counts
-        let [@warning "-27"] normalize ~threshold ~power ~col_num ~col_stats ~row_num ~row_stats counts =
-          if counts >= threshold then
-            (float_of_int counts ** power) /. col_stats.Statistics.sum
-          else
-            0.
-        let epsilon = 0.1
-        let [@warning "-27"] clr ~threshold ~power ~col_num ~col_stats ~row_num ~row_stats counts =
-          let v =
-            if counts >= threshold then
-              float_of_int counts
-            else
-              0. in
-          let v = max v epsilon in
-          (log v *. power) -. (col_stats.Statistics.sum_log /. float_of_int col_stats.non_zero)
-        exception Unknown_transformation of string
-        exception Invalid_transformation of string * int * float
-        let [@warning "-27"] pseudocounts ~threshold ~power ~col_num ~col_stats ~row_num ~row_stats counts =
-          if power < 0. then
-            Invalid_transformation ("pseudocounts", threshold, power) |> raise;
-          let counts = float_of_int counts in
-          let v =
-            if power = 0. then
-              (float_of_int col_stats.Statistics.max) *. log ((counts +. 1.) /. float_of_int threshold)
-            else begin
-              let red_threshold = threshold - 1 |> float_of_int |> max 0. in
-              let c_p = red_threshold ** power in
-              if power < 1. then
-                ((counts ** power) -. c_p) *. ((float_of_int col_stats.Statistics.max) ** (1. -. power)) /. power
-              else
-                ((counts ** power) -. c_p) /. ((float_of_int threshold ** power) -. c_p)
-            end in
-          floor v /. col_stats.sum |> max 0.
-        let of_string = function
-          | "none" ->
-            None none
-          | "normalize" | "normalise" | "norm" ->
-            Normalize normalize
-          | "clr" | "CLR" ->
-            CLR clr
-          | "pseudocounts" | "pseudo" ->
-            Pseudo pseudocounts
-          | s ->
-            Unknown_transformation s |> raise
-        let to_string = function
-          | None _ ->
-            "none"
-          | Normalize _ ->
-            "normalize"
-          | CLR _ ->
-            "clr"
-          | Pseudo _ ->
-            "pseudocounts"
-        let to_function_t = function
-          | None f | Normalize f | CLR f | Pseudo f ->
-            f
-      end
     module TableFilter =
       struct
         type t = {
@@ -804,27 +810,25 @@ module [@warning "-32"] KMerDB:
           print_col_names: bool;
           print_metadata: bool;
           transpose: bool;
-          threshold: int;
-          power: float;
           transform: Transformation.t;
           print_zero_rows: bool;
-          filter_columns: StringSet.t
+          filter_columns: StringSet.t;
+          precision: int
         }
         let default = {
           print_row_names = true;
           print_col_names = true;
           print_metadata = false;
           transpose = false;
-          threshold = 1;
-          power = 1.;
-          transform = Transformation.of_string "normalize";
+          transform = Transformation.of_parameters { which = "normalize"; threshold = 1; power = 1. };
           print_zero_rows = false;
-          filter_columns = StringSet.empty
+          filter_columns = StringSet.empty;
+          precision = 15
         }      
       end
     let to_table ?(filter = TableFilter.default) ?(threads = 1) ?(verbose = false) db fname =
-      let transform = Transformation.to_function_t filter.transform
-      and stats = Statistics.table_of_db ~threshold:filter.threshold ~power:filter.power ~threads ~verbose db
+      let transform = Transformation.compute ~which:filter.transform
+      and stats = Statistics.table_of_db ~threads ~verbose filter.transform db
       and output = open_out fname and meta = ref [] and rows = ref [] and cols = ref [] in
       (* We determine which rows and colunms should be output after all filters have been applied *)
       (*  Rows: metadata and k-mers *)
@@ -899,9 +903,9 @@ module [@warning "-32"] KMerDB:
                   meta;
                 Array.iter
                   (fun (_, row_idx) ->
-                    Printf.bprintf buf "%s%.10g" (if !first_done then "\t" else "") begin
+                    Printf.bprintf buf "%s%.*g" (if !first_done then "\t" else "") filter.precision begin
                       IBAVector.N.to_int db.core.storage.(col_idx).IBAVector.=(row_idx) |>
-                        transform ~threshold:filter.threshold ~power:filter.power
+                        transform
                           ~col_num:db.core.n_cols ~col_stats:stats.col_stats.(col_idx)
                           ~row_num:db.core.n_rows ~row_stats:stats.row_stats.(row_idx)
                     end;
@@ -960,11 +964,11 @@ module [@warning "-32"] KMerDB:
                   Printf.bprintf buf "%s\t" row_name;
                 Array.iteri
                   (fun j (_, col_idx) ->
-                    Printf.bprintf buf "%s%.10g" (if j = 0 then "" else "\t") begin
+                    Printf.bprintf buf "%s%.*g" (if j = 0 then "" else "\t") filter.precision begin
                       IBAVector.N.to_int db.core.storage.(col_idx).IBAVector.=(row_idx) |>
-                        transform ~threshold:filter.threshold ~power:filter.power
-                        ~col_num:db.core.n_cols ~col_stats:stats.col_stats.(col_idx)
-                        ~row_num:db.core.n_rows ~row_stats:stats.row_stats.(row_idx)
+                        transform
+                          ~col_num:db.core.n_cols ~col_stats:stats.col_stats.(col_idx)
+                          ~row_num:db.core.n_rows ~row_stats:stats.row_stats.(row_idx)
                     end)
                   cols;
                 Printf.bprintf buf "\n"
@@ -1007,27 +1011,28 @@ type to_do_t =
   | Selected_negate
   | Selected_print
   | Selected_clear
-  | Selected_to_table_filter
+  | Selected_to_filter
   | Table_emit_row_names of bool
   | Table_emit_col_names of bool
   | Table_emit_metadata of bool
   | Table_transpose of bool
-  | Table_threshold of int
-  | Table_power of float
-  | Table_transform of KMerDB.Transformation.t
+  | Table_transform of Transformation.parameters_t
   | Table_emit_zero_rows of bool
+  | Table_precision of int
   | To_table of string
   | To_file of string
   
 module Defaults =
   struct
-    let table_filter = KMerDB.TableFilter.default
+    let filter = KMerDB.TableFilter.default
     let threads = Tools.Parallel.get_nproc ()
     let verbose = false
   end
 
 module Parameters =
   struct
+    (* This is just to correctly propagate values in the program *)
+    let transform = Transformation.to_parameters Defaults.filter.transform |> ref
     let program = ref []
     let threads = ref Defaults.threads
     let verbose = ref Defaults.verbose
@@ -1135,24 +1140,24 @@ let _ =
       [ "filters out vectors whose labels are present in the selection register";
         "when writing the database as a tab-separated file" ],
       TA.Optional,
-      (fun _ -> Selected_to_table_filter |> TM.accum Parameters.program);
+      (fun _ -> Selected_to_filter |> TM.accum Parameters.program);
     [ "--table-emit-row-names" ],
       Some "'true'|'false'",
       [ "whether to emit row names for the database present in the register";
         "when writing it as a tab-separated file" ],
-      TA.Default (fun () -> string_of_bool Defaults.table_filter.print_row_names),
+      TA.Default (fun () -> string_of_bool Defaults.filter.print_row_names),
       (fun _ -> Table_emit_row_names (TA.get_parameter_boolean ()) |> TM.accum Parameters.program);
     [ "--table-emit-col-names" ],
       Some "'true'|'false'",
       [ "whether to emit column names for the database present in the register";
         "when writing it as a tab-separated file" ],
-      TA.Default (fun () -> string_of_bool Defaults.table_filter.print_col_names),
+      TA.Default (fun () -> string_of_bool Defaults.filter.print_col_names),
       (fun _ -> Table_emit_col_names (TA.get_parameter_boolean ()) |> TM.accum Parameters.program);
     [ "--table-emit-metadata" ],
       Some "'true'|'false'",
       [ "whether to emit metadata for the database present in the register";
         "when writing it as a tab-separated file" ],
-      TA.Default (fun () -> string_of_bool Defaults.table_filter.print_metadata),
+      TA.Default (fun () -> string_of_bool Defaults.filter.print_metadata),
       (fun _ -> Table_emit_metadata (TA.get_parameter_boolean ()) |> TM.accum Parameters.program);
     [ "--table-transpose" ],
       Some "'true'|'false'",
@@ -1160,32 +1165,42 @@ let _ =
         "before writing it as a tab-separated file";
         " (if 'true' : rows are vector names, columns are (metadata and) k-mer names;";
         "  if 'false': rows are (metadata and) k-mer names, columns are vector names)" ],
-      TA.Default (fun () -> string_of_bool Defaults.table_filter.transpose),
+      TA.Default (fun () -> string_of_bool Defaults.filter.transpose),
       (fun _ -> Table_transpose (TA.get_parameter_boolean ()) |> TM.accum Parameters.program);
     [ "--table-threshold" ],
       Some "<non_negative_integer>",
       [ "set to zero all counts that are less than this threshold";
         "before transforming and outputting them" ],
-      TA.Default (fun () -> string_of_int Defaults.table_filter.threshold),
-      (fun _ -> Table_threshold (TA.get_parameter_int_non_neg ()) |> TM.accum Parameters.program);
+      TA.Default (fun () -> (Transformation.to_parameters Defaults.filter.transform).threshold |> string_of_int),
+      (fun _ ->
+         Table_transform { !Parameters.transform with threshold = TA.get_parameter_int_non_neg () }
+           |> TM.accum Parameters.program);
     [ "--table-power" ],
       Some "<non_negative_float>",
       [ "raise counts to this power before transforming and outputting them.";
         "A power of 0 when the 'pseudocount' method is used";
         "performs a logarithmic transformation" ],
-      TA.Default (fun () -> string_of_float Defaults.table_filter.power),
-      (fun _ -> Table_power (TA.get_parameter_float_non_neg ()) |> TM.accum Parameters.program);
+      TA.Default (fun () -> (Transformation.to_parameters Defaults.filter.transform).power |> string_of_float),
+      (fun _ ->
+         Table_transform { !Parameters.transform with power = TA.get_parameter_float_non_neg () }
+           |> TM.accum Parameters.program);
     [ "--table-transform"; "--table-transformation" ],
       Some "'none'|'normalize'|'pseudocount'|'clr'",
       [ "transformation to apply to table elements before outputting them" ],
-      TA.Default (fun () -> KMerDB.Transformation.to_string Defaults.table_filter.transform),
-      (fun _ -> Table_transform (TA.get_parameter () |> KMerDB.Transformation.of_string) |> TM.accum Parameters.program);
+      TA.Default (fun () -> (Transformation.to_parameters Defaults.filter.transform).which),
+      (fun _ ->
+         Table_transform { !Parameters.transform with which = TA.get_parameter () } |> TM.accum Parameters.program);
     [ "--table-emit-zero-rows" ],
       Some "'true'|'false'",
       [ "whether to emit rows whose elements are all zero";
         "when writing the database as a tab-separated file" ],
-      TA.Default (fun () -> string_of_bool Defaults.table_filter.print_zero_rows),
+      TA.Default (fun () -> string_of_bool Defaults.filter.print_zero_rows),
       (fun _ -> Table_emit_zero_rows (TA.get_parameter_boolean ()) |> TM.accum Parameters.program);
+    [ "--table-set-precision" ],
+      Some "<positive_integer>",
+      [ "set the number of precision digits to be used when outputting counts" ],
+      TA.Default (fun () -> string_of_int Defaults.filter.precision),
+      (fun _ -> Table_precision (TA.get_parameter_int_pos ()) |> TM.accum Parameters.program);
     [ "-t"; "--table" ],
       Some "<file_prefix>",
       [ "write the database present in the register as a tab-separated file";
@@ -1226,7 +1241,7 @@ let _ =
     TA.header ();
   (* These are the three registers available to the program *)
   let current = KMerDB.make_empty () |> ref and selected = ref StringSet.empty
-  and table_filter = ref KMerDB.TableFilter.default in
+  and filter = ref KMerDB.TableFilter.default in
   
   (* The addition of an exception handler would be nice *)
   
@@ -1260,26 +1275,24 @@ let _ =
         Printf.eprintf " ].\n%!"
       | Selected_clear ->
         selected := StringSet.empty
-      | Selected_to_table_filter ->
-        table_filter := { !table_filter with filter_columns = !selected }
-      | Table_emit_row_names whether ->
-        table_filter := { !table_filter with print_row_names = whether }
-      | Table_emit_col_names whether ->
-        table_filter := { !table_filter with print_col_names = whether }
-      | Table_emit_metadata whether ->
-        table_filter := { !table_filter with print_metadata = whether }
-      | Table_transpose whether ->
-        table_filter := { !table_filter with transpose = whether }
-      | Table_threshold threshold ->
-        table_filter := { !table_filter with threshold = threshold }
-      | Table_power power ->
-        table_filter := { !table_filter with power = power }
+      | Selected_to_filter ->
+        filter := { !filter with filter_columns = !selected }
+      | Table_emit_row_names print_row_names ->
+        filter := { !filter with print_row_names }
+      | Table_emit_col_names print_col_names ->
+        filter := { !filter with print_col_names }
+      | Table_emit_metadata print_metadata ->
+        filter := { !filter with print_metadata }
+      | Table_transpose transpose ->
+        filter := { !filter with transpose }
       | Table_transform transform ->
-        table_filter := { !table_filter with transform = transform }
-      | Table_emit_zero_rows whether ->
-        table_filter := { !table_filter with print_zero_rows = whether }
+        filter := { !filter with transform = Transformation.of_parameters transform }
+      | Table_emit_zero_rows print_zero_rows ->
+        filter := { !filter with print_zero_rows }
+      | Table_precision precision ->
+        filter := { !filter with precision }
       | To_table fname ->
-        KMerDB.to_table ~filter:!table_filter ~threads:!Parameters.threads ~verbose:!Parameters.verbose !current fname
+        KMerDB.to_table ~filter:!filter ~threads:!Parameters.threads ~verbose:!Parameters.verbose !current fname
       | To_file fname ->
         KMerDB.to_binary ~verbose:!Parameters.verbose !current fname)
     program

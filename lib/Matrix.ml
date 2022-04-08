@@ -14,46 +14,106 @@
 *)
 
 (* A number of distance functions.
-   They all have signature: float array -> float array -> float *)
+   They all have signature: float array -> float array -> float array -> float *)
 module Distance:
   sig
-    type t = Float.Array.t -> Float.Array.t -> float
-    exception IncompatibleLengths of int * int
+    module Metric:
+      (* Functions to deduce a metric from a vector *)
+      sig
+        type t =
+          | Flat
+        val compute: t -> Float.Array.t -> Float.Array.t
+        exception Unknown_metric of string
+        val of_string: string -> t
+        val to_string: t -> string
+      end
+    type t =
+      | Euclidean
+      | Minkowski of float (* Theoretically speaking, the parameter should be an integer *)
+    exception IncompatibleLengths of int * int * int
     (* What happens when the vectors have incompatible lengths *)
     type mode_t =
       | Fail
       | Infinity
     val set_mode: mode_t -> unit
-    val euclidean: t
-  
+    val compute: t -> Float.Array.t -> Float.Array.t -> Float.Array.t -> float
+    type parameters_t = {
+      which: string;
+      power: float
+    }
+    exception Unknown_distance of string
+    val of_parameters: parameters_t -> t
+    val to_parameters: t -> parameters_t
   end
 = struct
-    type t = Float.Array.t -> Float.Array.t -> float
-    exception IncompatibleLengths of int * int
+    module Metric =
+      struct
+        type t =
+          | Flat
+        let compute = function
+          | Flat ->
+            Float.Array.map
+             (fun _ ->
+               1.)
+        exception Unknown_metric of string
+        let of_string name =
+          match name with
+          | "flat" ->
+            Flat
+          | w ->
+            Unknown_metric w |> raise
+        let to_string = function
+          | Flat -> "flat"
+      end
+    type t =
+      | Euclidean
+      | Minkowski of float
+    exception IncompatibleLengths of int * int * int
     type mode_t =
       | Fail
       | Infinity
     let mode = ref Fail
     let set_mode new_mode = mode := new_mode
-    let _proto_ f a b =
-      let length_a = Float.Array.length a and length_b = Float.Array.length b in
-      if length_a <> length_b then begin
+    let compute f m a b =
+      let length_a = Float.Array.length a and length_m = Float.Array.length m and length_b = Float.Array.length b in
+      if length_a <> length_m || length_m <> length_b then begin
         match !mode with
-        | Fail -> IncompatibleLengths (length_a, length_b) |> raise
+        | Fail -> IncompatibleLengths (length_a, length_m, length_b) |> raise
         | Infinity -> infinity
       end else
-        f a b
-    let euclidean =
-      _proto_
-        (fun a b ->
+        match f with
+        | Euclidean ->
           let acc = ref 0. in
-          Float.Array.iter2
-            (fun el_a el_b ->
-              let diff = el_a -. el_b in
-              acc := !acc +. (diff *. diff))
-            a b;
-          sqrt !acc)
-  
+          Float.Array.iteri
+            (fun i el_a ->
+              let diff = el_a -. Float.Array.get b i in
+              acc := !acc +. (diff *. diff *. Float.Array.get m i))
+            a;
+          sqrt !acc
+        | Minkowski power ->
+          let acc = ref 0. in
+          Float.Array.iteri
+            (fun i el_a ->
+              let diff = el_a -. Float.Array.get b i |> abs_float in
+              acc := !acc +. ((diff ** power) *. Float.Array.get m i))
+            a;
+          !acc ** (1. /. power)
+    type parameters_t = {
+      which: string;
+      power: float
+    }
+    exception Unknown_distance of string
+    let of_parameters parameters =
+      match parameters.which with
+      | "euclidean" ->
+        Euclidean
+      | "minkowski" ->
+        Minkowski parameters.power
+      | w ->
+        Unknown_distance w |> raise
+    let to_parameters = function
+      | Euclidean -> { which = "euclidean"; power = 2. }
+      | Minkowski power -> { which = "minkowski"; power }
   end
 
 module Misc =
@@ -79,7 +139,8 @@ include (
     }
     let empty =
       { idx_to_col_names = [||]; idx_to_row_names = [||]; storage = [||] }
-    let [@warning "-27"] to_file ?(threads = 1) ?(elements_per_step = 40000) ?(verbose = false) m filename =
+    let [@warning "-27"] to_file
+        ?(precision = 15) ?(threads = 1) ?(elements_per_step = 40000) ?(verbose = false) m filename =
       let output = open_out filename in
       if Array.length m.storage > 0 then begin
         (* We output the column names *)
@@ -94,7 +155,7 @@ include (
           (fun i row ->
             (* We output the row name *)
             m.idx_to_row_names.(i) |> Printf.fprintf output "\"%s\"";
-            Float.Array.iter (Printf.fprintf output "\t%g") row;
+            Float.Array.iter (Printf.fprintf output "\t%.*g" precision) row;
             Printf.fprintf output "\n")
           m.storage
       end;
@@ -343,8 +404,8 @@ include (
       { idx_to_col_names = m2.idx_to_col_names;
         idx_to_row_names = m1.idx_to_row_names;
         storage = storage }
-    let get_distance_matrix ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) distance m =
-      let d = Array.length m.idx_to_row_names in
+    let get_distance_matrix ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) distance metric m =
+      let distance = Distance.compute distance metric and d = Array.length m.idx_to_row_names in
       (* We immediately allocate all the needed memory, as we already know how much we will need *)
       let storage = Array.init d (fun _ -> Float.Array.create d) in
       (* Generate points to be computed by the parallel processs *)
@@ -402,7 +463,8 @@ include (
       { idx_to_col_names = m.idx_to_row_names;
         idx_to_row_names = m.idx_to_row_names;
         storage = storage }
-    let get_distance_rowwise ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) distance m1 m2 =
+    let get_distance_rowwise ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) distance metric m1 m2 =
+      let distance = Distance.compute distance metric in
       if m1.idx_to_col_names <> m2.idx_to_col_names then
         IncompatibleGeometries (m1.idx_to_col_names, m2.idx_to_col_names) |> raise;
       let r1 = Array.length m1.idx_to_row_names and r2 = Array.length m2.idx_to_row_names in
@@ -467,7 +529,7 @@ include (
       Names might be quoted *)
     exception WrongNumberOfColumns of int * int * int
     val of_file: ?threads:int -> ?bytes_per_step:int -> ?verbose:bool -> string -> t
-    val to_file: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> string -> unit
+    val to_file: ?precision:int -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> string -> unit
     val transpose_single_threaded: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> t
     val transpose: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> t
     exception IncompatibleGeometries of string array * string array
@@ -476,10 +538,10 @@ include (
     val multiply_matrix_matrix:
       ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> t -> t
     val get_distance_matrix:
-      ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Distance.t -> t -> t
+      ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Distance.t -> Float.Array.t -> t -> t
     (* Compute distances between the rows of two matrices - more general version of the previous one *)
     val get_distance_rowwise:
-      ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Distance.t -> t -> t -> t
+      ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Distance.t -> Float.Array.t -> t -> t -> t
 
   end
 )
