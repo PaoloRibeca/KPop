@@ -1,3 +1,18 @@
+(*
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*)
+
 open BiOCamLib
 
 module Misc =
@@ -16,11 +31,7 @@ module Misc =
 module Defaults =
   struct
     let lines_per_block = 10000
-    let threads =
-      try
-        Tools.Subprocess.spawn_and_read_single_line "nproc" |> int_of_string
-      with _ ->
-        1
+    let threads = Tools.Parallel.get_nproc ()
     let verbose = false
     let debug = false
   end
@@ -37,10 +48,17 @@ module Parameters =
     let debug = ref Defaults.debug
   end
 
-let version = "0.1"
+let version = "0.3"
+
+let header =
+  Printf.sprintf begin
+    "This is the Parallel program (version %s)\n%!" ^^
+    " (c) 2019-2022 Paolo Ribeca, <paolo.ribeca@gmail.com>\n%!"
+  end version
 
 let () =
   let module TA = Tools.Argv in
+  TA.set_header header;
   TA.set_synopsis "[OPTIONS] -- [COMMAND TO PARALLELIZE AND ITS OPTIONS]";
   TA.parse [
     [], None, [ "Command to parallelize" ], TA.Optional, (fun _ -> ());
@@ -54,7 +72,7 @@ let () =
         Parameters.command := TA.get_parameter ();
         Parameters.args := Array.append [| !Parameters.command |] (TA.get_remaining_parameters ()));
     [], None, [ "Input/Output" ], TA.Optional, (fun _ -> ());
-    [ "--lines-per-block" ],
+    [ "-l"; "--lines-per-block" ],
       Some "<positive_integer>",
       [ "number of lines to be processed per block" ],
       TA.Default (fun () -> string_of_int !Parameters.lines_per_block),
@@ -93,10 +111,8 @@ let () =
       (fun _ -> TA.usage (); exit 1)
   ];
   let verbose = !Parameters.verbose and debug = !Parameters.debug in
-  if verbose then begin
-    Printf.eprintf "This is the Parallel program (version %s)\n%!" version;
-    Printf.eprintf " (c) 2019 Paolo Ribeca, <paolo.ribeca@gmail.com>\n%!"
-  end;
+  if verbose then
+    TA.header ();
   let input =
     if !Parameters.input = "" then
       stdin
@@ -155,7 +171,7 @@ let () =
         Unix.dup2 out_pipe_in Unix.stdout;
         Unix.close in_pipe_out;
         Unix.close out_pipe_in;
-        Unix.execvp !Parameters.command !Parameters.args
+        Unix.unsafe_environment () |> Unix.execvpe !Parameters.command !Parameters.args
         (* We will never get here *)
       | pid_child -> (* Parent *)
         Unix.close in_pipe_out;
@@ -223,3 +239,4 @@ let () =
   (* Cleanup actions *)
   close_in input;
   close_out output
+
