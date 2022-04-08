@@ -49,27 +49,27 @@ module [@warning "-32"] KMerDB:
     val make_empty: unit -> t
     (* Adds metadata - the first field must be the label *)
     exception WrongNumberOfColumns of int * int * int
-    val add_meta: t -> string -> t
+    val add_meta: ?verbose:bool -> t -> string -> t
     (* Adds text files containing k-mers. The first line must contain the label.
        Multiple files separated by "\t\n" can be chained in the same input *)
     exception HeaderExpected of string
     exception WrongFormat of int * string
     (* Add files contaning k-mers. Multiple files can be chained *)
-    val add_files: t -> string list -> t
+    val add_files: ?verbose:bool -> t -> string list -> t
     (* Select column names identified by regexps on metadata fields *)
-    val selected_from_regexps: t -> (string * Str.regexp) list -> StringSet.t
+    val selected_from_regexps: ?verbose:bool -> t -> (string * Str.regexp) list -> StringSet.t
     val selected_negate: t -> StringSet.t -> StringSet.t
     (* Add a linear combination of the vectors having the given labels,
         and name it as directed *)
-    val add_sum_selected: ?threads:int -> t -> string -> StringSet.t -> t
+    val add_sum_selected: ?threads:int -> ?verbose:bool -> t -> string -> StringSet.t -> t
     (* Remove the vectors with the given labels *)
     val remove_selected: t -> StringSet.t -> t
     (* Output information about the contents *)
     val output_summary: ?verbose:bool -> t -> unit
     (* Binary marshalling of the database *)
     exception Incompatible_archive_version of string * string
-    val to_binary: t -> string -> unit
-    val of_binary: string -> t
+    val to_binary: ?verbose:bool -> t -> string -> unit
+    val of_binary: ?verbose:bool -> string -> t
     val make_filename_binary: string -> string
     module Statistics:
       sig
@@ -91,7 +91,7 @@ module [@warning "-32"] KMerDB:
           col_stats: t array;
           row_stats: t array
         }
-        val table_of_db: ?threshold:int -> ?power:float -> ?threads:int -> tt -> table_t
+        val table_of_db: ?threshold:int -> ?power:float -> ?threads:int -> ?verbose:bool -> tt -> table_t
       end
     module Transformation:
       sig
@@ -126,7 +126,7 @@ module [@warning "-32"] KMerDB:
         val default: t
       end
     (* Readable output *)
-    val to_table: ?filter:TableFilter.t -> ?threads:int -> t -> string -> unit
+    val to_table: ?filter:TableFilter.t -> ?threads:int -> ?verbose:bool -> t -> string -> unit
     val make_filename_table: string -> string
 
   end
@@ -296,10 +296,11 @@ module [@warning "-32"] KMerDB:
     let archive_version = "2022-04-03"
     (* *)
     exception Incompatible_archive_version of string * string
-    let to_binary db fname =
+    let to_binary ?(verbose = false) db fname =
       let output = open_out fname in
-      Printf.eprintf "(%s): Outputting DB to file '%s'...%!" __FUNCTION__ fname;
-      output_value output "KPopCountDB";
+      if verbose then
+        Printf.eprintf "(%s): Outputting DB to file '%s'...%!" __FUNCTION__ fname;
+      output_value output "KPopCounter";
       output_value output archive_version;
       output_value output {
         db.core with
@@ -311,27 +312,30 @@ module [@warning "-32"] KMerDB:
         storage = IBAVectorMisc.resize_array ~exact:true db.core.n_cols db.core.n_rows db.core.storage
       };
       close_out output;
-      Printf.eprintf " done.\n%!"
-    let of_binary fname =
+      if verbose then
+        Printf.eprintf " done.\n%!"
+    let of_binary ?(verbose = false) fname =
       let input = open_in fname in
-      Printf.eprintf "(%s): Reading DB from file '%s'...%!" __FUNCTION__ fname;
+      if verbose then
+        Printf.eprintf "(%s): Reading DB from file '%s'...%!" __FUNCTION__ fname;
       let which = (input_value input: string) in
       let version = (input_value input: string) in
-      if which <> "KPopCountDB" || version <> archive_version then
+      if which <> "KPopCounter" || version <> archive_version then
         Incompatible_archive_version (which, version) |> raise;
       let core = (input_value input: marshalled_t) in
       close_in input;
-      Printf.eprintf " done.\n%!";
+      if verbose then
+        Printf.eprintf " done.\n%!";
       { core = core;
         col_names_to_idx = invert_table core.idx_to_col_names;
         row_names_to_idx = invert_table core.idx_to_row_names;
         meta_names_to_idx = invert_table core.idx_to_meta_names }
     let make_filename_binary = function
       | w when String.length w >= 5 && String.sub w 0 5 = "/dev/" -> w
-      | prefix -> prefix ^ ".KPopCountDB"
+      | prefix -> prefix ^ ".KPopCounter"
     (* *)
     exception WrongNumberOfColumns of int * int * int
-    let add_meta db fname =
+    let add_meta ?(verbose = false) db fname =
       let input = open_in fname and line_num = ref 0 in
       let header = input_line input |> Tools.Split.on_char_as_array '\t' in
       incr line_num;
@@ -386,17 +390,18 @@ module [@warning "-32"] KMerDB:
               if i > 0 then
                 !db.core.meta.(col_idx).(name_idx) <- line.(i))
             meta_indices;
-          if !line_num mod 10 = 0 then
+          if verbose && !line_num mod 10 = 0 then
             Printf.eprintf "\rFile '%s': Read %d lines%!" fname !line_num
         done
       with End_of_file ->
         close_in input;
-        Printf.eprintf "\rFile '%s': Read %d lines\n%!" fname !line_num
+        if verbose then
+          Printf.eprintf "\rFile '%s': Read %d lines\n%!" fname !line_num
       end;
       !db
     exception HeaderExpected of string
     exception WrongFormat of int * string
-    let add_files db fnames =
+    let add_files ?(verbose = false) db fnames =
       let db = ref db and n = List.length fnames in
       List.iteri
         (fun i fname ->
@@ -447,12 +452,13 @@ module [@warning "-32"] KMerDB:
                 (* If there are repeated k-mers, we just accumulate them *)
                 !db.core.storage.(!col_idx).IBAVector.+(row_idx) <- v
               end;
-              if !line_num mod 10000 = 0 then
+              if verbose && !line_num mod 10000 = 0 then
                 Printf.eprintf "\r[%d/%d] File '%s': Read %d lines%!" (i + 1) n fname !line_num
             done
           with End_of_file ->
             close_in input;
-            Printf.eprintf "\r[%d/%d] File '%s': Read %d lines\n%!" (i + 1) n fname !line_num;
+            if verbose then
+              Printf.eprintf "\r[%d/%d] File '%s': Read %d lines\n%!" (i + 1) n fname !line_num;
           end)
         fnames;
       !db
@@ -496,7 +502,7 @@ module [@warning "-32"] KMerDB:
         let col_or_row_to_string = function
         | Col -> "column"
         | Row -> "row"
-        let table_of_db ?(threshold = 1) ?(power = 1.) ?(threads = 1) db =
+        let table_of_db ?(threshold = 1) ?(power = 1.) ?(threads = 1) ?(verbose = false) db =
           let core = db.core in
           let compute_one what n =
             let non_zero = ref 0 and min = ref 0 and max = ref 0 and sum = ref 0. and sum_log = ref 0.
@@ -542,7 +548,8 @@ module [@warning "-32"] KMerDB:
             let step = n / threads / 5 |> max 1 and processed = ref 0 and res = ref [] in
             Tools.Parallel.process_stream_chunkwise
               (fun () ->
-                Printf.eprintf "\rComputing %s statistics [%d/%d]%!" (col_or_row_to_string what) !processed n;
+                if verbose then
+                  Printf.eprintf "\rComputing %s statistics [%d/%d]%!" (col_or_row_to_string what) !processed n;
                 let to_do = n - !processed in
                 if to_do > 0 then begin
                   let to_do = min to_do step in
@@ -576,18 +583,20 @@ module [@warning "-32"] KMerDB:
               | _, a1 :: a2 :: tl ->
                 binary_merge_arrays ((Array.append a1 a2) :: processed) tl in
             let res = List.rev !res |> binary_merge_arrays [] in
-            Printf.eprintf "\rComputing %s statistics [%d/%d]\n%!" (col_or_row_to_string what) n n;
+            if verbose then
+              Printf.eprintf "\rComputing %s statistics [%d/%d]\n%!" (col_or_row_to_string what) n n;
             res in
           { col_stats = compute_all Col;
             row_stats = compute_all Row }
       end
     (* *)
-    let selected_from_regexps db regexps =
+    let selected_from_regexps ?(verbose = false) db regexps =
       (* We iterate over the columns *)
-      Printf.eprintf "Selecting columns... [%!";
+      if verbose then
+        Printf.eprintf "Selecting columns... [%!";
       List.iter
         (fun (what, _) ->
-          if what <> "" && Hashtbl.find_opt db.meta_names_to_idx what = None then
+          if verbose && what <> "" && Hashtbl.find_opt db.meta_names_to_idx what = None then
             Printf.eprintf " (WARNING: Metadata field '%s' not found, no column will match)%!" what)
         regexps;
       let res = ref StringSet.empty in
@@ -611,37 +620,44 @@ module [@warning "-32"] KMerDB:
           end then
             res := StringSet.add col_name !res)
         db.core.idx_to_col_names;
-      StringSet.iter (Printf.eprintf " '%s'%!") !res;
-      Printf.eprintf " ] done.\n%!";
+      if verbose then
+        StringSet.iter (Printf.eprintf " '%s'%!") !res;
+      if verbose then
+        Printf.eprintf " ] done.\n%!";
       !res
     let selected_negate db selection =
       StringSet.diff (Array.to_list db.core.idx_to_col_names |> StringSet.of_list) selection
     (* It should be OK to have the same label on both LHS and RHS, as a temporary vector is used *)
-    let add_sum_selected ?(threads = 1) db new_label selection =
+    let add_sum_selected ?(threads = 1) ?(verbose = false) db new_label selection =
       (* Here we want no thresholding and linear statistics *)
-      let stats = Statistics.table_of_db ~threshold:0 ~power:1. ~threads db and db = ref db in
-      Printf.eprintf "Adding/replacing vector '%s': [%!" new_label;
+      let stats = Statistics.table_of_db ~threshold:0 ~power:1. ~threads ~verbose db and db = ref db in
+      if verbose then
+        Printf.eprintf "Adding/replacing vector '%s': [%!" new_label;
       add_empty_column_if_needed db new_label;
       let num_cols = ref 0 and max_norm = ref 0. in
       StringSet.iter
         (fun label ->
-          Printf.eprintf " '%s'%!" label;
+          if verbose then
+            Printf.eprintf " '%s'%!" label;
           match Hashtbl.find_opt !db.col_names_to_idx label with
           | Some col_idx ->
             incr num_cols;
             max_norm := max !max_norm stats.col_stats.(col_idx).sum
           | None ->
-            Printf.eprintf "(NOT FOUND)%!")
+            if verbose then
+              Printf.eprintf "(NOT FOUND)%!")
         selection;
       let num_cols = !num_cols and max_norm = !max_norm in
-      Printf.eprintf " ] n=%d max_norm=%.16g [%!" num_cols max_norm;
+      if verbose then
+        Printf.eprintf " ] n=%d max_norm=%.16g [%!" num_cols max_norm;
       let red_n_rows = !db.core.n_rows - 1 and res = FBAVector.init !db.core.n_rows 0. in
       (* We normalise columns *separately* before adding them *)
       StringSet.iter
         (fun label ->
           match Hashtbl.find_opt !db.col_names_to_idx label with
           | Some col_idx ->
-            Printf.eprintf ".%!";
+            if verbose then
+              Printf.eprintf ".%!";
             let col = !db.core.storage.(col_idx)
             and norm = stats.col_stats.(col_idx).sum in
             for i = 0 to red_n_rows do
@@ -657,7 +673,8 @@ module [@warning "-32"] KMerDB:
         new_col.IBAVector.=(i) <- res_i;
         norm := !norm +. IBAVector.N.to_float res_i
       done;
-      Printf.eprintf "] norm=%.16g\n%!" !norm;
+      if verbose then
+        Printf.eprintf "] norm=%.16g\n%!" !norm;
       (* If metadata is present in the database, we generate some for the new column too *)
       if !db.core.n_meta > 0 then begin
         (* For each metadata field, we compute the intersection of the values across all selected columns *)
@@ -805,9 +822,9 @@ module [@warning "-32"] KMerDB:
           filter_columns = StringSet.empty
         }      
       end
-    let to_table ?(filter = TableFilter.default) ?(threads = 1) db fname =
+    let to_table ?(filter = TableFilter.default) ?(threads = 1) ?(verbose = false) db fname =
       let transform = Transformation.to_function_t filter.transform
-      and stats = Statistics.table_of_db ~threshold:filter.threshold ~power:filter.power ~threads db
+      and stats = Statistics.table_of_db ~threshold:filter.threshold ~power:filter.power ~threads ~verbose db
       and output = open_out fname and meta = ref [] and rows = ref [] and cols = ref [] in
       (* We determine which rows and colunms should be output after all filters have been applied *)
       (*  Rows: metadata and k-mers *)
@@ -897,7 +914,7 @@ module [@warning "-32"] KMerDB:
               Printf.fprintf output "%s" block;
               let old_processed_cols = !processed_cols in
               processed_cols := !processed_cols + n_processed;
-              if !processed_cols / 2 > old_processed_cols / 2 then (* We write one column at the time *)
+              if verbose && !processed_cols / 2 > old_processed_cols / 2 then (* We write one column at the time *)
                 Printf.eprintf "\rWriting table to file '%s': done %d/%d lines%!"
                   fname !processed_cols n_cols)
             threads
@@ -957,7 +974,7 @@ module [@warning "-32"] KMerDB:
               Printf.fprintf output "%s" block;
               let old_processed_rows = !processed_rows in
               processed_rows := !processed_rows + n_processed;
-              if !processed_rows / 10000 > old_processed_rows / 10000 then
+              if verbose && !processed_rows / 10000 > old_processed_rows / 10000 then
                 Printf.eprintf "\rWriting table to file '%s': done %d/%d lines%!"
                   fname !processed_rows db.core.n_rows)
             threads
@@ -967,12 +984,13 @@ module [@warning "-32"] KMerDB:
             db.core.n_cols
           else
             db.core.n_rows in
-        Printf.eprintf "\rWriting table to file '%s': done %d/%d lines.\n%!" fname n_done n_done
+        if verbose then
+          Printf.eprintf "\rWriting table to file '%s': done %d/%d lines.\n%!" fname n_done n_done
       end;
       close_out output
     let make_filename_table = function
       | w when String.length w >= 5 && String.sub w 0 5 = "/dev/" -> w
-      | prefix -> prefix ^ ".KPopCountDB.txt"
+      | prefix -> prefix ^ ".KPopCounter.txt"
 
   end
 
@@ -1004,11 +1022,7 @@ type to_do_t =
 module Defaults =
   struct
     let table_filter = KMerDB.TableFilter.default
-    let threads =
-      try
-        Tools.Subprocess.spawn_and_read_single_line "nproc" |> int_of_string
-      with _ ->
-        1
+    let threads = Tools.Parallel.get_nproc ()
     let verbose = false
   end
 
@@ -1019,14 +1033,20 @@ module Parameters =
     let verbose = ref Defaults.verbose
   end
 
-let version = "0.25"
+let version = "0.27"
+
+let header =
+  Printf.sprintf begin
+    "This is the KPopCountDB program (version %s)\n%!" ^^
+    " (c) 2020-2022 Paolo Ribeca, <paolo.ribeca@gmail.com>\n%!"
+  end version
 
 let _ =
-  Printf.eprintf "This is the KPopCountDB program (version %s)\n%!" version;
-  Printf.eprintf " (c) 2020-2022 Paolo Ribeca, <paolo.ribeca@gmail.com>\n%!";
   let module TA = Tools.Argv in
   let module TS = Tools.Split in
   let module TM = Tools.Misc in
+  TA.set_header header;
+  TA.set_synopsis "[ACTIONS]";
   TA.parse [
     [], None, [ "Actions (executed delayed and in order of specification):" ], TA.Optional, (fun _ -> ());
     [ "-e"; "-E"; "--empty" ],
@@ -1037,7 +1057,7 @@ let _ =
     [ "-i"; "-I"; "--input" ],
       Some "<binary_file_prefix>",
       [ "load to the register the database present in the specified file";
-        " (which must have extension .KPopCountDB)" ],
+        " (which must have extension .KPopCounter)" ],
       TA.Optional,
       (fun _ -> Of_file (TA.get_parameter () |> KMerDB.make_filename_binary) |> TM.accum Parameters.program);
     [ "-m"; "-M"; "--metadata"; "--add-metadata" ],
@@ -1170,13 +1190,13 @@ let _ =
       Some "<file_prefix>",
       [ "write the database present in the register as a tab-separated file";
         " (rows are k-mer names, columns are vector names;";
-        "  the file will be given extension .KPopCountDB.txt)" ],
+        "  the file will be given extension .KPopCounter.txt)" ],
       TA.Optional,
       (fun _ -> To_table (TA.get_parameter () |> KMerDB.make_filename_table) |> TM.accum Parameters.program);
     [ "-o"; "-O"; "--output" ],
       Some "<binary_file_prefix>",
       [ "dump the database present in the register to the specified file";
-        " (which will be given extension .KPopCountDB)" ],
+        " (which will be given extension .KPopCounter)" ],
       TA.Optional,
       (fun _ -> To_file (TA.get_parameter () |> KMerDB.make_filename_binary) |> TM.accum Parameters.program);
     [], None, [ "Miscellaneous (executed immediately):" ], TA.Optional, (fun _ -> ());
@@ -1202,6 +1222,8 @@ let _ =
     TA.usage ();
     exit 0
   end;
+  if !Parameters.verbose then
+    TA.header ();
   (* These are the three registers available to the program *)
   let current = KMerDB.make_empty () |> ref and selected = ref StringSet.empty
   and table_filter = ref KMerDB.TableFilter.default in
@@ -1213,13 +1235,15 @@ let _ =
       | Empty ->
         current := KMerDB.make_empty ()
       | Of_file fname ->
-        current := KMerDB.of_binary fname
+        current := KMerDB.of_binary ~verbose:!Parameters.verbose fname
       | Add_meta fname ->
-        current := KMerDB.add_meta !current fname
+        current := KMerDB.add_meta ~verbose:!Parameters.verbose !current fname
       | Add_files fnames ->
-        current := KMerDB.add_files !current fnames
+        current := KMerDB.add_files ~verbose:!Parameters.verbose !current fnames
       | Add_sum_selected new_label ->
-        current := KMerDB.add_sum_selected ~threads:!Parameters.threads !current new_label !selected
+        current :=
+          KMerDB.add_sum_selected ~threads:!Parameters.threads ~verbose:!Parameters.verbose
+            !current new_label !selected
       | Remove_selected ->
         current := KMerDB.remove_selected !current !selected
       | Summary ->
@@ -1227,7 +1251,7 @@ let _ =
       | Selected_from_labels labels ->
         selected := labels
       | Selected_from_regexps regexps ->
-        selected := KMerDB.selected_from_regexps !current regexps
+        selected := KMerDB.selected_from_regexps ~verbose:!Parameters.verbose !current regexps
       | Selected_negate ->
         selected := KMerDB.selected_negate !current !selected
       | Selected_print ->
@@ -1255,7 +1279,8 @@ let _ =
       | Table_emit_zero_rows whether ->
         table_filter := { !table_filter with print_zero_rows = whether }
       | To_table fname ->
-        KMerDB.to_table ~filter:!table_filter ~threads:!Parameters.threads !current fname
+        KMerDB.to_table ~filter:!table_filter ~threads:!Parameters.threads ~verbose:!Parameters.verbose !current fname
       | To_file fname ->
-        KMerDB.to_binary !current fname)
+        KMerDB.to_binary ~verbose:!Parameters.verbose !current fname)
     program
+

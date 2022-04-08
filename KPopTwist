@@ -1,4 +1,4 @@
-#!/bin/env bash
+#!/usr/bin/env bash
 
 PREFIX="$1"
 SAMPLING_FRACTION="$2"
@@ -6,7 +6,7 @@ if [[ "$SAMPLING_FRACTION" == "" ]]; then
   SAMPLING_FRACTION="1."
 fi
 
-VERSION="0.8"
+VERSION="0.9"
 
 echo "This is the KPopTwist program (version ${VERSION})"
 echo " (c) 2022 Paolo Ribeca, <paolo.ribeca@gmail.com>"
@@ -23,9 +23,9 @@ TMPDIR=$(mktemp -d -p . KPopTwist-XXXXXXXXXX)
 echo "$(date +"%c"): [1/13] Exporting table..."
 KPopCountDB -i "$PREFIX" -t "$PREFIX" > /dev/null 2>&1
 echo "$(date +"%c"): [2/13] Splitting table..."
-head -1 "${PREFIX}.KPopCountDB.txt" | awk -F '\t' '{printf $2; for (i=3;i<=NF;++i) printf "\t"$i; printf "\n"}' > "${TMPDIR}/TABLE.txt"
-tail -n +2 "${PREFIX}.KPopCountDB.txt" | Parallel -- awk -F '\t' '{printf $2; for (i=3;i<=NF;++i) printf "\t"$i; printf "\n"}' >> "${TMPDIR}/TABLE.txt" &
-tail -n +2 "${PREFIX}.KPopCountDB.txt" | Parallel -- awk -F '\t' '{print $1}' > "${TMPDIR}/NAMES.txt" &
+head -1 "${PREFIX}.KPopCounter.txt" | awk -F '\t' '{printf $2; for (i=3;i<=NF;++i) printf "\t"$i; printf "\n"}' > "${TMPDIR}/TABLE.txt"
+tail -n +2 "${PREFIX}.KPopCounter.txt" | Parallel -- awk -F '\t' '{printf $2; for (i=3;i<=NF;++i) printf "\t"$i; printf "\n"}' >> "${TMPDIR}/TABLE.txt" &
+tail -n +2 "${PREFIX}.KPopCounter.txt" | Parallel -- awk -F '\t' '{print $1}' > "${TMPDIR}/NAMES.txt" &
 wait
 
 export R_DATATABLE_NUM_PROCS_PERCENT=100
@@ -69,7 +69,7 @@ KPopTwistDB --twisted-from-table "$PREFIX" -o "$PREFIX" > /dev/null 2>&1
 echo "$(date +"%c"): [12/13] Encoding twister..."
 KPopTwistDB --twister-from-tables "$PREFIX" -O "$PREFIX" > /dev/null 2>&1
 echo "$(date +"%c"): [13/13] Cleaning up..."
-rm "${PREFIX}.KPopCountDB.txt"
+rm "${PREFIX}.KPopCounter.txt"
 rm "${TMPDIR}/TABLE.txt" "${TMPDIR}/NAMES.txt"
 rmdir "${TMPDIR}"
 rm "${PREFIX}.KPopTwisted.txt" "${PREFIX}.KPopInertia.txt" "${PREFIX}.KPopTwister.txt"

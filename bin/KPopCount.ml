@@ -2,10 +2,10 @@ open BiOCamLib
 
 module KMerCounter (KMH: KMer.KMerHash with type t = int):
   sig
-    val compute: ?verbose:bool -> ?display_step:int -> KMer.ReadStore.t -> int -> string -> string -> unit
+    val compute: ?verbose:bool -> KMer.ReadStore.t -> int -> string -> string -> unit
   end
 = struct
-    let compute ?(verbose = false) ?(display_step = 10000) store max_results_size label fname =
+    let compute ?(verbose = false) store max_results_size label fname =
       let output =
         if fname = "" then
           stdout
@@ -39,15 +39,18 @@ module KMerCounter (KMH: KMer.KMerHash with type t = int):
                   Printf.eprintf " done.\n%!"
               end)
             read.seq;
-          if !reads_cntr mod display_step = 0 then
+          if verbose && !reads_cntr mod 10000 = 0 then
             Printf.eprintf "\rKMerCounter.compute: Added %d reads%!" !reads_cntr;
           if segm_id = 0 then
             incr reads_cntr)
         store;
-      Printf.eprintf "\rKMerCounter.compute: Added %d reads\n%!" !reads_cntr;
-      Printf.eprintf "KMerCounter.compute: Outputting hashes...%!";
+      if verbose then begin
+        Printf.eprintf "\rKMerCounter.compute: Added %d reads\n%!" !reads_cntr;
+        Printf.eprintf "KMerCounter.compute: Outputting hashes...%!";
+      end;
       KMer.IntHashtbl.iter (fun hash occs -> Printf.fprintf output output_format hash !occs) res;
-      Printf.eprintf " done.%!\n";
+      if verbose then
+        Printf.eprintf " done.%!\n";
       close_out output
 
   end
@@ -59,11 +62,7 @@ module Defaults =
     let max_results_size = 16777216 (* Or: 4^12 *)
     let output = ""
 (*
-    let threads =
-      try
-        Tools.Subprocess.spawn_and_read_single_line "nproc" |> int_of_string
-      with _ ->
-        1
+    let threads = Tools.Parallel.get_nproc ()
 *)
     let verbose = false
   end
@@ -81,11 +80,17 @@ module Parameters =
 
 let version = "0.3"
 
+let header =
+  Printf.sprintf begin
+    "This is the KPopCount program (version %s)\n%!" ^^
+    " (c) 2017-2022 Paolo Ribeca, <paolo.ribeca@gmail.com>\n%!"
+  end version
+
 let _ =
-  Printf.eprintf "This is the KPopCount program (version %s)\n%!" version;
-  Printf.eprintf " (c) 2017-2022 Paolo Ribeca, <paolo.ribeca@gmail.com>\n%!";
   let module TA = Tools.Argv in
   let module RS = KMer.ReadStore in
+  TA.set_header header;
+  TA.set_synopsis "-l|--label <output_vector_label> [OPTIONS]";
   TA.parse [
     [], None, [ "Algorithmic parameters:" ], TA.Optional, (fun _ -> ());
     [ "-k"; "-K"; "--k-mer-size"; "--k-mer-length" ],

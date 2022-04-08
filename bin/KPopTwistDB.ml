@@ -47,8 +47,8 @@ module [@warning "-32"] KPopMatrix:
     (* Binary marshalling of the matrix *)
     val to_channel: out_channel -> t -> unit
     val of_channel: in_channel -> t
-    val to_binary: t -> string -> unit
-    val of_binary: string -> t
+    val to_binary: ?verbose:bool -> t -> string -> unit
+    val of_binary: ?verbose:bool -> string -> t
     val make_filename_binary: Type.t -> string -> string
     (* To be used when needed *)
     exception TwisterExpected
@@ -91,7 +91,7 @@ module [@warning "-32"] KPopMatrix:
       Matrix.to_file ~threads ~elements_per_step ~verbose m.matrix
     let make_filename_table which = function
       | w when String.length w >= 5 && String.sub w 0 5 = "/dev/" -> w
-      | prefix -> prefix ^ ".KPop" ^ Type.to_string which ^ "DB.txt"
+      | prefix -> prefix ^ "." ^ Type.to_string which ^ ".txt"
     let transpose_single_threaded ?(threads = 1) ?(elements_per_step = 40000) ?(verbose = false) m =
       { m with matrix = Matrix.transpose_single_threaded ~threads ~elements_per_step ~verbose m.matrix }
     let transpose ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) m =
@@ -114,29 +114,33 @@ module [@warning "-32"] KPopMatrix:
       Type.to_string m.which |> output_value output;
       archive_version |> output_value output;
       output_value output m.matrix
-    let to_binary m fname =
+    let to_binary ?(verbose = false) m fname =
       let output = open_out fname in
-      Printf.eprintf "(%s): Outputting DB to file '%s'...%!" __FUNCTION__ fname;
+      if verbose then
+        Printf.eprintf "(%s): Outputting DB to file '%s'...%!" __FUNCTION__ fname;
       to_channel output m;
       close_out output;
-      Printf.eprintf " done.\n%!"
+      if verbose then
+        Printf.eprintf " done.\n%!"
     let of_channel input =
       let which = (input_value input: string) in
       let version = (input_value input: string) in
       if version <> archive_version then
         Incompatible_archive_version (which, version) |> raise;
       { which = Type.of_string which; matrix = (input_value input: Matrix.t) }
-    let of_binary fname =
+    let of_binary ?(verbose = false) fname =
       let input = open_in fname in
-      Printf.eprintf "(%s): Reading DB from file '%s'...%!" __FUNCTION__ fname;
+      if verbose then
+        Printf.eprintf "(%s): Reading DB from file '%s'...%!" __FUNCTION__ fname;
       let res = of_channel input in
       close_in input;
-      Printf.eprintf " done.\n%!";
+      if verbose then
+        Printf.eprintf " done.\n%!";
       res
     let make_filename_binary which name =
       match which, name with
       | _, _ when String.length name >= 5 && String.sub name 0 5 = "/dev/" -> name
-      | Type.Twisted, prefix | DMatrix, prefix -> prefix ^ ".KPop" ^ Type.to_string which ^ "DB"
+      | Type.Twisted, prefix | DMatrix, prefix -> prefix ^ "." ^ Type.to_string which
       | Twister, _ | Inertia, _ -> assert false (* Should always be done through KPopTwister *)
     exception TwisterExpected
     exception InertiaExpected
@@ -206,8 +210,8 @@ module [@warning "-32"] KPopTwister:
     val add_twisted_from_files:
       ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> KPopMatrix.t -> string list -> KPopMatrix.t
     (* *)
-    val to_binary: t -> string -> unit
-    val of_binary: string -> t
+    val to_binary: ?verbose:bool -> t -> string -> unit
+    val of_binary: ?verbose:bool -> string -> t
     val make_filename_binary: string -> string
 
   end
@@ -291,6 +295,14 @@ module [@warning "-32"] KPopTwister:
     let add_twisted_from_files ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) twister twisted fnames =
       if twisted.KPopMatrix.which <> Twisted then
         raise KPopMatrix.TwistedExpected;
+      let twisted =
+        if twisted.matrix = Matrix.empty then
+          { twisted with
+            matrix =
+              { twisted.matrix with
+                idx_to_col_names = twister.twister.matrix.idx_to_row_names } }
+        else
+          twisted in
       if twister.twister.matrix.idx_to_row_names <> twisted.matrix.idx_to_col_names then
         raise IncompatibleTwisterAndTwisted;
       (* We invert the table *)
@@ -345,20 +357,24 @@ module [@warning "-32"] KPopTwister:
           idx_to_row_names = Tools.Misc.array_of_rlist !res_labels |> Array.append twisted.matrix.idx_to_row_names;
           storage = Tools.Misc.array_of_rlist !res_allocs |> Array.append twisted.matrix.storage } }
     (* *)
-    let to_binary t fname =
+    let to_binary ?(verbose = false) t fname =
       let output = open_out fname in
-      Printf.eprintf "(%s): Outputting DB to file '%s'...%!" __FUNCTION__ fname;
+      if verbose then
+        Printf.eprintf "(%s): Outputting DB to file '%s'...%!" __FUNCTION__ fname;
       KPopMatrix.to_channel output t.twister;
       KPopMatrix.to_channel output t.inertia;
       close_out output;
-      Printf.eprintf " done.\n%!"
-    let of_binary fname =
+      if verbose then
+        Printf.eprintf " done.\n%!"
+    let of_binary ?(verbose = false) fname =
       let input = open_in fname in
-      Printf.eprintf "(%s): Reading DB from file '%s'...%!" __FUNCTION__ fname;
+      if verbose then
+        Printf.eprintf "(%s): Reading DB from file '%s'...%!" __FUNCTION__ fname;
       let twister = KPopMatrix.of_channel input in
       let inertia = KPopMatrix.of_channel input in
       close_in input;
-      Printf.eprintf " done.\n%!";
+      if verbose then
+        Printf.eprintf " done.\n%!";
       { twister; inertia }
     let make_filename_binary = function
       | w when String.length w >= 5 && String.sub w 0 5 = "/dev/" -> w
@@ -388,12 +404,8 @@ type to_do_t =
 module Defaults =
   struct
     let distance = Matrix.Distance.euclidean
-    let threads =
-      try
-        Tools.Subprocess.spawn_and_read_single_line "nproc" |> int_of_string
-      with _ ->
-        1
-    let verbose = true (*false*)
+    let threads = Tools.Parallel.get_nproc ()
+    let verbose = false
   end
 
 module Parameters =
@@ -406,12 +418,18 @@ module Parameters =
 
 let version = "0.3"
 
+let header =
+  Printf.sprintf begin
+    "This is the KPopTwistDB program (version %s)\n%!" ^^
+    " (c) 2022 Paolo Ribeca, <paolo.ribeca@gmail.com>\n%!"
+  end version
+
 let _ =
-  Printf.eprintf "This is the KPopTwistDB program (version %s)\n%!" version;
-  Printf.eprintf " (c) 2022 Paolo Ribeca, <paolo.ribeca@gmail.com>\n%!";
   let module TA = Tools.Argv in
   let module TS = Tools.Split in
   let module TM = Tools.Misc in
+  TA.set_header header;
+  TA.set_synopsis "[ACTIONS]";
   TA.parse [
     [], None, [ "Actions (executed delayed and in order of specification):" ], TA.Optional, (fun _ -> ());
     [ "-E"; "--Empty" ],
@@ -563,6 +581,9 @@ let _ =
     TA.usage ();
     exit 0
   end;
+  if !Parameters.verbose then
+    TA.header ();
+  (* These are the two registers available to the program *)
   let current_twister = ref KPopTwister.empty and current_twisted = KPopMatrix.empty Twisted |> ref in
 
   (* The addition of an exception handler would be nice *)
@@ -574,19 +595,19 @@ let _ =
       | Empty_twisted ->
         current_twisted := KPopMatrix.empty Twisted
       | Binary_to_twister fname ->
-        current_twister := KPopTwister.of_binary fname
+        current_twister := KPopTwister.of_binary ~verbose:!Parameters.verbose fname
       | Tables_to_twister prefix ->
         current_twister := KPopTwister.of_files ~threads:!Parameters.threads ~verbose:!Parameters.verbose prefix
       | Binary_to_twisted fname ->
-        current_twisted := KPopMatrix.of_binary fname
+        current_twisted := KPopMatrix.of_binary ~verbose:!Parameters.verbose fname
       | Table_to_twisted fname ->
         current_twisted := KPopMatrix.of_file ~threads:!Parameters.threads ~verbose:!Parameters.verbose Twisted fname
       | Twister_to_binary fname ->
-        KPopTwister.to_binary !current_twister fname
+        KPopTwister.to_binary ~verbose:!Parameters.verbose !current_twister fname
       | Twister_to_tables prefix ->
         KPopTwister.to_files ~threads:!Parameters.threads ~verbose:!Parameters.verbose !current_twister prefix
       | Twisted_to_binary fname ->
-        KPopMatrix.to_binary !current_twisted fname
+        KPopMatrix.to_binary ~verbose:!Parameters.verbose !current_twisted fname
       | Twisted_to_table fname ->
         KPopMatrix.to_file ~threads:!Parameters.threads ~verbose:!Parameters.verbose !current_twisted fname
       | Add_files_to_twisted fnames ->
@@ -594,7 +615,7 @@ let _ =
           KPopTwister.add_twisted_from_files
             ~threads:!Parameters.threads ~verbose:!Parameters.verbose !current_twister !current_twisted fnames
       | Twisted_distances_binary (twisted_db_fname, fname) | Twisted_distances_table (twisted_db_fname, fname) as w ->
-        let twisted_db = KPopMatrix.of_binary twisted_db_fname in
+        let twisted_db = KPopMatrix.of_binary ~verbose:!Parameters.verbose twisted_db_fname in
         if twisted_db.which <> Twisted then
           raise KPopMatrix.TwistedExpected;
         let distances =
@@ -602,18 +623,18 @@ let _ =
             ~verbose:!Parameters.verbose ~threads:!Parameters.threads !Parameters.distance !current_twisted twisted_db in
         begin match w with
         | Twisted_distances_binary _ ->
-          KPopMatrix.to_binary distances fname
+          KPopMatrix.to_binary ~verbose:!Parameters.verbose distances fname
         | Twisted_distances_table _ ->
           KPopMatrix.to_file ~threads:!Parameters.threads ~verbose:!Parameters.verbose distances fname
         | _ -> assert false
         end
       | Distances_to_table (binary, fname) ->
-        let distances = KPopMatrix.of_binary binary in
+        let distances = KPopMatrix.of_binary ~verbose:!Parameters.verbose binary in
         if distances.which <> DMatrix then
           raise KPopMatrix.DMatrixExpected;
         KPopMatrix.to_file ~threads:!Parameters.threads ~verbose:!Parameters.verbose distances fname
       | Table_to_distances (table, fname) ->
-        KPopMatrix.to_binary
+        KPopMatrix.to_binary ~verbose:!Parameters.verbose
           (KPopMatrix.of_file ~threads:!Parameters.threads ~verbose:!Parameters.verbose DMatrix table) fname)
     program
 
