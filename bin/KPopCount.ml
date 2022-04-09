@@ -160,7 +160,7 @@ let _ =
   if !Parameters.inputs <> [] then begin
     let store = ref RS.empty in
     List.iter
-      (fun input -> store := RS.add_from_files !store input)
+      (fun input -> store := RS.add_from_files ~verbose:!Parameters.verbose !store input)
       !Parameters.inputs;
     let store = !store in
     KMC.compute

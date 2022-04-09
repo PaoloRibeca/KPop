@@ -253,50 +253,13 @@ module [@warning "-32"] KPopTwister:
     let make_filename_table = function
       | w when String.length w >= 5 && String.sub w 0 5 = "/dev/" -> w
       | prefix -> prefix ^ ".KPopTwister.txt"
-
-    (* When everything is properly separated, this should go into a common library file *)
-
+    (* Strictly speaking, we return the _transposed_ of the matrix product here *)
+    exception IncompatibleTwisterAndTwisted
     exception WrongNumberOfColumns of int * int * int
     exception HeaderExpected of string
     exception WrongFormat of int * string
-    let add_files f_header f_line f_end fnames =
-      let n = List.length fnames in
-      List.iteri
-        (fun i fname ->
-          let input = open_in fname and line_num = ref 1 in
-          (* Each file can contain one or more spectra *)
-          begin try
-            while true do
-              let line_s = input_line input in
-              let line = Tools.Split.on_char_as_array '\t' line_s in
-              let l = Array.length line in
-              if l <> 2 then
-                WrongNumberOfColumns (!line_num, l, 2) |> raise;
-              (* Each file must begin with a header *)
-              if !line_num = 1 && line.(0) <> "" then
-                HeaderExpected line_s |> raise;
-              if line.(0) = "" then begin
-                if !line_num > 1 then
-                  f_end !line_num;
-                (* Header *)
-                f_header !line_num line.(1)
-              end else
-                (* A regular line. The first element is the hash, the second one the count *)
-                f_line !line_num line.(0) line.(1);
-              incr line_num;
-              if !line_num mod 10000 = 0 then
-                Printf.eprintf "\r[%d/%d] File '%s': Read %d lines%!" (i + 1) n fname !line_num
-            done
-          with End_of_file ->
-            close_in input;
-            f_end !line_num;
-            Printf.eprintf "\r[%d/%d] File '%s': Read %d lines\n%!" (i + 1) n fname !line_num;
-          end)
-        fnames
-
-    (* Strictly speaking, we return the _transposed_ of the matrix product here *)
-    exception IncompatibleTwisterAndTwisted
-    let add_twisted_from_files ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) twister twisted fnames =
+    let [@warning "-27"] add_twisted_from_files
+        ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) twister twisted fnames =
       if twisted.KPopMatrix.which <> Twisted then
         raise KPopMatrix.TwistedExpected;
       let twisted =
@@ -318,43 +281,101 @@ module [@warning "-32"] KPopTwister:
       (* First we read spectra from the files.
          We have to conform the k-mers to the ones in the twister.
          As a bonus, we already know the size of the resulting vector *)
-      let curr_label = ref "" and curr_alloc = Float.Array.create 0 |> ref
-      and res_labels = ref [] and res_allocs = ref [] in
-      add_files
-        (fun _ label ->
-          curr_label := label;
-          curr_alloc := Float.Array.make (Array.length twister.twister.matrix.idx_to_col_names) 0.)
-        (fun line name v ->
-          let v =
-            try
-              float_of_string v
-            with _ ->
-              WrongFormat (line, v) |> raise in
-          match Hashtbl.find_opt col_names_to_idx name with
-          | Some idx ->
-            (* If there are repeated k-mers, we just accumulate them *)
-            Float.Array.get !curr_alloc idx +. v |> Float.Array.set !curr_alloc idx
-          | None ->
-            (* In this case, we just discard the k-mer *)
-            ())
-        (fun _ ->
+      let fnames = Array.of_list fnames in
+      let n = Array.length fnames and file_idx = ref 0 and file = open_in fnames.(0) |> ref and line_num = ref 0
+      and labels = ref ("", "") and num_spectra = ref 0 and res_labels = ref [] and res_allocs = ref [] in
+      (* Parallel section *)
+      Tools.Parallel.process_stream_chunkwise
+        (fun () ->
+          if !file_idx = n then
+            raise End_of_file
+          else begin
+            let buf = ref [] in
+            (* Each file can contain one or more spectra - we read the next one *)
+            begin try
+              while true do
+                let line_s = input_line !file in
+                incr line_num;
+                let line = Tools.Split.on_char_as_array '\t' line_s in
+                let l = Array.length line in
+                if l <> 2 then
+                  WrongNumberOfColumns (!line_num, l, 2) |> raise;
+                (* Each file must begin with a header *)
+                if !line_num = 1 && line.(0) <> "" then
+                  HeaderExpected line_s |> raise;
+                if line.(0) = "" then begin
+                  (* New header *)
+                  labels := snd !labels, line.(1);
+                  if !line_num > 1 then begin
+                    incr num_spectra;
+                    raise Exit
+                  end
+                end else
+                  (* A regular line. The first element is the hash, the second one the count *)
+                  Tools.Misc.accum buf (line.(0), line.(1))
+              done
+            with
+            | End_of_file ->
+              close_in !file;
+              labels := snd !labels, "";
+              incr num_spectra;
+              Printf.eprintf "\r[%d/%d] File '%s': Read %d %s on %d %s.\n%!"
+                (!file_idx + 1) n fnames.(!file_idx)
+                !num_spectra (Tools.Misc.pluralize_int ~plural:"spectra" "spectrum" !num_spectra)
+                !line_num (Tools.Misc.pluralize_int "line" !line_num);
+              incr file_idx;
+              if !file_idx < n then begin
+                file := open_in fnames.(!file_idx);
+                line_num := 0
+              end
+            | Exit ->
+              ()
+            end;
+            if verbose && !file_idx < n then
+              Printf.eprintf "\r[%d/%d] File '%s': Read %d %s on %d %s%!"
+                (!file_idx + 1) n fnames.(!file_idx)
+                !num_spectra (Tools.Misc.pluralize_int ~plural:"spectra" "spectrum" !num_spectra)
+                !line_num (Tools.Misc.pluralize_int "line" !line_num);
+            (* The lines are passed in reverse order, but that does not really matter much
+                as the final order is determined by the twister *)
+            fst !labels, !buf
+          end)
+        (fun (label, rev_lines) ->
+          let n = List.length rev_lines
+          (* We allocate the row vector *)
+          and row = Float.Array.make (Array.length twister.twister.matrix.idx_to_col_names) 0. in
+          List.iteri
+            (fun i (name, v) ->
+              let v =
+                try
+                  float_of_string v
+                with _ ->
+                  WrongFormat (n - i, v) |> raise in
+              match Hashtbl.find_opt col_names_to_idx name with
+              | Some idx ->
+                (* If there are repeated k-mers, we just accumulate them *)
+                Float.Array.get row idx +. v |> Float.Array.set row idx
+              | None ->
+                (* In this case, we just discard the k-mer *)
+                ())
+            rev_lines;
           (* We first normalise and then transform the spectrum *)
           let acc = ref 0. in
           Float.Array.iter
             (fun el ->
               acc := !acc +. el)
-            !curr_alloc;
+            row;
           let acc = !acc in
           if acc <> 0. then
             Float.Array.iteri
               (fun i el ->
-                el /. acc |> Float.Array.set !curr_alloc i)
-              !curr_alloc;
-          curr_alloc :=
-            KPopMatrix.multiply_matrix_vector ~threads ~elements_per_step ~verbose twister.twister !curr_alloc;
-          Tools.Misc.accum res_labels !curr_label;
-          Tools.Misc.accum res_allocs !curr_alloc)
-        fnames;
+                el /. acc |> Float.Array.set row i)
+              row;
+          label, KPopMatrix.multiply_matrix_vector ~threads:1 ~elements_per_step:n ~verbose:false twister.twister row)
+        (fun (label, row) ->
+          Tools.Misc.accum res_labels label;
+          Tools.Misc.accum res_allocs row)
+        threads;
       { KPopMatrix.which = Twisted;
         matrix = {
           Matrix.idx_to_col_names = twisted.matrix.idx_to_col_names;
@@ -614,7 +635,8 @@ let _ =
     TA.header ();
   (* These are the two registers available to the program *)
   let twister = ref KPopTwister.empty and twisted = KPopMatrix.empty Twisted |> ref
-  and distance = Matrix.Distance.of_parameters Defaults.distance |> ref and metric = Float.Array.create 0 |> ref
+  and distance = Matrix.Distance.of_parameters Defaults.distance |> ref
+  and metric = Matrix.Distance.Metric.of_string "flat" |> Matrix.Distance.Metric.compute |> ref
   and precision = ref Defaults.precision in
 
   (* The addition of an exception handler would be nice *)
@@ -652,18 +674,27 @@ let _ =
       | Set_distance dist ->
         distance := Matrix.Distance.of_parameters dist
       | Set_metric metr ->
-        metric :=
-          if Array.length !twister.inertia.matrix.idx_to_row_names > 0 then
-            Matrix.Distance.Metric.compute metr !twister.inertia.matrix.storage.(0)
-          else
-            Float.Array.create 0
+        metric := Matrix.Distance.Metric.compute metr
       | Twisted_distances_binary (twisted_db_fname, fname) | Twisted_distances_table (twisted_db_fname, fname) as w ->
         let twisted_db = KPopMatrix.of_binary ~verbose:!Parameters.verbose twisted_db_fname in
         if twisted_db.which <> Twisted then
           raise KPopMatrix.TwistedExpected;
         let distances =
           KPopMatrix.get_distance_rowwise ~verbose:!Parameters.verbose ~threads:!Parameters.threads
-            !distance !metric !twisted twisted_db in
+            !distance begin
+              (* We compute the metric vector *)
+              if Array.length !twister.inertia.matrix.idx_to_row_names > 0 then
+                (* We use the metric induced by inertia *)
+                !metric !twister.inertia.matrix.storage.(0)
+              else begin
+                (* We assume a flat inertia *)
+                let len = Array.length !twisted.matrix.idx_to_col_names in
+                if len = 0 then
+                  Float.Array.create 0
+                else
+                  1. /. float_of_int len |> Float.Array.make len |> !metric
+              end 
+            end !twisted twisted_db in
         begin match w with
         | Twisted_distances_binary _ ->
           KPopMatrix.to_binary ~verbose:!Parameters.verbose distances fname
