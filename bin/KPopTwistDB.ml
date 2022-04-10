@@ -422,26 +422,34 @@ module [@warning "-32"] KPopTwister:
 
   end
 
-(* There are two registers here *)
+module RegisterType =
+  struct
+    type t =
+      | Twister
+      | Twisted
+      | Distances
+    exception InvalidDBType
+    let of_string = function
+      | "T" -> Twister
+      | "t" -> Twisted
+      | "d" -> Distances
+      | _ ->
+        Tools.Argv.usage ();
+        raise InvalidDBType
+  end
+
+(* There are three registers in this program, one per DB type *)
 type to_do_t =
-  | Empty_twister
-  | Empty_twisted
-  | Binary_to_twister of string
-  | Tables_to_twister of string (* Prefix *)
-  | Binary_to_twisted of string
-  | Table_to_twisted of string
-  | Set_precision of int
-  | Twister_to_binary of string
-  | Twister_to_tables of string (* Prefix *)
-  | Twisted_to_binary of string
-  | Twisted_to_table of string
+  | Empty of RegisterType.t
+  | Binary_to_register of RegisterType.t * string
+  | Tables_to_register of RegisterType.t * string
   | Add_files_to_twisted of string list
+  | Register_to_binary of RegisterType.t * string
+  | Set_precision of int
+  | Register_to_tables of RegisterType.t * string
   | Set_distance of Matrix.Distance.parameters_t
   | Set_metric of Matrix.Distance.Metric.t
-  | Twisted_distances_binary of string * string
-  | Twisted_distances_table of string * string
-  | Distances_to_table of string * string
-  | Table_to_distances of string * string
+  | Distances_from_twisted_binary of string
   (*| Summary*)
 
 module Defaults =
@@ -462,7 +470,7 @@ module Parameters =
     let verbose = ref Defaults.verbose
   end
 
-let version = "0.8"
+let version = "0.9"
 
 let header =
   Printf.sprintf begin
@@ -478,58 +486,41 @@ let _ =
   TA.set_synopsis "[ACTIONS]";
   TA.parse [
     [], None, [ "Actions (executed delayed and in order of specification):" ], TA.Optional, (fun _ -> ());
-    [ "-E"; "--Empty" ],
-      None,
-      [ "put an empty twister database into the twister register" ],
-      TA.Optional,
-      (fun _ -> Empty_twister |> TM.accum Parameters.program);
     [ "-e"; "--empty" ],
-      None,
-      [ "put an empty twisted database into the twisted register" ],
+      Some "T|t|d",
+      [ "load an empty twisted database into the specified register";
+        " (T=twister; t=twisted; d=distance)" ],
       TA.Optional,
-      (fun _ -> Empty_twisted |> TM.accum Parameters.program);
-    [ "-I"; "--Input" ],
-      Some "<binary_file_prefix>",
-      [ "load to the twister register the database present in the specified file";
-        " (which must have extension .KPopTwister)" ],
-      TA.Optional,
-      (fun _ -> Binary_to_twister (TA.get_parameter () |> KPopTwister.make_filename_binary) |> TM.accum Parameters.program);
+      (fun _ -> Empty (TA.get_parameter () |> RegisterType.of_string) |> TM.accum Parameters.program);
     [ "-i"; "--input" ],
-      Some "<binary_file_prefix>",
-      [ "load to the twisted register the database present in the specified file";
-        " (which must have extension .KPopTwisted)" ],
+      Some "T|t|d <binary_file_prefix>",
+      [ "load the specified binary database into the specified register";
+        " (T=twister; t=twisted; d=distance).";
+        "File extension is automatically determined depending on database type";
+        " (will be: .KPopTwister; .KPopTwisted; or .KPopDMatrix, respectively)" ],
       TA.Optional,
       (fun _ ->
-        Binary_to_twisted
-          (TA.get_parameter () |> KPopMatrix.make_filename_binary Twisted) |> TM.accum Parameters.program);
-    [ "--twister-from-tables" ],
-      Some "<table_file_prefix>",
-      [ "load to the twister register the database present in the specified files";
-        " (which must have extensions .KPopTwister.txt and .KPopInertia.txt)" ],
-      TA.Optional,
-      (fun _ -> Tables_to_twister (TA.get_parameter ()) |> TM.accum Parameters.program);
-    [ "--twisted-from-table" ],
-      Some "<table_file_prefix>",
-      [ "load to the twisted register the database present in the specified file";
-        " (which must have extension .KPopTwisted.txt)" ],
+        let register_type = TA.get_parameter () |> RegisterType.of_string in
+        Binary_to_register (register_type, TA.get_parameter ()) |> TM.accum Parameters.program);
+    [ "-I"; "--Input" ],
+      Some "T|t|d <table_file_prefix>",
+      [ "load the specified tabular database(s) into the specified register";
+        " (T=twister; t=twisted; d=distance).";
+        "File extension is automatically determined depending on database type";
+        " (will be: .KPopTwister.txt and .KPopInertia.txt; .KPopTwisted.txt;";
+        "  or .KPopDMatrix, respectively)" ],
       TA.Optional,
       (fun _ ->
-        Table_to_twisted
-          (TA.get_parameter () |> KPopMatrix.make_filename_table Twisted) |> TM.accum Parameters.program);
+        let register_type = TA.get_parameter () |> RegisterType.of_string in
+        Tables_to_register (register_type, TA.get_parameter ()) |> TM.accum Parameters.program);
     [ "-f"; "-F"; "-k"; "-K"; "-a"; "-A";
-      "--add"; "--files"; "--kmers";
-      "--add-files"; "--add-kmers"; "--twisted-add-files"; "--twisted-add-kmers" ],
+      "--add"; "--files"; "--kmers"; "--add-files"; "--add-kmers" ],
       Some "<k-mer_table_file_name>[','...','<k-mer_table_file_name>]",
       [ "twist k-mers from the specified files through the transformation";
-        "present in the twister register, and add the result";
+        "present in the twister register, and add the results";
         "to the database present in the twisted register" ],
       TA.Optional,
       (fun _ -> Add_files_to_twisted (TA.get_parameter () |> TS.on_char_as_list ',') |> TM.accum Parameters.program);
-    [ "--precision"; "--set-precision"; "--set-table-precision" ],
-      Some "<positive_integer>",
-      [ "set the number of precision digits to be used when outputting numbers" ],
-      TA.Default (fun () -> string_of_int Defaults.precision),
-      (fun _ -> Set_precision (TA.get_parameter_int_pos ()) |> TM.accum Parameters.program);
     [ "--distance"; "--distance-function"; "--set-distance"; "--set-distance-function" ],
       Some "'euclidean'|'minkowski'",
       [ "set the function to be used when computing distances" ],
@@ -547,82 +538,42 @@ let _ =
       [ "set the metric function to be used when computing distances" ],
       TA.Default (fun () -> Matrix.Distance.Metric.to_string Defaults.metric),
       (fun _ -> Set_metric (TA.get_parameter () |> Matrix.Distance.Metric.of_string) |> TM.accum Parameters.program);
-    [ "-d"; "--distances-binary"; "--compute-distances-binary"; "--twisted-compute-distances-binary" ],
-      Some "<twisted_binary_file_prefix> <distance_binary_file_prefix>",
+    [ "-d"; "--distances"; "--compute-distances"; "--compute-distances-twisted" ],
+      Some "<twisted_binary_file_prefix>",
       [ "compute distances between all the vectors present in the twisted register";
         "and all the vectors present in the specified twisted binary file";
-        " (which must have extension .KPopTwisted),";
-        "and output them to the specified distance binary file";
-        " (which will be given extension .KPopDMatrix)" ],
+        " (which must have extension .KPopTwisted)" ],
       TA.Optional,
-      (fun _ ->
-        let twisted = TA.get_parameter () |> KPopMatrix.make_filename_binary Twisted in
-        let distances = TA.get_parameter () |> KPopMatrix.make_filename_binary DMatrix in
-        Twisted_distances_binary (twisted, distances) |> TM.accum Parameters.program);
-    [ "-D"; "--distances-table"; "--compute-distances-table"; "--twisted-compute-distances-table" ],
-      Some "<twisted_binary_file_prefix> <distance_table_file_prefix>",
-      [ "compute distances between all the vectors present in the twisted register";
-        "and all the vectors present in the specified twisted binary file";
-        " (which must have extension .KPopTwisted),";
-        "and output them to the specified distance text file";
-        " (which will be given extension .KPopDMatrix.txt)" ],
-      TA.Optional,
-      (fun _ ->
-        let twisted = TA.get_parameter () |> KPopMatrix.make_filename_binary Twisted in
-        let distances = TA.get_parameter () |> KPopMatrix.make_filename_table DMatrix in
-        Twisted_distances_table (twisted, distances) |> TM.accum Parameters.program);
-    [ "--distances-binary-to-table" ],
-      Some "<distance_binary_file_prefix> <distance_table_file_prefix>",
-      [ "output distances contained in the specified binary file";
-        " (which must have extension .KPopDMatrix)";
-        "to the specified text file";
-        " (which will be given extension .KPopDMatrix.txt)" ],
-      TA.Optional,
-      (fun _ ->
-        let binary = TA.get_parameter () |> KPopMatrix.make_filename_binary DMatrix in
-        let table = TA.get_parameter () |> KPopMatrix.make_filename_table DMatrix in
-        Distances_to_table (binary, table) |> TM.accum Parameters.program);
-    [ "--distances-table-to-binary" ],
-      Some "<distance_table_file_prefix> <distance_binary_file_prefix>",
-      [ "output distances contained in the specified text file";
-        " (which must have extension .KPopDMatrix.txt)";
-        "to the specified binary file";
-        " (which will be given extension .KPopDMatrix)" ],
-      TA.Optional,
-      (fun _ ->
-        let table = TA.get_parameter () |> KPopMatrix.make_filename_table DMatrix in
-        let binary = TA.get_parameter () |> KPopMatrix.make_filename_binary DMatrix in
-        Table_to_distances (table, binary) |> TM.accum Parameters.program);
+      (fun _ -> Distances_from_twisted_binary (TA.get_parameter ()) |> TM.accum Parameters.program);
 
 (* SOMETHING TO SUMMARISE DISTANCES? *)
 
-    [ "-O"; "--Output" ],
-      Some "<binary_file_prefix>",
-      [ "dump the database present in the twister register to the specified file";
-        " (which will be given extension .KPopTwister)" ],
-      TA.Optional,
-      (fun _ ->
-        Twister_to_binary (TA.get_parameter () |> KPopTwister.make_filename_binary) |> TM.accum Parameters.program);
     [ "-o"; "--output" ],
-      Some "<binary_file_prefix>",
-      [ "dump the database present in the twisted register to the specified file";
-        " (which will be given extension .KPopTwisted)" ],
+      Some "T|t|d <binary_file_prefix>",
+      [ "dump the database present in the specified register";
+        " (T=twister; t=twisted; d=distance) to the specified binary file.";
+        "File extension is automatically determined depending on database type";
+        " (will be: .KPopTwister; .KPopTwisted; or .KPopDMatrix, respectively)" ],
       TA.Optional,
       (fun _ ->
-        Twisted_to_binary (TA.get_parameter () |> KPopMatrix.make_filename_binary Twisted) |> TM.accum Parameters.program);
-    [ "--twister-to-tables" ],
-      Some "<text_file_prefix>",
-      [ "dump the database present in the twister register to the specified files";
-        " (which will be given extension .KPopTwister.txt and .KPopInertia.txt)" ],
-      TA.Optional,
-      (fun _ -> Twister_to_tables (TA.get_parameter ()) |> TM.accum Parameters.program);
-    [ "--twisted-to-table" ],
-      Some "<text_file_prefix>",
-      [ "dump the database present in the twisted register to the specified file";
-        " (which will be given extension .KPopTwisted.txt)" ],
+        let register_type = TA.get_parameter () |> RegisterType.of_string in
+        Register_to_binary (register_type, TA.get_parameter ()) |> TM.accum Parameters.program);
+    [ "--precision"; "--set-precision"; "--set-table-precision" ],
+      Some "<positive_integer>",
+      [ "set the number of precision digits to be used when outputting numbers" ],
+      TA.Default (fun () -> string_of_int Defaults.precision),
+      (fun _ -> Set_precision (TA.get_parameter_int_pos ()) |> TM.accum Parameters.program);
+    [ "-O"; "--Output" ],
+      Some "T|t|d <table_file_prefix>",
+      [ "dump the database present in the specified register";
+        " (T=twister; t=twisted; d=distance) to the specified tabular file(s).";
+        "File extension is automatically determined depending on database type";
+        " (will be: .KPopTwister.txt and .KPopInertia.txt; .KPopTwisted.txt;";
+        "  or .KPopDMatrix, respectively)" ],
       TA.Optional,
       (fun _ ->
-        Twisted_to_table (TA.get_parameter () |> KPopMatrix.make_filename_table Twisted) |> TM.accum Parameters.program);
+        let register_type = TA.get_parameter () |> RegisterType.of_string in
+        Register_to_tables (register_type, TA.get_parameter ()) |> TM.accum Parameters.program);
     [], None, [ "Miscellaneous (executed immediately):" ], TA.Optional, (fun _ -> ());
     [ "-T"; "--threads" ],
       Some "<computing_threads>",
@@ -652,49 +603,75 @@ let _ =
   let twister = ref KPopTwister.empty and twisted = KPopMatrix.empty Twisted |> ref
   and distance = Matrix.Distance.of_parameters Defaults.distance |> ref
   and metric = Matrix.Distance.Metric.of_string "flat" |> Matrix.Distance.Metric.compute |> ref
-  and precision = ref Defaults.precision in
+  and distances = KPopMatrix.empty DMatrix |> ref and precision = ref Defaults.precision in
 
   (* The addition of an exception handler would be nice *)
 
   List.iter
     (function
-      | Empty_twister ->
+      | Empty RegisterType.Twister ->
         twister := KPopTwister.empty
-      | Empty_twisted ->
+      | Empty RegisterType.Twisted ->
         twisted := KPopMatrix.empty Twisted
-      | Binary_to_twister fname ->
-        twister := KPopTwister.of_binary ~verbose:!Parameters.verbose fname
-      | Tables_to_twister prefix ->
+      | Empty RegisterType.Distances ->
+        distances := KPopMatrix.empty DMatrix
+      | Binary_to_register (RegisterType.Twister, prefix) ->
+        twister := KPopTwister.of_binary ~verbose:!Parameters.verbose prefix
+      | Binary_to_register (RegisterType.Twisted, prefix) ->
+        twisted :=
+          KPopMatrix.make_filename_binary Twisted prefix |> KPopMatrix.of_binary ~verbose:!Parameters.verbose;
+        if !twisted.which <> Twisted then
+          raise KPopMatrix.TwistedExpected
+      | Binary_to_register (RegisterType.Distances, prefix) ->
+        distances :=
+          KPopMatrix.make_filename_binary DMatrix prefix |> KPopMatrix.of_binary ~verbose:!Parameters.verbose;
+        if !distances.which <> DMatrix then
+          raise KPopMatrix.DMatrixExpected
+      | Tables_to_register (RegisterType.Twister, prefix) ->
         twister := KPopTwister.of_files ~threads:!Parameters.threads ~verbose:!Parameters.verbose prefix
-      | Binary_to_twisted fname ->
-        twisted := KPopMatrix.of_binary ~verbose:!Parameters.verbose fname
-      | Table_to_twisted fname ->
-        twisted := KPopMatrix.of_file ~threads:!Parameters.threads ~verbose:!Parameters.verbose Twisted fname
-      | Set_precision prec ->
-        precision := prec
-      | Twister_to_binary fname ->
-        KPopTwister.to_binary ~verbose:!Parameters.verbose !twister fname
-      | Twister_to_tables prefix ->
-        KPopTwister.to_files ~precision:!precision ~threads:!Parameters.threads ~verbose:!Parameters.verbose
-          !twister prefix
-      | Twisted_to_binary fname ->
-        KPopMatrix.to_binary ~verbose:!Parameters.verbose !twisted fname
-      | Twisted_to_table fname ->
-        KPopMatrix.to_file ~precision:!precision ~threads:!Parameters.threads ~verbose:!Parameters.verbose
-          !twisted fname
+      | Tables_to_register (RegisterType.Twisted, prefix) ->
+        twisted :=
+          KPopMatrix.make_filename_table Twisted prefix
+            |> KPopMatrix.of_file ~threads:!Parameters.threads ~verbose:!Parameters.verbose Twisted;
+        if !twisted.which <> Twisted then
+            raise KPopMatrix.TwistedExpected
+      | Tables_to_register (RegisterType.Distances, prefix) ->
+        distances :=
+          KPopMatrix.make_filename_table DMatrix prefix
+            |> KPopMatrix.of_file ~threads:!Parameters.threads ~verbose:!Parameters.verbose DMatrix;
+        if !distances.which <> DMatrix then
+            raise KPopMatrix.DMatrixExpected
       | Add_files_to_twisted fnames ->
         twisted :=
           KPopTwister.add_twisted_from_files ~threads:!Parameters.threads ~verbose:!Parameters.verbose
           !twister !twisted fnames
+      | Register_to_binary (RegisterType.Twister, prefix) ->
+        KPopTwister.to_binary ~verbose:!Parameters.verbose !twister prefix
+      | Register_to_binary (RegisterType.Twisted, prefix) ->
+        KPopMatrix.make_filename_binary Twisted prefix |> KPopMatrix.to_binary ~verbose:!Parameters.verbose !twisted
+      | Register_to_binary (RegisterType.Distances, prefix) ->
+        KPopMatrix.make_filename_binary DMatrix prefix |> KPopMatrix.to_binary ~verbose:!Parameters.verbose !distances
+      | Set_precision prec ->
+        precision := prec
+      | Register_to_tables (RegisterType.Twister, prefix) ->
+        KPopTwister.to_files ~precision:!precision ~threads:!Parameters.threads ~verbose:!Parameters.verbose
+          !twister prefix
+      | Register_to_tables (RegisterType.Twisted, prefix) ->
+        KPopMatrix.make_filename_table Twisted prefix |>
+          KPopMatrix.to_file ~precision:!precision ~threads:!Parameters.threads ~verbose:!Parameters.verbose !twisted
+      | Register_to_tables (RegisterType.Distances, prefix) ->
+        KPopMatrix.make_filename_table DMatrix prefix |>
+          KPopMatrix.to_file ~precision:!precision ~threads:!Parameters.threads ~verbose:!Parameters.verbose !distances
       | Set_distance dist ->
         distance := Matrix.Distance.of_parameters dist
       | Set_metric metr ->
         metric := Matrix.Distance.Metric.compute metr
-      | Twisted_distances_binary (twisted_db_fname, fname) | Twisted_distances_table (twisted_db_fname, fname) as w ->
-        let twisted_db = KPopMatrix.of_binary ~verbose:!Parameters.verbose twisted_db_fname in
-        if twisted_db.which <> Twisted then
+      | Distances_from_twisted_binary prefix ->
+        let twisted_db =
+          KPopMatrix.make_filename_binary Twisted prefix |> KPopMatrix.of_binary ~verbose:!Parameters.verbose in
+        if !twisted.which <> Twisted then
           raise KPopMatrix.TwistedExpected;
-        let distances =
+        distances :=
           KPopMatrix.get_distance_rowwise ~verbose:!Parameters.verbose ~threads:!Parameters.threads
             !distance begin
               (* We compute the metric vector *)
@@ -709,23 +686,6 @@ let _ =
                 else
                   1. /. float_of_int len |> Float.Array.make len |> !metric
               end 
-            end !twisted twisted_db in
-        begin match w with
-        | Twisted_distances_binary _ ->
-          KPopMatrix.to_binary ~verbose:!Parameters.verbose distances fname
-        | Twisted_distances_table _ ->
-          KPopMatrix.to_file ~precision:!precision ~threads:!Parameters.threads ~verbose:!Parameters.verbose
-            distances fname
-        | _ -> assert false
-        end
-      | Distances_to_table (binary, fname) ->
-        let distances = KPopMatrix.of_binary ~verbose:!Parameters.verbose binary in
-        if distances.which <> DMatrix then
-          raise KPopMatrix.DMatrixExpected;
-        KPopMatrix.to_file ~precision:!precision ~threads:!Parameters.threads ~verbose:!Parameters.verbose
-          distances fname
-      | Table_to_distances (table, fname) ->
-        KPopMatrix.to_binary ~verbose:!Parameters.verbose
-          (KPopMatrix.of_file ~threads:!Parameters.threads ~verbose:!Parameters.verbose DMatrix table) fname)
+            end !twisted twisted_db)
     program
 
