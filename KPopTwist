@@ -65,9 +65,9 @@ _____
 
 # We convert the results to binary form and remove temporary files
 echo "$(date +"%c"): [11/13] Encoding twisted..."
-KPopTwistDB --twisted-from-table "$PREFIX" -o "$PREFIX" > /dev/null 2>&1
+KPopTwistDB -I t "$PREFIX" -o t "$PREFIX" > /dev/null 2>&1
 echo "$(date +"%c"): [12/13] Encoding twister..."
-KPopTwistDB --twister-from-tables "$PREFIX" -O "$PREFIX" > /dev/null 2>&1
+KPopTwistDB -I T "$PREFIX" -o T "$PREFIX" > /dev/null 2>&1
 echo "$(date +"%c"): [13/13] Cleaning up..."
 rm "${PREFIX}.KPopCounter.txt"
 rm "${TMPDIR}/TABLE.txt" "${TMPDIR}/NAMES.txt"

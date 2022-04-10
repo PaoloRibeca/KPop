@@ -30,7 +30,7 @@ module Distance:
     type t =
       | Euclidean
       | Minkowski of float (* Theoretically speaking, the parameter should be an integer *)
-    exception IncompatibleLengths of int * int * int
+    exception Incompatible_lengths of int * int * int
     (* What happens when the vectors have incompatible lengths *)
     type mode_t =
       | Fail
@@ -68,7 +68,7 @@ module Distance:
     type t =
       | Euclidean
       | Minkowski of float
-    exception IncompatibleLengths of int * int * int
+    exception Incompatible_lengths of int * int * int
     type mode_t =
       | Fail
       | Infinity
@@ -78,7 +78,7 @@ module Distance:
       let length_a = Float.Array.length a and length_m = Float.Array.length m and length_b = Float.Array.length b in
       if length_a <> length_m || length_m <> length_b then begin
         match !mode with
-        | Fail -> IncompatibleLengths (length_a, length_m, length_b) |> raise
+        | Fail -> Incompatible_lengths (length_a, length_m, length_b) |> raise
         | Infinity -> infinity
       end else
         match f with
@@ -201,7 +201,7 @@ include (
             String.sub s 0 (l - 1)
           else
             s
-    exception WrongNumberOfColumns of int * int * int
+    exception Wrong_number_of_columns of int * int * int
     let of_file ?(threads = 1) ?(bytes_per_step = 4194304) ?(verbose = false) filename =
       let input = open_in filename and line_num = ref 0
       and idx_to_col_names = ref [||] and idx_to_row_names = ref [] and storage = ref [] in
@@ -246,7 +246,7 @@ include (
               let line = Tools.Split.on_char_as_array '\t' line in
               let l = Array.length line in
               if l <> num_cols + 1 then
-                WrongNumberOfColumns (line_num, l, num_cols + 1) |> raise;
+                Wrong_number_of_columns (line_num, l, num_cols + 1) |> raise;
               let array = Float.Array.create num_cols in
               Array.iteri
                 (fun i el ->
@@ -328,10 +328,10 @@ include (
       { idx_to_col_names = m.idx_to_row_names;
         idx_to_row_names = m.idx_to_col_names;
         storage = storage }
-    exception IncompatibleGeometries of string array * string array
+    exception Incompatible_geometries of string array * string array
     let multiply_matrix_vector ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) m v =
       if Array.length m.idx_to_col_names <> Float.Array.length v then
-        IncompatibleGeometries (m.idx_to_col_names, Array.make (Float.Array.length v) "") |> raise;
+        Incompatible_geometries (m.idx_to_col_names, Array.make (Float.Array.length v) "") |> raise;
       let d = Array.length m.idx_to_row_names in
       (* We immediately allocate all the needed memory, as we already know how much we will need *)
       let res = Float.Array.create d and i = ref 0 and end_reached = ref false and elts_done = ref 0 in
@@ -377,7 +377,7 @@ include (
       res
     let multiply_matrix_matrix ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) m1 m2 =
       if m1.idx_to_col_names <> m2.idx_to_row_names then
-        IncompatibleGeometries (m1.idx_to_col_names, m2.idx_to_row_names) |> raise;
+        Incompatible_geometries (m1.idx_to_col_names, m2.idx_to_row_names) |> raise;
       let row_num = Array.length m1.idx_to_row_names and col_num = Array.length m2.idx_to_col_names in
       (* We immediately allocate all the needed memory, as we already know how much we will need *)
       let storage = Array.init row_num (fun _ -> Float.Array.create col_num) in
@@ -493,7 +493,7 @@ include (
     let get_distance_rowwise ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) distance metric m1 m2 =
       let distance = Distance.compute distance metric in
       if m1.idx_to_col_names <> m2.idx_to_col_names then
-        IncompatibleGeometries (m1.idx_to_col_names, m2.idx_to_col_names) |> raise;
+        Incompatible_geometries (m1.idx_to_col_names, m2.idx_to_col_names) |> raise;
       let r1 = Array.length m1.idx_to_row_names and r2 = Array.length m2.idx_to_row_names in
       (* We immediately allocate all the needed memory, as we already know how much we will need *)
       let storage = Array.init r1 (fun _ -> Float.Array.create r2) in
@@ -554,12 +554,12 @@ include (
       Keeping with the convention accepted by R, the first row would be a header,
         and the first column the row names.
       Names might be quoted *)
-    exception WrongNumberOfColumns of int * int * int
+    exception Wrong_number_of_columns of int * int * int
     val of_file: ?threads:int -> ?bytes_per_step:int -> ?verbose:bool -> string -> t
     val to_file: ?precision:int -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> string -> unit
     val transpose_single_threaded: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> t
     val transpose: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> t
-    exception IncompatibleGeometries of string array * string array
+    exception Incompatible_geometries of string array * string array
     val multiply_matrix_vector:
       ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> Float.Array.t -> Float.Array.t
     val multiply_matrix_matrix:

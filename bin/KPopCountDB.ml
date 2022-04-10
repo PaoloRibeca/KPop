@@ -297,12 +297,12 @@ and KMerDB:
     }
     val make_empty: unit -> t
     (* Adds metadata - the first field must be the label *)
-    exception WrongNumberOfColumns of int * int * int
+    exception Wrong_number_of_columns of int * int * int
     val add_meta: ?verbose:bool -> t -> string -> t
     (* Adds text files containing k-mers. The first line must contain the label.
        Multiple files separated by "\t\n" can be chained in the same input *)
-    exception HeaderExpected of string
-    exception WrongFormat of int * string
+    exception Header_expected of string
+    exception Wrong_format of int * string
     (* Add files contaning k-mers. Multiple files can be chained *)
     val add_files: ?verbose:bool -> t -> string list -> t
     (* Select column names identified by regexps on metadata fields *)
@@ -539,7 +539,7 @@ and KMerDB:
       | w when String.length w >= 5 && String.sub w 0 5 = "/dev/" -> w
       | prefix -> prefix ^ ".KPopCounter"
     (* *)
-    exception WrongNumberOfColumns of int * int * int
+    exception Wrong_number_of_columns of int * int * int
     let add_meta ?(verbose = false) db fname =
       let input = open_in fname and line_num = ref 0 in
       let header = input_line input |> Tools.Split.on_char_as_array '\t' in
@@ -585,7 +585,7 @@ and KMerDB:
           (* A regular line. The first element is the vector name, the others the values of meta-data fields *)
           let l = Array.length line in
           if l <> num_header_fields then
-            WrongNumberOfColumns (!line_num, l, num_header_fields) |> raise;
+            Wrong_number_of_columns (!line_num, l, num_header_fields) |> raise;
           add_empty_column_if_needed db line.(0);
           let col_idx = Hashtbl.find !db.col_names_to_idx line.(0) in
           Array.iteri
@@ -602,8 +602,8 @@ and KMerDB:
           Printf.eprintf "\rFile '%s': Read %d lines\n%!" fname !line_num
       end;
       !db
-    exception HeaderExpected of string
-    exception WrongFormat of int * string
+    exception Header_expected of string
+    exception Wrong_format of int * string
     let add_files ?(verbose = false) db fnames =
       let db = ref db and n = List.length fnames in
       List.iteri
@@ -617,10 +617,10 @@ and KMerDB:
               let line = Tools.Split.on_char_as_array '\t' line_s in
               let l = Array.length line in
               if l <> 2 then
-                WrongNumberOfColumns (!line_num, l, 2) |> raise;
+                Wrong_number_of_columns (!line_num, l, 2) |> raise;
               (* Each file must begin with a header *)
               if !line_num = 1 && line.(0) <> "" then
-                HeaderExpected line_s |> raise;
+                Header_expected line_s |> raise;
               if line.(0) = "" then begin
                 (* Header *)
                 add_empty_column_if_needed db line.(1);
@@ -649,7 +649,7 @@ and KMerDB:
                   try
                     IBAVector.N.of_string line.(1)
                   with _ ->
-                    WrongFormat (!line_num, line.(1)) |> raise in
+                    Wrong_format (!line_num, line.(1)) |> raise in
                 (* If there are repeated k-mers, we just accumulate them *)
                 !db.core.storage.(!col_idx).IBAVector.+(row_idx) <- v
               end;
