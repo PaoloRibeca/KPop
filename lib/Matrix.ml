@@ -139,26 +139,49 @@ include (
     }
     let empty =
       { idx_to_col_names = [||]; idx_to_row_names = [||]; storage = [||] }
-    let [@warning "-27"] to_file
-        ?(precision = 15) ?(threads = 1) ?(elements_per_step = 40000) ?(verbose = false) m filename =
-      let output = open_out filename in
-      if Array.length m.storage > 0 then begin
-        (* We output the column names *)
+    let to_file ?(precision = 15) ?(threads = 1) ?(elements_per_step = 40000) ?(verbose = false) m fname =
+      let n_cols = Array.length m.idx_to_col_names and n_rows = Array.length m.idx_to_row_names
+      and output = open_out fname in
+      if n_rows > 0 && n_cols > 0 then begin
+        (* We output column names *)
         Printf.fprintf output "\"\"";
         Array.iter
           (fun name ->
             Printf.fprintf output "\t\"%s\"" name)
           m.idx_to_col_names;
-        Printf.fprintf output "\n";
-        (* We output the rows *)
-        Array.iteri
-          (fun i row ->
-            (* We output the row name *)
-            m.idx_to_row_names.(i) |> Printf.fprintf output "\"%s\"";
-            Float.Array.iter (Printf.fprintf output "\t%.*g" precision) row;
-            Printf.fprintf output "\n")
-          m.storage
+        Printf.fprintf output "\n%!";
+        let processed_rows = ref 0 and buf = Buffer.create 1048576 in
+        Tools.Parallel.process_stream_chunkwise
+          (fun () ->
+            if !processed_rows < n_rows then
+              let to_do = max 1 (elements_per_step / n_cols) |> min (n_rows - !processed_rows) in
+              let new_processed_rows = !processed_rows + to_do in
+              let res = !processed_rows, new_processed_rows - 1 in
+              processed_rows := new_processed_rows;
+              res
+            else
+              raise End_of_file)
+          (fun (lo_row, hi_row) ->
+            Buffer.clear buf;
+            (* We output rows *)
+            for i = lo_row to hi_row do
+              (* We output the row name *)
+              m.idx_to_row_names.(i) |> Printf.bprintf buf "\"%s\"";
+              Float.Array.iter (Printf.bprintf buf "\t%.*g" precision) m.storage.(i);
+              Printf.bprintf buf "\n"
+            done;
+            hi_row - lo_row + 1, Buffer.contents buf)
+          (fun (n_processed, block) ->
+            Printf.fprintf output "%s" block;
+            let old_processed_rows = !processed_rows in
+            processed_rows := !processed_rows + n_processed;
+            if verbose && !processed_rows / 10000 > old_processed_rows / 10000 then
+              Printf.eprintf "\rWriting table to file '%s': done %d/%d lines%!"
+                fname !processed_rows n_rows)
+          threads
       end;
+      if verbose then
+        Printf.eprintf "\rWriting table to file '%s': done %d/%d lines.\n%!" fname n_rows n_rows;
       close_out output
     let strip_quotes s =
       let l = String.length s in
@@ -282,7 +305,8 @@ include (
                 if !i = row_num then begin (* The original columns *)
                   end_reached := true;
                   raise Exit
-                end
+                end;
+                incr cntr
               done
             with Exit -> ()
             end;
@@ -325,6 +349,7 @@ include (
                   end_reached := true;
                   raise Exit
                 end;
+                incr cntr
               done
             with Exit -> ()
             end;
@@ -376,7 +401,8 @@ include (
                     raise Exit
                   end;
                   j := 0
-                end
+                end;
+                incr cntr
               done
             with Exit -> ()
             end;
@@ -429,7 +455,8 @@ include (
                     raise Exit
                   end;
                   j := 0
-                end
+                end;
+                incr cntr
               done
             with Exit -> ()
             end;
@@ -490,7 +517,8 @@ include (
                     raise Exit
                   end;
                   j := 0
-                end
+                end;
+                incr cntr
               done
             with Exit -> ()
             end;
@@ -512,7 +540,6 @@ include (
       { idx_to_col_names = m2.idx_to_row_names;
         idx_to_row_names = m1.idx_to_row_names;
         storage = storage }
-
   end: sig
     type t = {
       (* We number rows and columns starting from 0 *)
@@ -542,7 +569,6 @@ include (
     (* Compute distances between the rows of two matrices - more general version of the previous one *)
     val get_distance_rowwise:
       ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Distance.t -> Float.Array.t -> t -> t -> t
-
   end
 )
 
