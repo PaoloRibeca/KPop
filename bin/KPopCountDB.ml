@@ -335,7 +335,8 @@ and KMerDB:
         val default: t
       end
     (* Readable output *)
-    val to_table: ?filter:TableFilter.t -> ?threads:int -> ?verbose:bool -> t -> string -> unit
+    val to_table:
+      ?filter:TableFilter.t -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> string -> unit
     val make_filename_table: string -> string
 
   end
@@ -826,7 +827,8 @@ and KMerDB:
           precision = 15
         }      
       end
-    let to_table ?(filter = TableFilter.default) ?(threads = 1) ?(verbose = false) db fname =
+    let to_table
+        ?(filter = TableFilter.default) ?(threads = 1) ?(elements_per_step = 40000) ?(verbose = false) db fname =
       let transform = Transformation.compute ~which:filter.transform
       and stats = Statistics.table_of_db ~threads ~verbose filter.transform db
       and output = open_out fname and meta = ref [] and rows = ref [] and cols = ref [] in
@@ -882,7 +884,7 @@ and KMerDB:
           Tools.Parallel.process_stream_chunkwise
             (fun () ->
               if !processed_cols < n_cols then
-                let to_do = min 1 (n_cols - !processed_cols) in (* There is 1 here because columns are usually very long *)
+                let to_do = max 1 (elements_per_step / n_rows) |> min (n_cols - !processed_cols) in
                 let new_processed_cols = !processed_cols + to_do in
                 let res = !processed_cols, new_processed_cols - 1 in
                 processed_cols := new_processed_cols;
@@ -949,7 +951,7 @@ and KMerDB:
           Tools.Parallel.process_stream_chunkwise
             (fun () ->
               if !processed_rows < n_rows then
-                let to_do = min 10000 (n_rows - !processed_rows) in
+                let to_do = max 1 (elements_per_step / n_cols) |> min (n_rows - !processed_rows) in
                 let new_processed_rows = !processed_rows + to_do in
                 let res = !processed_rows, new_processed_rows - 1 in
                 processed_rows := new_processed_rows;
@@ -979,15 +981,14 @@ and KMerDB:
               let old_processed_rows = !processed_rows in
               processed_rows := !processed_rows + n_processed;
               if verbose && !processed_rows / 10000 > old_processed_rows / 10000 then
-                Printf.eprintf "\rWriting table to file '%s': done %d/%d lines%!"
-                  fname !processed_rows db.core.n_rows)
+                Printf.eprintf "\rWriting table to file '%s': done %d/%d lines%!" fname !processed_rows n_rows)
             threads
         end;
         let n_done =
           if filter.transpose then
-            db.core.n_cols
+            n_cols
           else
-            db.core.n_rows in
+            n_rows in
         if verbose then
           Printf.eprintf "\rWriting table to file '%s': done %d/%d lines.\n%!" fname n_done n_done
       end;
