@@ -211,6 +211,7 @@ module [@warning "-32"] KPopTwister:
     exception WrongNumberOfColumns of int * int * int
     exception HeaderExpected of string
     exception WrongFormat of int * string
+    exception DuplicateLabel of string
     val add_twisted_from_files:
       ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> KPopMatrix.t -> string list -> KPopMatrix.t
     (* *)
@@ -258,32 +259,36 @@ module [@warning "-32"] KPopTwister:
     exception WrongNumberOfColumns of int * int * int
     exception HeaderExpected of string
     exception WrongFormat of int * string
+    exception DuplicateLabel of string
     let [@warning "-27"] add_twisted_from_files
         ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) twister twisted fnames =
       if twisted.KPopMatrix.which <> Twisted then
         raise KPopMatrix.TwistedExpected;
-      let twisted =
+      let twisted_idx_to_col_names =
         if twisted.matrix = Matrix.empty then
-          { twisted with
-            matrix =
-              { twisted.matrix with
-                idx_to_col_names = twister.twister.matrix.idx_to_row_names } }
-        else
-          twisted in
-      if twister.twister.matrix.idx_to_row_names <> twisted.matrix.idx_to_col_names then
+          twister.twister.matrix.idx_to_row_names
+        else twisted.matrix.idx_to_col_names in
+      if twister.twister.matrix.idx_to_row_names <> twisted_idx_to_col_names then
         raise IncompatibleTwisterAndTwisted;
       (* We invert the table *)
-      let col_names_to_idx = Hashtbl.create 1024 in
+      let num_twister_cols = Array.length twister.twister.matrix.idx_to_col_names in
+      let twister_col_names_to_idx = Hashtbl.create num_twister_cols in
       Array.iteri
         (fun i name ->
-          Hashtbl.add col_names_to_idx name i)
+          Hashtbl.add twister_col_names_to_idx name i)
         twister.twister.matrix.idx_to_col_names;
+      (* We decompose the existing twisted matrix *)
+      let res = ref Tools.StringMap.empty in
+      Array.iteri
+        (fun i name ->
+          res := Tools.StringMap.add name twisted.matrix.storage.(i) !res)
+        twisted.matrix.idx_to_row_names;
       (* First we read spectra from the files.
          We have to conform the k-mers to the ones in the twister.
          As a bonus, we already know the size of the resulting vector *)
       let fnames = Array.of_list fnames in
       let n = Array.length fnames and file_idx = ref 0 and file = open_in fnames.(0) |> ref and line_num = ref 0
-      and labels = ref ("", "") and num_spectra = ref 0 and res_labels = ref [] and res_allocs = ref [] in
+      and labels = ref ("", "") and num_spectra = ref 0 in
       (* Parallel section *)
       Tools.Parallel.process_stream_chunkwise
         (fun () ->
@@ -342,8 +347,8 @@ module [@warning "-32"] KPopTwister:
           end)
         (fun (label, rev_lines) ->
           let n = List.length rev_lines
-          (* We allocate the row vector *)
-          and row = Float.Array.make (Array.length twister.twister.matrix.idx_to_col_names) 0. in
+          (* We allocate the column vector to be transformed *)
+          and col = Float.Array.make num_twister_cols 0. in
           List.iteri
             (fun i (name, v) ->
               let v =
@@ -351,10 +356,10 @@ module [@warning "-32"] KPopTwister:
                   float_of_string v
                 with _ ->
                   WrongFormat (n - i, v) |> raise in
-              match Hashtbl.find_opt col_names_to_idx name with
+              match Hashtbl.find_opt twister_col_names_to_idx name with
               | Some idx ->
                 (* If there are repeated k-mers, we just accumulate them *)
-                Float.Array.get row idx +. v |> Float.Array.set row idx
+                Float.Array.get col idx +. v |> Float.Array.set col idx
               | None ->
                 (* In this case, we just discard the k-mer *)
                 ())
@@ -364,23 +369,33 @@ module [@warning "-32"] KPopTwister:
           Float.Array.iter
             (fun el ->
               acc := !acc +. el)
-            row;
+            col;
           let acc = !acc in
           if acc <> 0. then
             Float.Array.iteri
               (fun i el ->
-                el /. acc |> Float.Array.set row i)
-              row;
-          label, KPopMatrix.multiply_matrix_vector ~threads:1 ~elements_per_step:n ~verbose:false twister.twister row)
+                el /. acc |> Float.Array.set col i)
+              col;
+          label, KPopMatrix.multiply_matrix_vector ~threads:1 ~elements_per_step:n ~verbose:false twister.twister col)
         (fun (label, row) ->
-          Tools.Misc.accum res_labels label;
-          Tools.Misc.accum res_allocs row)
+          (* The transformed column vector becomes a row *)
+          match Tools.StringMap.find_opt label !res with
+          | None ->
+            res := Tools.StringMap.add label row !res
+          | Some _ ->
+            DuplicateLabel label |> raise)
         threads;
-      { KPopMatrix.which = Twisted;
-        matrix = {
-          Matrix.idx_to_col_names = twisted.matrix.idx_to_col_names;
-          idx_to_row_names = Tools.Misc.array_of_rlist !res_labels |> Array.append twisted.matrix.idx_to_row_names;
-          storage = Tools.Misc.array_of_rlist !res_allocs |> Array.append twisted.matrix.storage } }
+      let n = Tools.StringMap.cardinal !res in
+      let idx_to_row_names = Array.make n ""
+      and storage = Array.make n (Float.Array.create 0) in
+      let module StringMap = Tools.Misc.Map(Tools.ComparableString) in
+      StringMap.iteri
+        (fun i label row ->
+          idx_to_row_names.(i) <- label;
+          storage.(i) <- row)
+        !res;
+      { KPopMatrix.which = Twisted; 
+        matrix = { Matrix.idx_to_col_names = twisted_idx_to_col_names; idx_to_row_names; storage } }
     (* *)
     let to_binary ?(verbose = false) t fname =
       let output = open_out fname in
