@@ -8,28 +8,24 @@
 
 ### `KPopCountDB`
 
-This is the list of commandline options available for `KPopCountDB`. You can visualise it by typing
+This is the list of command line options available for the program `KPopCountDB`. You can visualise the list by typing
 ```
-KPopCountDB -h
+$ KPopCountDB -h
 ```
-in your terminal.
+in your terminal. You will see a header containing information about the version:
 ```
 This is the KPopCountDB program (version 0.27)
  (c) 2020-2022 Paolo Ribeca, <paolo.ribeca@gmail.com>
-Usage:
-  KPopCountDB [ACTIONS]
- Actions (executed delayed and in order of specification):
-  -e|-E|--empty
-   | put an empty database into the register
-  -i|-I|--input
-    <binary_file_prefix>
-   | load to the register the database present in the specified file
-   |  (which must have extension .KPopCounter)
-  -m|-M|--metadata|--add-metadata
-    <metadata_table_file_name>
-   | add to the database present in the register metadata from the specified file
 ```
-
+followed by detailed information. The general form(s) the command can be used is:
+```
+KPopCountDB [ACTIONS]
+```
+Actions (executed delayed and in order of specification):
+| Option | Argument(s) | Default | Effect |
+|-|-|-|-|
+|`-e`<br>`-E`<br>`--empty`|||put an empty database into the register|
+|`-i`<br>`-I`<br>`--input`|_<binary_file_prefix>_<br>&nbsp;<br>&nbsp;||load to the register the database present in the specified file<br> (which must have extension .KPopCounter)<br>&nbsp;|
 
 ## Examples
 
