@@ -1,8 +1,32 @@
 
-# KPop: Unleash the full power of your *k*-mers!
+# `KPop`: Unleash the full power of your *k*-mers!
+
+
+
+`KPop` is implemented for the most part in [OCaml](https://ocaml.org), an industry-strength programming language that offers a number of advantages &mdash; amazing concision and symbolic power, static typing, incredible robustness and superior compiled speed. Due mostly to historical, prototyping reasons, a small part of `KPoP` is still in R, although we hope to evntually migrate everything to OCaml. All programs are parallelised and will automatically use as many CPUs as are available on your machine, in order to speed up the wallclock execution time of your tasks as much as possible.
+
+Depending on the problem at hand, `KPop` analysis can require a large amount of computational resources, memory in particular. That is a feature &mdash; i.e., a conscious design choice &mdash; rather than a bug. We recommend the use of a relatively large HPC node (at least 16 CPU cores and 256 GB of RAM) as a starting point for exploration.
+
+## Installation
+
+
+> Note that the only operating system we support is Linux.
+
+### Conda channel
+
+### Pre-compiled binaries 
+
+### Manual compilation
+
+Alternatively, you can install `KPop` manually by compiling its sources. You will need an up-to-date distribution of the OCaml compiler and the [Dune package manager](https://github.com/ocaml/dune) for that. Both can be installed through [OPAM](https://opam.ocaml.org/), the official OCaml distribution system. Once you have a working OPAM distribution you will also have a working OCaml compiler, and Dune can be installed with the command
+```
+$ opam install dune
+```
+if it is not already present. Make sure that you install OCaml version 4.12 or later.
 
 ## Overview
 
+`KPop` comes as a number of different programs, each one
 
 ## Command line syntax
 
