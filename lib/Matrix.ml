@@ -230,7 +230,7 @@ include (
                 while !cntr < bytes_per_step do
                   let line = input_line input in
                   incr line_num;
-                  Tools.Misc.accum res (!line_num, line);
+                  Tools.List.accum res (!line_num, line);
                   cntr := !cntr + String.length line
                 done
               with End_of_file ->
@@ -260,8 +260,8 @@ include (
               incr line_num;
               assert (obs_line_num = !line_num);
               (* Only here do we actually fill out the memory for the result *)
-              Tools.Misc.accum idx_to_row_names name;
-              Tools.Misc.accum storage numbers;
+              Tools.List.accum idx_to_row_names name;
+              Tools.List.accum storage numbers;
               let new_elts_read = !elts_read + num_cols in
               if verbose && new_elts_read / 100000 > !elts_read / 100000 then
                 Printf.eprintf "\r(%s): On line %d of file '%s': Read %d elements%!            \r"
@@ -277,8 +277,8 @@ include (
         close_in input
       end;
       { idx_to_col_names = !idx_to_col_names;
-        idx_to_row_names = Tools.Misc.array_of_rlist !idx_to_row_names;
-        storage = Tools.Misc.array_of_rlist !storage }
+        idx_to_row_names = Tools.Array.of_rlist !idx_to_row_names;
+        storage = Tools.Array.of_rlist !storage }
     let [@warning "-27"] transpose_single_threaded ?(threads = 1) ?(elements_per_step = 1) ?(verbose = false) m =
       { idx_to_col_names = m.idx_to_row_names;
         idx_to_row_names = m.idx_to_col_names;
@@ -300,7 +300,7 @@ include (
             let res = ref [] and cntr = ref 0 in
             begin try
               while !cntr < elements_per_step do
-                Tools.Misc.accum res !i;
+                Tools.List.accum res !i;
                 incr i;
                 if !i = row_num then begin (* The original columns *)
                   end_reached := true;
@@ -343,7 +343,7 @@ include (
             let res = ref [] and cntr = ref 0 in
             begin try
               while !cntr < elements_per_step do
-                Tools.Misc.accum res !i;
+                Tools.List.accum res !i;
                 incr i;
                 if !i = d then begin
                   end_reached := true;
@@ -392,7 +392,7 @@ include (
             let res = ref [] and cntr = ref 0 in
             begin try
               while !cntr < elements_per_step do
-                Tools.Misc.accum res (!i, !j);
+                Tools.List.accum res (!i, !j);
                 incr j;
                 if !j = col_num then begin
                   incr i;
@@ -446,7 +446,7 @@ include (
             let res = ref [] and cntr = ref 0 in
             begin try
               while !cntr < elements_per_step do
-                Tools.Misc.accum res (!i, !j);
+                Tools.List.accum res (!i, !j);
                 incr j;
                 if !j > !i then begin
                   incr i;
@@ -508,7 +508,7 @@ include (
             let res = ref [] and cntr = ref 0 in
             begin try
               while !cntr < elements_per_step do
-                Tools.Misc.accum res (!i, !j);
+                Tools.List.accum res (!i, !j);
                 incr j;
                 if !j = r2 then begin
                   incr i;

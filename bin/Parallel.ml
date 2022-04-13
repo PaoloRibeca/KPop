@@ -125,7 +125,7 @@ let () =
       open_out !Parameters.output in
   let print_num_lines what =
     if verbose then
-      Printf.sprintf "%d %s %s" !Misc.input_line_num (Tools.Misc.pluralize_int "line" !Misc.input_line_num) what |>
+      Printf.sprintf "%d %s %s" !Misc.input_line_num (Tools.String.pluralize_int "line" !Misc.input_line_num) what |>
       Tools.Printf.pteprintf "%s\n%!"
   and wait_and_check pid =
     match let _, status = Unix.waitpid [] pid in status with
@@ -144,7 +144,7 @@ let () =
         begin try
           for _ = 1 to lines_per_block do
             incr Misc.input_line_num;
-            input_line input |> Tools.Misc.accum buf
+            input_line input |> Tools.List.accum buf
           done
         with End_of_file ->
           decr Misc.input_line_num;

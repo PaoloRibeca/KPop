@@ -308,7 +308,7 @@ module [@warning "-32"] KPopTwister:
                   end
                 end else
                   (* A regular line. The first element is the hash, the second one the count *)
-                  Tools.Misc.accum buf (line.(0), line.(1))
+                  Tools.List.accum buf (line.(0), line.(1))
               done
             with
             | End_of_file ->
@@ -317,8 +317,8 @@ module [@warning "-32"] KPopTwister:
               incr num_spectra;
               Printf.eprintf "\r[%d/%d] File '%s': Read %d %s on %d %s.\n%!"
                 (!file_idx + 1) n fnames.(!file_idx)
-                !num_spectra (Tools.Misc.pluralize_int ~plural:"spectra" "spectrum" !num_spectra)
-                !line_num (Tools.Misc.pluralize_int "line" !line_num);
+                !num_spectra (Tools.String.pluralize_int ~plural:"spectra" "spectrum" !num_spectra)
+                !line_num (Tools.String.pluralize_int "line" !line_num);
               incr file_idx;
               if !file_idx < n then begin
                 file := open_in fnames.(!file_idx);
@@ -330,8 +330,8 @@ module [@warning "-32"] KPopTwister:
             if verbose && !file_idx < n then
               Printf.eprintf "\r[%d/%d] File '%s': Read %d %s on %d %s%!"
                 (!file_idx + 1) n fnames.(!file_idx)
-                !num_spectra (Tools.Misc.pluralize_int ~plural:"spectra" "spectrum" !num_spectra)
-                !line_num (Tools.Misc.pluralize_int "line" !line_num);
+                !num_spectra (Tools.String.pluralize_int ~plural:"spectra" "spectrum" !num_spectra)
+                !line_num (Tools.String.pluralize_int "line" !line_num);
             (* The lines are passed in reverse order, but that does not really matter much
                 as the final order is determined by the twister *)
             fst !labels, !buf
@@ -379,8 +379,7 @@ module [@warning "-32"] KPopTwister:
       let n = Tools.StringMap.cardinal !res in
       let idx_to_row_names = Array.make n ""
       and storage = Array.make n (Float.Array.create 0) in
-      let module StringMap = Tools.Misc.Map(Tools.ComparableString) in
-      StringMap.iteri
+      Tools.StringMap.iteri
         (fun i label row ->
           idx_to_row_names.(i) <- label;
           storage.(i) <- row)
@@ -478,7 +477,7 @@ let header =
 let _ =
   let module TA = Tools.Argv in
   let module TS = Tools.Split in
-  let module TM = Tools.Misc in
+  let module TL = Tools.List in
   TA.set_header header;
   TA.set_synopsis "[ACTIONS]";
   TA.parse [
@@ -488,7 +487,7 @@ let _ =
       [ "load an empty twisted database into the specified register";
         " (T=twister; t=twisted; d=distance)" ],
       TA.Optional,
-      (fun _ -> Empty (TA.get_parameter () |> RegisterType.of_string) |> TM.accum Parameters.program);
+      (fun _ -> Empty (TA.get_parameter () |> RegisterType.of_string) |> TL.accum Parameters.program);
     [ "-i"; "--input" ],
       Some "T|t|d <binary_file_prefix>",
       [ "load the specified binary database into the specified register";
@@ -498,7 +497,7 @@ let _ =
       TA.Optional,
       (fun _ ->
         let register_type = TA.get_parameter () |> RegisterType.of_string in
-        Binary_to_register (register_type, TA.get_parameter ()) |> TM.accum Parameters.program);
+        Binary_to_register (register_type, TA.get_parameter ()) |> TL.accum Parameters.program);
     [ "-I"; "--Input" ],
       Some "T|t|d <table_file_prefix>",
       [ "load the specified tabular database(s) into the specified register";
@@ -509,7 +508,7 @@ let _ =
       TA.Optional,
       (fun _ ->
         let register_type = TA.get_parameter () |> RegisterType.of_string in
-        Tables_to_register (register_type, TA.get_parameter ()) |> TM.accum Parameters.program);
+        Tables_to_register (register_type, TA.get_parameter ()) |> TL.accum Parameters.program);
     [ "-f"; "-F"; "-k"; "-K"; "-a"; "-A";
       "--add"; "--files"; "--kmers"; "--add-files"; "--add-kmers" ],
       Some "<k-mer_table_file_name>[','...','<k-mer_table_file_name>]",
@@ -517,31 +516,31 @@ let _ =
         "present in the twister register, and add the results";
         "to the database present in the twisted register" ],
       TA.Optional,
-      (fun _ -> Add_files_to_twisted (TA.get_parameter () |> TS.on_char_as_list ',') |> TM.accum Parameters.program);
+      (fun _ -> Add_files_to_twisted (TA.get_parameter () |> TS.on_char_as_list ',') |> TL.accum Parameters.program);
     [ "--distance"; "--distance-function"; "--set-distance"; "--set-distance-function" ],
       Some "'euclidean'|'minkowski'",
       [ "set the function to be used when computing distances" ],
       TA.Default (fun () -> Defaults.distance.which),
-      (fun _ -> Set_distance { !Parameters.distance with which = TA.get_parameter () } |> TM.accum Parameters.program);
+      (fun _ -> Set_distance { !Parameters.distance with which = TA.get_parameter () } |> TL.accum Parameters.program);
     [ "--distance-power"; "--set-distance-power" ],
       Some "<non_negative_float>",
       [ "set the power to be used when computing (Minkowski) distances" ],
       TA.Default (fun () -> string_of_float Defaults.distance.power),
       (fun _ ->
         Set_distance { !Parameters.distance with power = TA.get_parameter_float_non_neg () }
-          |> TM.accum Parameters.program);
+          |> TL.accum Parameters.program);
     [ "--metric"; "--metric-function"; "--set-metric"; "--set-metric-function" ],
       Some "'flat'",
       [ "set the metric function to be used when computing distances" ],
       TA.Default (fun () -> Matrix.Distance.Metric.to_string Defaults.metric),
-      (fun _ -> Set_metric (TA.get_parameter () |> Matrix.Distance.Metric.of_string) |> TM.accum Parameters.program);
+      (fun _ -> Set_metric (TA.get_parameter () |> Matrix.Distance.Metric.of_string) |> TL.accum Parameters.program);
     [ "-d"; "--distances"; "--compute-distances"; "--compute-distances-twisted" ],
       Some "<twisted_binary_file_prefix>",
       [ "compute distances between all the vectors present in the twisted register";
         "and all the vectors present in the specified twisted binary file";
         " (which must have extension .KPopTwisted)" ],
       TA.Optional,
-      (fun _ -> Distances_from_twisted_binary (TA.get_parameter ()) |> TM.accum Parameters.program);
+      (fun _ -> Distances_from_twisted_binary (TA.get_parameter ()) |> TL.accum Parameters.program);
 
 (* SOMETHING TO SUMMARISE DISTANCES? *)
 
@@ -554,12 +553,12 @@ let _ =
       TA.Optional,
       (fun _ ->
         let register_type = TA.get_parameter () |> RegisterType.of_string in
-        Register_to_binary (register_type, TA.get_parameter ()) |> TM.accum Parameters.program);
+        Register_to_binary (register_type, TA.get_parameter ()) |> TL.accum Parameters.program);
     [ "--precision"; "--set-precision"; "--set-table-precision" ],
       Some "<positive_integer>",
       [ "set the number of precision digits to be used when outputting numbers" ],
       TA.Default (fun () -> string_of_int Defaults.precision),
-      (fun _ -> Set_precision (TA.get_parameter_int_pos ()) |> TM.accum Parameters.program);
+      (fun _ -> Set_precision (TA.get_parameter_int_pos ()) |> TL.accum Parameters.program);
     [ "-O"; "--Output" ],
       Some "T|t|d <table_file_prefix>",
       [ "dump the database present in the specified register";
@@ -570,7 +569,7 @@ let _ =
       TA.Optional,
       (fun _ ->
         let register_type = TA.get_parameter () |> RegisterType.of_string in
-        Register_to_tables (register_type, TA.get_parameter ()) |> TM.accum Parameters.program);
+        Register_to_tables (register_type, TA.get_parameter ()) |> TL.accum Parameters.program);
     [], None, [ "Miscellaneous (executed immediately):" ], TA.Optional, (fun _ -> ());
     [ "-T"; "--threads" ],
       Some "<computing_threads>",
@@ -583,6 +582,8 @@ let _ =
       [ "set verbose execution" ],
       TA.Default (fun () -> string_of_bool !Parameters.verbose),
       (fun _ -> Parameters.verbose := true);
+    (* Hidden option to emit help in markdown format *)
+    [ "--markdown" ], None, [], TA.Optional, (fun _ -> TA.markdown (); exit 0);
     [ "-h"; "--help" ],
       None,
       [ "print syntax and exit" ],
