@@ -8,9 +8,9 @@
 
 ### `KPopCount`
 
-This is the list of command line options available for the program `KPopCountDB`. You can visualise the list by typing
+This is the list of command line options available for the program `KPopCount`. You can visualise the list by typing
 ```
-$ KPopCountDB -h
+$ KPopCount -h
 ```
 in your terminal. You will see a header containing information about the version:
 ```
@@ -19,7 +19,7 @@ This is the KPopCount program (version 0.3)
 ```
 followed by detailed information. The general form(s) the command can be used is:
 ```
-./KPopCount -l|--label <output_vector_label> [OPTIONS]
+KPopCount -l|--label <output_vector_label> [OPTIONS]
 ```
 
 Algorithmic parameters:
