@@ -3,14 +3,27 @@
 
 
 
-`KPop` is implemented for the most part in [OCaml](https://ocaml.org), an industry-strength programming language that offers a number of advantages &mdash; amazing concision and symbolic power, static typing, incredible robustness and superior compiled speed. Due mostly to historical, prototyping reasons, a small part of `KPoP` is still in R, although we hope to evntually migrate everything to OCaml. All programs are parallelised and will automatically use as many CPUs as are available on your machine, in order to speed up the wallclock execution time of your tasks as much as possible.
+`KPop` is implemented for the most part in [OCaml](https://ocaml.org), an industry-strength programming language that offers a number of advantages &mdash; amazing concision and symbolic power, static typing, incredible robustness and superior compiled speed. Due mostly to historical, prototyping reasons, a small part of `KPoP` is still in R, although we hope to evntually migrate everything to OCaml. All programs, both OCaml and R, are parallelised and will automatically use as many CPUs as are available on your machine, in order to speed up the wallclock execution time of your tasks as much as possible.
 
 Depending on the problem at hand, `KPop` analysis can require a large amount of computational resources, memory in particular. That is a feature &mdash; i.e., a conscious design choice &mdash; rather than a bug. We recommend the use of a relatively large HPC node (at least 16 CPU cores and 256 GB of RAM) as a starting point for exploration.
 
+## Table of contents
+
+- [Installation](#installation)
+- [Overview](#overview)
+- [Command line syntax](#command-line-syntax)
+  - [`KPopCount`](#kpopcount)
+  - [`KPopCountDB`](#kpopcountdb)
+  - [`KPopTwist`](#kpoptwist)
+  - [`KPopTwistDB`](#kpoptwistdb)
+  - [`Parallel`](#parallel)
+- [Examples](#examples)
+
 ## Installation
 
+There are several ways of installing the software on your machine:
 
-> Note that the only operating system we support is Linux.
+> :warning: Note that the only operating system we support is Linux. :warning:
 
 ### Conda channel
 
@@ -23,6 +36,13 @@ Alternatively, you can install `KPop` manually by compiling its sources. You wil
 $ opam install dune
 ```
 if it is not already present. Make sure that you install OCaml version 4.12 or later.
+
+Then go to the directory into which you have downloaded the latest `KPop` sources, and type
+```
+$ . BUILD
+```
+
+That should generate all the executables you'll need (as of this writing, `Parallel`, `KPopCount`, `KPopCounterDB`, `kPopTwist`, `KPopTwist`, `KPopTwistDB`). Copy them to some favourite location in your PATH, for instance `~/.local/bin`.
 
 ## Overview
 
@@ -118,6 +138,35 @@ Miscellaneous \(executed immediately\):
 | `-v`<br>`--verbose` |  |  set verbose execution | <ins>default=<mark>_false_</mark></ins> |
 | `-h`<br>`--help` |  |  print syntax and exit |  |
 
+### `KPopTwist`
+
+This is the list of command line options available for the program `KPopTwist`. You can visualise the list by typing
+```
+$ KPopTwist -h
+```
+in your terminal. You will see a header containing information about the version:
+```
+This is the KPopTwist program (version 0.11)
+ (c) 2022 Paolo Ribeca, <paolo.ribeca@gmail.com>
+```
+followed by detailed information. The general form(s) the command can be used is:
+```
+KPopTwist -i|--input <input_table_prefix> [OPTIONS]
+```
+
+Algorithmic parameters:
+| Option | Argument(s) | Effect | Note(s) |
+|-|-|-|-|
+| `-f`<br>`-F`<br>`-s`<br>`-S`<br>`--fraction`<br>`--sampling`<br>`--sampling-fraction` | _&lt;non\_negative\_float&gt;_ |  fraction of the rows to be considered and resampled before twisting | <ins>default=<mark>_1\._</mark></ins> |
+
+Input/Output:
+| Option | Argument(s) | Effect | Note(s) |
+|-|-|-|-|
+| `-i`<br>`--input` | _&lt;input\_table\_prefix&gt;_ |  load the specified k\-mer database in the register and twist it\.<br>File extension is automatically determined  \(will be \.KPopCounter\)\.<br>The prefix is then re\-used for output  \(and the output file will be given prefix \.KPopTwisted\) | *(mandatory)* |
+| `-T`<br>`--threads` | _&lt;computing\_threads&gt;_ |  number of concurrent computing threads to be spawned  \(default automatically detected from your configuration\) | <ins>default=<mark>_32_</mark></ins> |
+| `-v`<br>`--verbose` |  |  set verbose execution | <ins>default=<mark>_false_</mark></ins> |
+| `-h`<br>`--help` |  |  print syntax and exit |  |
+
 ### `KPopTwistDB`
 
 This is the list of command line options available for the program `KPopTwistDB`. You can visualise the list by typing
@@ -154,6 +203,42 @@ Miscellaneous \(executed immediately\):
 |-|-|-|-|
 | `-T`<br>`--threads` | _&lt;computing\_threads&gt;_ |  number of concurrent computing threads to be spawned  \(default automatically detected from your configuration\) | <ins>default=<mark>_4_</mark></ins> |
 | `-v`<br>`--verbose` |  |  set verbose execution | <ins>default=<mark>_false_</mark></ins> |
+| `-h`<br>`--help` |  |  print syntax and exit |  |
+
+### `Parallel`
+
+This is the list of command line options available for the program `KPopTwistDB`. You can visualise the list by typing
+```
+$ Parallel -h
+```
+in your terminal. You will see a header containing information about the version:
+```
+This is the Parallel program (version 0.3)
+ (c) 2019-2022 Paolo Ribeca, <paolo.ribeca@gmail.com>
+```
+followed by detailed information. The general form(s) the command can be used is:
+```
+Parallel [OPTIONS] -- [COMMAND TO PARALLELIZE AND ITS OPTIONS]
+```
+
+Command to parallelize
+| Option | Argument(s) | Effect | Note(s) |
+|-|-|-|-|
+| `--` |  |  consider all the subsequent parameters as the command to be executed in parallel\.<br>At least one command must be specified | *(mandatory)* |
+
+Input/Output
+| Option | Argument(s) | Effect | Note(s) |
+|-|-|-|-|
+| `-l`<br>`--lines-per-block` | _&lt;positive\_integer&gt;_ |  number of lines to be processed per block | <ins>default=<mark>_10000_</mark></ins> |
+| `-i`<br>`--input` | _&lt;input\_file&gt;_ |  name of input file | <ins>default=<mark>_stdin_</mark></ins> |
+| `-o`<br>`--output` | _&lt;output\_file&gt;_ |  name of output file | <ins>default=<mark>_stdout_</mark></ins> |
+
+Miscellaneous
+| Option | Argument(s) | Effect | Note(s) |
+|-|-|-|-|
+| `-t`<br>`--threads` | _&lt;positive\_integer&gt;_ |  number of concurrent computing threads to be spawned  \(default automatically detected from your configuration\) | <ins>default=<mark>_32_</mark></ins> |
+| `-v`<br>`--verbose` |  |  set verbose execution | <ins>default=<mark>_false_</mark></ins> |
+| `-d`<br>`--debug` |  |  output debugging information | <ins>default=<mark>_false_</mark></ins> |
 | `-h`<br>`--help` |  |  print syntax and exit |  |
 
 ## Examples
