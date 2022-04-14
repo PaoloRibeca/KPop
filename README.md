@@ -9,15 +9,16 @@ Depending on the problem at hand, `KPop` analysis can require a large amount of 
 
 ## Table of contents
 
-- [Installation](#installation)
-- [Overview](#overview)
-- [Command line syntax](#command-line-syntax)
-  - [`KPopCount`](#kpopcount)
-  - [`KPopCountDB`](#kpopcountdb)
-  - [`KPopTwist`](#kpoptwist)
-  - [`KPopTwistDB`](#kpoptwistdb)
-  - [`Parallel`](#parallel)
-- [Examples](#examples)
+1. [Installation](#installation)
+2. [Overview](#overview)
+3. [Command line syntax](#command-line-syntax)
+   - [`KPopCount`](#kpopcount)
+   - [`KPopCountDB`](#kpopcountdb)
+   - [`KPopTwist`](#kpoptwist)
+   - [`KPopTwistDB`](#kpoptwistdb)
+   - [`Parallel`](#parallel)
+4. [Examples](#examples)
+   - [Sequence classification](#sequence-classification)
 
 ## Installation
 
