@@ -1,6 +1,6 @@
 (executables
- (public_names Parallel KPopCount KPopCountDB KPopTwistDB CovidDB)
- (names Parallel KPopCount KPopCountDB KPopTwistDB CovidDB)
+ (public_names Parallel KPopCount KPopCountDB kPopTwist KPopTwistDB CovidDB)
+ (names Parallel KPopCount KPopCountDB kPopTwist KPopTwistDB CovidDB)
  (libraries str unix BiOCamLib)
  (ocamlopt_flags (:standard -O3 -ccopt -O3 -ccopt -static)))
 
@@ -10,5 +10,6 @@
   (Parallel.exe as Parallel)
   (KPopCount.exe as KPopCount)
   (KPopCountDB.exe as KPopCountDB)
+  (kPopTwist.exe as kPopTwist)
   (KPopTwistDB.exe as KPopTwistDB)
   (CovidDB.exe as CovidDB)))

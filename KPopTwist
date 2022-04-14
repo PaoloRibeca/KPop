@@ -1,28 +1,25 @@
 #!/usr/bin/env bash
 
-PREFIX="$1"
-SAMPLING_FRACTION="$2"
-if [[ "$SAMPLING_FRACTION" == "" ]]; then
-  SAMPLING_FRACTION="1."
-fi
+# If we fail, we want to fail royally
+set -e
 
-VERSION="0.9"
+OLD_IFS="$IFS"
+IFS=$'\x1'
+read -r PREFIX SAMPLING_FRACTION THREADS VERBOSE <<< "$(kPopTwist "$@")"
+IFS="$OLD_IFS"
 
-echo "This is the KPopTwist program (version ${VERSION})"
-echo " (c) 2022 Paolo Ribeca, <paolo.ribeca@gmail.com>"
-
-if [[ "$PREFIX" == "" ]]; then
-  echo "Usage:"
-  echo "  $0 <input_table_prefix> [<sampling_fraction>]"
-  exit 1
-fi
+function conditional_echo {
+  if [[ "$VERBOSE" == "true" ]]; then
+    echo "$1"
+  fi
+}
 
 TMPDIR=$(mktemp -d -p . KPopTwist-XXXXXXXXXX)
 
 # We generate and split the plain text table, so that R can import it
-echo "$(date +"%c"): [1/13] Exporting table..."
+conditional_echo "$(date +"%c"): [1/13] Exporting table..."
 KPopCountDB -i "$PREFIX" -t "$PREFIX" > /dev/null 2>&1
-echo "$(date +"%c"): [2/13] Splitting table..."
+conditional_echo "$(date +"%c"): [2/13] Splitting table..."
 head -1 "${PREFIX}.KPopCounter.txt" | awk -F '\t' '{printf $2; for (i=3;i<=NF;++i) printf "\t"$i; printf "\n"}' > "${TMPDIR}/TABLE.txt"
 tail -n +2 "${PREFIX}.KPopCounter.txt" | Parallel -- awk -F '\t' '{printf $2; for (i=3;i<=NF;++i) printf "\t"$i; printf "\n"}' >> "${TMPDIR}/TABLE.txt" &
 tail -n +2 "${PREFIX}.KPopCounter.txt" | Parallel -- awk -F '\t' '{print $1}' > "${TMPDIR}/NAMES.txt" &
@@ -38,41 +35,47 @@ cat <<'_____'
   args<-commandArgs(trailingOnly=TRUE)
   if (is.na(args[4])||args[4]=="")
     args[4]<-"1."
-  cat(format(Sys.time(),"%c: [3/13] Reading table...\n"))
+  threads<-as.integer(args[5]) # Not really used at the moment
+  verbose<-as.logical(args[6])
+  conditional_echo<-function(s){
+    if (verbose)
+      cat(format(Sys.time(),paste0("%c: ",s,"...\n")))
+  }
+  conditional_echo("[3/13] Reading table")
   stuff<-data.table::fread(args[1],sep="\t",header=TRUE)
-  cat(format(Sys.time(),"%c: [4/13] Resampling table...\n"))
+  conditional_echo("[4/13] Resampling table")
   stuff<-stuff[sort(sample(nrow(stuff),as.integer(nrow(stuff)*as.numeric(args[4]))))]
-  cat(format(Sys.time(),"%c: [5/13] Transforming table...\n"))
+  conditional_echo("[5/13] Transforming table")
   stuff_ca<-ca(stuff)
-  cat(format(Sys.time(),"%c: [6/13] Writing twisted...\n"))
+  conditional_echo("[6/13] Writing twisted")
   coords<-cacoord(stuff_ca,cols=TRUE)
   data.table::fwrite(as.data.table(coords,keep.rownames=TRUE),paste0(args[3],".KPopTwisted.txt"),quote=TRUE,sep="\t",buffMB=64)
-  cat(format(Sys.time(),"%c: [7/13] Writing inertia...\n"))
+  conditional_echo("[7/13] Writing inertia")
   vars<-t(stuff_ca$sv^2/sum(stuff_ca$sv^2))
   colnames(vars)<-colnames(coords)
   rownames(vars)<-c("inertia")
   data.table::fwrite(as.data.table(vars,keep.rownames=TRUE),paste0(args[3],".KPopInertia.txt"),quote=TRUE,sep="\t",buffMB=64)
-  cat(format(Sys.time(),"%c: [8/13] Normalizing table...\n"))
+  conditional_echo("[8/13] Normalizing table")
   twister<-as.data.table(stuff_ca$rowcoord)[,Map("/",.SD,data.table::transpose(as.data.table(stuff_ca$sv)))]
-  cat(format(Sys.time(),"%c: [9/13] Transposing table...\n"))
+  conditional_echo("[9/13] Transposing table")
   twister<-data.table::transpose(twister)
   colnames(twister)<-t(data.table::fread(args[2],sep="\t",header=FALSE)) # Why t() would work so much better here is anybody's guess
   rownames(twister)<-colnames(coords)
-  cat(format(Sys.time(),"%c: [10/13] Writing twister...\n"))
+  conditional_echo("[10/13] Writing twister")
   data.table::fwrite(twister,paste0(args[3],".KPopTwister.txt"),row.names=TRUE,quote=TRUE,sep="\t",buffMB=64)
 _____
-) "${TMPDIR}/TABLE.txt" "${TMPDIR}/NAMES.txt" "$PREFIX" "$SAMPLING_FRACTION"
+) "${TMPDIR}/TABLE.txt" "${TMPDIR}/NAMES.txt" "$PREFIX" "$SAMPLING_FRACTION" "$THREADS" "$VERBOSE"
 
 # We convert the results to binary form and remove temporary files
-echo "$(date +"%c"): [11/13] Encoding twisted..."
+conditional_echo "$(date +"%c"): [11/13] Encoding twisted..."
 KPopTwistDB -I t "$PREFIX" -o t "$PREFIX" > /dev/null 2>&1
-echo "$(date +"%c"): [12/13] Encoding twister..."
+conditional_echo "$(date +"%c"): [12/13] Encoding twister..."
 KPopTwistDB -I T "$PREFIX" -o T "$PREFIX" > /dev/null 2>&1
-echo "$(date +"%c"): [13/13] Cleaning up..."
+conditional_echo "$(date +"%c"): [13/13] Cleaning up..."
 rm "${PREFIX}.KPopCounter.txt"
 rm "${TMPDIR}/TABLE.txt" "${TMPDIR}/NAMES.txt"
 rmdir "${TMPDIR}"
 rm "${PREFIX}.KPopTwisted.txt" "${PREFIX}.KPopInertia.txt" "${PREFIX}.KPopTwister.txt"
 
-echo "$(date +"%c"): All done."
+conditional_echo "$(date +"%c"): All done."
 

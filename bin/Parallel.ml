@@ -104,6 +104,8 @@ let () =
       [ "output debugging information" ],
       TA.Default (fun () -> string_of_bool !Parameters.debug),
       (fun _ -> Parameters.debug := true);
+    (* Hidden option to emit help in markdown format *)
+    [ "--markdown" ], None, [], TA.Optional, (fun _ -> TA.markdown (); exit 0);
     [ "-h"; "--help" ],
       None,
       [ "print syntax and exit" ],

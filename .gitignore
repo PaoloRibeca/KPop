@@ -1,12 +1,9 @@
 _build
 Parallel
-Parallel.exe
 KPopCount
-KPopCount.exe
 KPopCountDB
-KPopCountDB.exe
+kPopTwist
 KPopTwistDB
-KPopTwistDB.exe
 CovidDB
 CovidDB.exe
 PELT
