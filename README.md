@@ -19,6 +19,9 @@ Depending on the problem at hand, `KPop` analysis can require a large amount of 
    - [`Parallel`](#parallel)
 4. [Examples](#examples)
    - [Sequence classification](#sequence-classification)
+     - [Classifier for simulated COVID-19 sequencing reads](#classifier-for-simulated-covid-19-sequencing-reads)
+     - [Classifier for COVID-19 sequences (Hyena)](#classifier-for-covid-19-sequences-(Hyena))
+   - [Pseudo-phylogenetic trees](#pseudo-phylogenetic-trees)
 
 ## Installation
 
@@ -54,7 +57,7 @@ That should generate all the executables you'll need (as of this writing, `Paral
 ### `KPopCount`
 
 This is the list of command line options available for the program `KPopCount`. You can visualise the list by typing
-```
+```bash
 $ KPopCount -h
 ```
 in your terminal. You will see a header containing information about the version:
@@ -91,7 +94,7 @@ Miscellaneous:
 ### `KPopCountDB`
 
 This is the list of command line options available for the program `KPopCountDB`. You can visualise the list by typing
-```
+```bash
 $ KPopCountDB -h
 ```
 in your terminal. You will see a header containing information about the version:
@@ -142,7 +145,7 @@ Miscellaneous \(executed immediately\):
 ### `KPopTwist`
 
 This is the list of command line options available for the program `KPopTwist`. You can visualise the list by typing
-```
+```bash
 $ KPopTwist -h
 ```
 in your terminal. You will see a header containing information about the version:
@@ -171,7 +174,7 @@ Input/Output:
 ### `KPopTwistDB`
 
 This is the list of command line options available for the program `KPopTwistDB`. You can visualise the list by typing
-```
+```bash
 $ KPopTwistDB -h
 ```
 in your terminal. You will see a header containing information about the version:
@@ -209,7 +212,7 @@ Miscellaneous \(executed immediately\):
 ### `Parallel`
 
 This is the list of command line options available for the program `KPopTwistDB`. You can visualise the list by typing
-```
+```bash
 $ Parallel -h
 ```
 in your terminal. You will see a header containing information about the version:
@@ -246,11 +249,77 @@ Miscellaneous
 
 ### Sequence classification
 
-#### Classifier for simulated COVID reads
+#### Classifier for simulated COVID-19 sequencing reads
+
+As described in our [bioRxiv preprint](https://bioRxiv.org), we simulated 
+
+In the following, we assume that the input files derived from the simulation have been organised into directories relative to your current location, and their placement reflects the set (training/test) and sequence cluster each sample belongs to.
+
+So, we'll have two directories,
+```
+./Train
+./Test
+```
+and each directory will contain subdirectories, one for each sequence cluster:
+```
+./Train/001
+./Train/002
+...
+./Train/100
+```
+So for instance, directory `./Train/58` will contain input files for all the samples used as training data for sequence class 58, and command
+```
+$ ls ./Train/058
+```
+will give
+```
+05674_1.fastq  05686_2.fastq  05700_1.fastq  05712_2.fastq  05726_1.fastq  05738_2.fastq  05752_1.fastq  05764_2.fastq
+05674_2.fastq  05688_1.fastq  05700_2.fastq  05714_1.fastq  05726_2.fastq  05740_1.fastq  05752_2.fastq  05766_1.fastq
+05676_1.fastq  05688_2.fastq  05702_1.fastq  05714_2.fastq  05728_1.fastq  05740_2.fastq  05754_1.fastq  05766_2.fastq
+05676_2.fastq  05690_1.fastq  05702_2.fastq  05716_1.fastq  05728_2.fastq  05742_1.fastq  05754_2.fastq  05768_1.fastq
+05678_1.fastq  05690_2.fastq  05704_1.fastq  05716_2.fastq  05730_1.fastq  05742_2.fastq  05756_1.fastq  05768_2.fastq
+05678_2.fastq  05692_1.fastq  05704_2.fastq  05718_1.fastq  05730_2.fastq  05744_1.fastq  05756_2.fastq  05770_1.fastq
+05680_1.fastq  05692_2.fastq  05706_1.fastq  05718_2.fastq  05732_1.fastq  05744_2.fastq  05758_1.fastq  05770_2.fastq
+05680_2.fastq  05694_1.fastq  05706_2.fastq  05720_1.fastq  05732_2.fastq  05746_1.fastq  05758_2.fastq  05772_1.fastq
+05682_1.fastq  05694_2.fastq  05708_1.fastq  05720_2.fastq  05734_1.fastq  05746_2.fastq  05760_1.fastq  05772_2.fastq
+05682_2.fastq  05696_1.fastq  05708_2.fastq  05722_1.fastq  05734_2.fastq  05748_1.fastq  05760_2.fastq  05774_1.fastq
+05684_1.fastq  05696_2.fastq  05710_1.fastq  05722_2.fastq  05736_1.fastq  05748_2.fastq  05762_1.fastq  05774_2.fastq
+05684_2.fastq  05698_1.fastq  05710_2.fastq  05724_1.fastq  05736_2.fastq  05750_1.fastq  05762_2.fastq  05776_1.fastq
+05686_1.fastq  05698_2.fastq  05712_1.fastq  05724_2.fastq  05738_1.fastq  05750_2.fastq  05764_1.fastq  05776_2.fastq
+
+```
+A similar structure will have been put in place for test data under the `./Test` directory, with files equally split under `./Train` and `./Test` for cross-validation purposes (but different choices would be possible).
+
+In order to analyse sequences in parallel fashion and decrease waiting times, we first prepare a short `bash` script named `process_one_class`, as follows:
+```bash
+#!/usr/bin/env bash
+
+while read DIR; do
+  CLASS=$(echo "$DIR" | awk '{l=split(gensub("[/]+$","",1),s,"/"); print s[l]}')
+  echo "Processing class '${CLASS}'..." > /dev/stderr
+  ls "$DIR"/*_1.fastq |
+    Parallel --lines-per-block 1 -- awk '{l=split($0,s,"/"); system("KPopCount -k 10 -l "gensub("_1.fastq$","",1,s[l])" -p "$0" "gensub("_1.fastq$","_2.fastq",1))}' |
+    KPopCountDB -f /dev/stdin -r "~." -a "$CLASS" -p -l "$CLASS" -n -p -d --summary --table-transform none -t /dev/stdout 2> /dev/null
+done
+```
+The script takes as input a list of directories, each one on a single line
+So, for instance,
+```
+```
+would process directory
+
+Note that the script is implicitly parallelised, in that each of the programs used will check for the number of available processors, and start an adequate number of computing threads to take full advantage of them.
+
+At this point, in order to complete the "training" phase, we need to issue the two commands
+```bash
+$ ls -d Train/*/ | Parallel --lines-per-block 1 -- ./process_one_class | KPopCountDB -f /dev/stdin -o Classes
+$ KPopTwist -i Classes
+```
+
+That will
 
 
-
-#### COVID-19 classifier (Hyena)
+#### Classifier for COVID-19 sequences (Hyena)
 
 This is a rather more complex example, that showcases 
 
@@ -258,3 +327,7 @@ This is a rather more complex example, that showcases
 CHUNK_BLOCKS=125; BLOCK_SIZE=$(( 1024 * 1024 )); echo ../GISAID/2022_04_11/sequences.fasta | awk -v CHUNK_BLOCKS="$CHUNK_BLOCKS" -v BLOCK_SIZE="$BLOCK_SIZE" 'END{get_size="ls -l \047"$0"\047 | awk \047{print $5}\047" |& getline size; close(get_size); blocks=int((size+BLOCK_SIZE)/BLOCK_SIZE); chunks=int((blocks+CHUNK_BLOCKS)/CHUNK_BLOCKS); for (i=0;i<chunks;++i) print $0"\t"i*CHUNK_BLOCKS}' | Parallel -l 1 -t $(( $(nproc) * 3 )) -- awk -F '\t' -v BLOCK_SIZE="$BLOCK_SIZE" '{get_chunk="dd bs="BLOCK_SIZE" if=\047"$1"\047 skip="$2" 2> /dev/null"; overhang=""; line=""; while (get_chunk |& getline line) {if (line==""||line~"^>") break; overhang=overhang line"\n"} print $1"\t"($2*BLOCK_SIZE)+length(overhang); close(get_chunk)}' | awk -F '\t' '{if (NR>1) print $1"\t"old"\t"($2-old); old=$2}' | Parallel -l 1 -- awk -F '\t' -v BLOCK_SIZE="$BLOCK_SIZE" 'function remove_spaces(name,     s){split(name,s,"/"); return gensub("[ _]","","g",s[1])"/"s[2]"/"s[3]} BEGIN{nr=0; while (getline < "lineages.csv") {++nr; if (nr>1) {split($0,s,","); t[remove_spaces(gensub("^BHR/","Bahrain/",1,s[1]))]=s[2]}}} function output_sequence(){++counts[class]; print ">"name"\n"seq > (counts[class]%2==1?"Train":"Test")"/"offset"_"class".fasta"; return} {offset=$2; get_chunk="dd bs="BLOCK_SIZE" if=\047"$1"\047 iflag=\"skip_bytes,count_bytes\" skip="offset" count="$3" 2> /dev/null"; first=0; while (get_chunk |& getline) {if ($0~"^>") {if (first&&active) output_sequence(); first=1; active=0; split(substr($0,10),s,"[|]"); res=remove_spaces(s[1]); if (res in t) {active=1; name=res; class=t[res]; seq=""}} else {if (active) seq=seq $0}} if (active) output_sequence()} END{for (i in counts) print i"\t"counts[i]}' | awk -F '\t' '{counts[$1]+=$2} END{for (i in counts) print i"\t"counts[i]}' > STATS.txt
 
 ```
+
+### Pseudo-phylogenetic trees
+
+
