@@ -9,19 +9,19 @@ Depending on the problem at hand, `KPop` analysis can require a large amount of 
 
 ## Table of contents
 
-1. [Installation](#1.-installation)
-2. [Overview](#-overview)
-3. [Command line syntax](#command-line-syntax)
-   - [`KPopCount`](#kpopcount)
-   - [`KPopCountDB`](#kpopcountdb)
-   - [`KPopTwist`](#kpoptwist)
-   - [`KPopTwistDB`](#kpoptwistdb)
-   - [`Parallel`](#parallel)
-4. [Examples](#examples)
-   - [Sequence classification](#sequence-classification)
-     - [Classifier for simulated COVID-19 sequencing reads](#classifier-for-simulated-covid-19-sequencing-reads)
-     - [Classifier for COVID-19 sequences (Hyena)](#classifier-for-covid-19-sequences-(Hyena))
-   - [Pseudo-phylogenetic trees](#pseudo-phylogenetic-trees)
+1. [Installation](#1-installation)
+2. [Overview](#2-overview)
+3. [Command line syntax](#3-command-line-syntax)
+   - [`KPopCount`](#31-kpopcount)
+   - [`KPopCountDB`](#32-kpopcountdb)
+   - [`KPopTwist`](#33-kpoptwist)
+   - [`KPopTwistDB`](#34-kpoptwistdb)
+   - [`Parallel`](#35-parallel)
+4. [Examples](#4-examples)
+   - [Sequence classification](#41-sequence-classification)
+     - [Classifier for simulated COVID-19 sequencing reads](#411-classifier-for-simulated-covid-19-sequencing-reads)
+     - [Classifier for COVID-19 sequences (Hyena)](#412-classifier-for-covid-19-sequences-(Hyena))
+   - [Pseudo-phylogenetic trees](#42-pseudo-phylogenetic-trees)
 
 ## 1. Installation
 
@@ -54,7 +54,7 @@ That should generate all the executables you'll need (as of this writing, `Paral
 
 ## 3. Command line syntax
 
-### `KPopCount`
+### 3.1. `KPopCount`
 
 This is the list of command line options available for the program `KPopCount`. You can visualise the list by typing
 ```bash
@@ -91,7 +91,7 @@ Miscellaneous:
 | `-v`<br>`--verbose` |  |  set verbose execution | <ins>default=<mark>_false_</mark></ins> |
 | `-h`<br>`--help` |  |  print syntax and exit |  |
 
-### `KPopCountDB`
+### 3.2. `KPopCountDB`
 
 This is the list of command line options available for the program `KPopCountDB`. You can visualise the list by typing
 ```bash
@@ -142,7 +142,7 @@ Miscellaneous \(executed immediately\):
 | `-v`<br>`--verbose` |  |  set verbose execution | <ins>default=<mark>_false_</mark></ins> |
 | `-h`<br>`--help` |  |  print syntax and exit |  |
 
-### `KPopTwist`
+### 3.3. `KPopTwist`
 
 This is the list of command line options available for the program `KPopTwist`. You can visualise the list by typing
 ```bash
@@ -171,7 +171,7 @@ Input/Output:
 | `-v`<br>`--verbose` |  |  set verbose execution | <ins>default=<mark>_false_</mark></ins> |
 | `-h`<br>`--help` |  |  print syntax and exit |  |
 
-### `KPopTwistDB`
+### 3.4. `KPopTwistDB`
 
 This is the list of command line options available for the program `KPopTwistDB`. You can visualise the list by typing
 ```bash
@@ -209,7 +209,7 @@ Miscellaneous \(executed immediately\):
 | `-v`<br>`--verbose` |  |  set verbose execution | <ins>default=<mark>_false_</mark></ins> |
 | `-h`<br>`--help` |  |  print syntax and exit |  |
 
-### `Parallel`
+### 3.5. `Parallel`
 
 This is the list of command line options available for the program `KPopTwistDB`. You can visualise the list by typing
 ```bash
@@ -247,9 +247,9 @@ Miscellaneous
 
 ## 4. Examples
 
-### 4.1 Sequence classification
+### 4.1. Sequence classification
 
-#### Classifier for simulated COVID-19 sequencing reads
+#### 4.1.1. Classifier for simulated COVID-19 sequencing reads
 
 As described in our [bioRxiv preprint](https://bioRxiv.org), we simulated 
 
@@ -320,7 +320,7 @@ $ KPopTwist -i Classes
 That will
 
 
-#### Classifier for COVID-19 sequences (Hyena)
+#### 4.1.2. Classifier for COVID-19 sequences (Hyena)
 
 This is a rather more complex example, that showcases 
 
@@ -329,6 +329,6 @@ CHUNK_BLOCKS=125; BLOCK_SIZE=$(( 1024 * 1024 )); echo ../GISAID/2022_04_11/seque
 
 ```
 
-### 4.2 Pseudo-phylogenetic trees
+### 4.2. Pseudo-phylogenetic trees
 
 
