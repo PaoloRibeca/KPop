@@ -271,7 +271,7 @@ So for instance, directory `./Train/58` will contain input files for all the sam
 ```
 $ ls ./Train/058
 ```
-will give
+will return
 ```
 05674_1.fastq  05686_2.fastq  05700_1.fastq  05712_2.fastq  05726_1.fastq  05738_2.fastq  05752_1.fastq  05764_2.fastq
 05674_2.fastq  05688_1.fastq  05700_2.fastq  05714_1.fastq  05726_2.fastq  05740_1.fastq  05752_2.fastq  05766_1.fastq
@@ -304,9 +304,10 @@ done
 ```
 The script takes as input a list of directories, each one on a single line
 So, for instance,
+```bash
+$ echo Train/058 | ./process_one_class
 ```
-```
-would process directory
+would process all files present in directory `./Train/058`, generate the 10-mer spectra for each of them, combine them into an in-memory KPopCount database, generate their linear combination, discard the database, and output the combination to standard output. 
 
 Note that the script is implicitly parallelised, in that each of the programs used will check for the number of available processors, and start an adequate number of computing threads to take full advantage of them.
 
