@@ -9,8 +9,8 @@ Depending on the problem at hand, `KPop` analysis can require a large amount of 
 
 ## Table of contents
 
-1. [Installation](#installation)
-2. [Overview](#overview)
+1. [Installation](#1.-installation)
+2. [Overview](#-overview)
 3. [Command line syntax](#command-line-syntax)
    - [`KPopCount`](#kpopcount)
    - [`KPopCountDB`](#kpopcountdb)
@@ -23,7 +23,7 @@ Depending on the problem at hand, `KPop` analysis can require a large amount of 
      - [Classifier for COVID-19 sequences (Hyena)](#classifier-for-covid-19-sequences-(Hyena))
    - [Pseudo-phylogenetic trees](#pseudo-phylogenetic-trees)
 
-## Installation
+## 1. Installation
 
 There are several ways of installing the software on your machine:
 
@@ -48,11 +48,11 @@ $ . BUILD
 
 That should generate all the executables you'll need (as of this writing, `Parallel`, `KPopCount`, `KPopCounterDB`, `kPopTwist`, `KPopTwist`, `KPopTwistDB`). Copy them to some favourite location in your PATH, for instance `~/.local/bin`.
 
-## Overview
+## 2. Overview
 
 `KPop` comes as a number of different programs, each one
 
-## Command line syntax
+## 3. Command line syntax
 
 ### `KPopCount`
 
@@ -245,9 +245,9 @@ Miscellaneous
 | `-d`<br>`--debug` |  |  output debugging information | <ins>default=<mark>_false_</mark></ins> |
 | `-h`<br>`--help` |  |  print syntax and exit |  |
 
-## Examples
+## 4. Examples
 
-### Sequence classification
+### 4.1 Sequence classification
 
 #### Classifier for simulated COVID-19 sequencing reads
 
@@ -329,6 +329,6 @@ CHUNK_BLOCKS=125; BLOCK_SIZE=$(( 1024 * 1024 )); echo ../GISAID/2022_04_11/seque
 
 ```
 
-### Pseudo-phylogenetic trees
+### 4.2 Pseudo-phylogenetic trees
 
 
