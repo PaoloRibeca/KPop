@@ -9,19 +9,19 @@ Depending on the problem at hand, `KPop` analysis can require a large amount of 
 
 ## Table of contents
 
-1. [Installation](#1-installation)
-2. [Overview](#2-overview)
-3. [Command line syntax](#3-command-line-syntax)
-   - [`KPopCount`](#31-kpopcount)
-   - [`KPopCountDB`](#32-kpopcountdb)
-   - [`KPopTwist`](#33-kpoptwist)
-   - [`KPopTwistDB`](#34-kpoptwistdb)
-   - [`Parallel`](#35-parallel)
-4. [Examples](#4-examples)
-   - [Sequence classification](#41-sequence-classification)
-     - [Classifier for simulated COVID-19 sequencing reads](#411-classifier-for-simulated-covid-19-sequencing-reads)
-     - [Classifier for COVID-19 sequences (Hyena)](#412-classifier-for-covid-19-sequences-(Hyena))
-   - [Pseudo-phylogenetic trees](#42-pseudo-phylogenetic-trees)
+[1. Installation](#1-installation)<br>
+[2. Overview](#2-overview)<br>
+[3. Command line syntax](#3-command-line-syntax)<br>
+&emsp; [3.1. `KPopCount`](#31-kpopcount)<br>
+&emsp; [3.2. `KPopCountDB`](#32-kpopcountdb)<br>
+&emsp; [3.3. `KPopTwist`](#33-kpoptwist)<br>
+&emsp; [3.4. `KPopTwistDB`](#34-kpoptwistdb)<br>
+&emsp; [3.5. `Parallel`](#35-parallel)<br>
+[4. Examples](#4-examples)<br>
+&emsp; [4.1. Sequence classification](#41-sequence-classification)<br>
+&emsp; &emsp; [4.1.1. Classifier for simulated COVID-19 sequencing reads](#411-classifier-for-simulated-covid-19-sequencing-reads)<br>
+&emsp; &emsp; [4.1.2. Classifier for COVID-19 sequences (Hyena)](#412-classifier-for-covid-19-sequences-(Hyena))<br>
+&emsp; [4.2. Pseudo-phylogenetic trees](#42-pseudo-phylogenetic-trees)<br>
 
 ## 1. Installation
 
@@ -320,6 +320,7 @@ $ KPopTwist -i Classes
 That will
 
 
+
 #### 4.1.2. Classifier for COVID-19 sequences (Hyena)
 
 This is a rather more complex example, that showcases 
@@ -328,6 +329,7 @@ This is a rather more complex example, that showcases
 CHUNK_BLOCKS=125; BLOCK_SIZE=$(( 1024 * 1024 )); echo ../GISAID/2022_04_11/sequences.fasta | awk -v CHUNK_BLOCKS="$CHUNK_BLOCKS" -v BLOCK_SIZE="$BLOCK_SIZE" 'END{get_size="ls -l \047"$0"\047 | awk \047{print $5}\047" |& getline size; close(get_size); blocks=int((size+BLOCK_SIZE)/BLOCK_SIZE); chunks=int((blocks+CHUNK_BLOCKS)/CHUNK_BLOCKS); for (i=0;i<chunks;++i) print $0"\t"i*CHUNK_BLOCKS}' | Parallel -l 1 -t $(( $(nproc) * 3 )) -- awk -F '\t' -v BLOCK_SIZE="$BLOCK_SIZE" '{get_chunk="dd bs="BLOCK_SIZE" if=\047"$1"\047 skip="$2" 2> /dev/null"; overhang=""; line=""; while (get_chunk |& getline line) {if (line==""||line~"^>") break; overhang=overhang line"\n"} print $1"\t"($2*BLOCK_SIZE)+length(overhang); close(get_chunk)}' | awk -F '\t' '{if (NR>1) print $1"\t"old"\t"($2-old); old=$2}' | Parallel -l 1 -- awk -F '\t' -v BLOCK_SIZE="$BLOCK_SIZE" 'function remove_spaces(name,     s){split(name,s,"/"); return gensub("[ _]","","g",s[1])"/"s[2]"/"s[3]} BEGIN{nr=0; while (getline < "lineages.csv") {++nr; if (nr>1) {split($0,s,","); t[remove_spaces(gensub("^BHR/","Bahrain/",1,s[1]))]=s[2]}}} function output_sequence(){++counts[class]; print ">"name"\n"seq > (counts[class]%2==1?"Train":"Test")"/"offset"_"class".fasta"; return} {offset=$2; get_chunk="dd bs="BLOCK_SIZE" if=\047"$1"\047 iflag=\"skip_bytes,count_bytes\" skip="offset" count="$3" 2> /dev/null"; first=0; while (get_chunk |& getline) {if ($0~"^>") {if (first&&active) output_sequence(); first=1; active=0; split(substr($0,10),s,"[|]"); res=remove_spaces(s[1]); if (res in t) {active=1; name=res; class=t[res]; seq=""}} else {if (active) seq=seq $0}} if (active) output_sequence()} END{for (i in counts) print i"\t"counts[i]}' | awk -F '\t' '{counts[$1]+=$2} END{for (i in counts) print i"\t"counts[i]}' > STATS.txt
 
 ```
+
 
 ### 4.2. Pseudo-phylogenetic trees
 
