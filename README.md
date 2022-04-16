@@ -211,7 +211,7 @@ Miscellaneous \(executed immediately\):
 
 ### 3.5. `Parallel`
 
-This is the list of command line options available for the program `KPopTwistDB`. You can visualise the list by typing
+This is the list of command line options available for the program `Parallel`. You can visualise the list by typing
 ```bash
 $ Parallel -h
 ```
@@ -363,7 +363,7 @@ i.e., the list of the training classes, followed by rows of corresponding distan
 "00002"    4.83318357568108    11.2700687698413    11.312275301648    11.3764544034853    11.3461374337725    11.3995743751314    11.3212630750153    11.3235657518601    11.2894831167086    11.2996189792259    11.3319535190977    11.3049899338697    11.3228806629005    10.7946131257386    11.2989551747821    11.3558238395219    11.3463712117818    11.3413347717848    11.2618856360064    11.2939890914082    11.2975021258629    10.9943136806685    11.3675942484271    11.3318345009204    11.2477131079917    11.3850214310342    11.339496082918    11.3512732628066    11.3805283679928    11.311696483027    11.3270984609357    11.2738264778713    11.3319347292255    11.3312805552031    11.3386564211209    11.3523905528578    11.3523801939233    11.2736454863803    11.3627258350476    11.3122176318586    11.1304466434475    11.2886203042309    11.3291458624942    11.2798698818615    11.3584269442804    11.3256941762598    11.3360992385991    11.4044126239344    11.3573797752414    11.3412980071085    11.3217385309613    11.2649251859287    11.3149809895284    11.3684126575704    11.2129191129393    11.3173113023552    11.2650040203027    11.2638052741922    11.3596195002195    11.3276044208353    11.2916429174247    11.2528032578129    11.3282351768788    11.2101731026977    11.308760763843    11.3350961792258    11.3781799486808    11.363751496013    11.2858863236711    11.3017512672026    11.2478994650813    11.3259720371017    11.2276363181204    11.3591481763441    11.2524694906482    11.1954140195673    11.2726408581533    11.3262901145608    11.2897238191158    11.111774981885    11.321534697352    11.3431179539068    11.3815709287912    11.3114731321002    11.2565581966433    11.3106489656005    11.3604250330645    11.3762292992287    11.3206443897329    11.3521555950233    11.3633309667897    11.3243176458611    11.3660329600687    11.317589842657    11.3872372791905    11.3480763014578    11.3171596442202    11.3144795186318    11.2903974518633    11.2476606139466
 ```
 
-In this case, for instance, sequence `00002` has distance in twisted space of ~4.8 from class `001`, while the distance from all other classes is >11. That classifies the sequence as belonging to class `00002` (which is correct according to the truth table of the simulation).
+In this case, for instance, sequence `00002` has distance in twisted space of ~4.8 from class `001`, while the distance from all other classes is >10.7. That classifies the sequence as belonging to class `00002` (which is correct according to the truth table of the simulation).
 
 An automated 
 
@@ -371,7 +371,7 @@ An automated
 
 This is a rather more complex example, that showcases 
 
-```
+```bash
 CHUNK_BLOCKS=125; BLOCK_SIZE=$(( 1024 * 1024 )); echo ../GISAID/2022_04_11/sequences.fasta | awk -v CHUNK_BLOCKS="$CHUNK_BLOCKS" -v BLOCK_SIZE="$BLOCK_SIZE" 'END{get_size="ls -l \047"$0"\047 | awk \047{print $5}\047" |& getline size; close(get_size); blocks=int((size+BLOCK_SIZE)/BLOCK_SIZE); chunks=int((blocks+CHUNK_BLOCKS)/CHUNK_BLOCKS); for (i=0;i<chunks;++i) print $0"\t"i*CHUNK_BLOCKS}' | Parallel -l 1 -t $(( $(nproc) * 3 )) -- awk -F '\t' -v BLOCK_SIZE="$BLOCK_SIZE" '{get_chunk="dd bs="BLOCK_SIZE" if=\047"$1"\047 skip="$2" 2> /dev/null"; overhang=""; line=""; while (get_chunk |& getline line) {if (line==""||line~"^>") break; overhang=overhang line"\n"} print $1"\t"($2*BLOCK_SIZE)+length(overhang); close(get_chunk)}' | awk -F '\t' '{if (NR>1) print $1"\t"old"\t"($2-old); old=$2}' | Parallel -l 1 -- awk -F '\t' -v BLOCK_SIZE="$BLOCK_SIZE" 'function remove_spaces(name,     s){split(name,s,"/"); return gensub("[ _]","","g",s[1])"/"s[2]"/"s[3]} BEGIN{nr=0; while (getline < "lineages.csv") {++nr; if (nr>1) {split($0,s,","); t[remove_spaces(gensub("^BHR/","Bahrain/",1,s[1]))]=s[2]}}} function output_sequence(){++counts[class]; print ">"name"\n"seq > (counts[class]%2==1?"Train":"Test")"/"offset"_"class".fasta"; return} {offset=$2; get_chunk="dd bs="BLOCK_SIZE" if=\047"$1"\047 iflag=\"skip_bytes,count_bytes\" skip="offset" count="$3" 2> /dev/null"; first=0; while (get_chunk |& getline) {if ($0~"^>") {if (first&&active) output_sequence(); first=1; active=0; split(substr($0,10),s,"[|]"); res=remove_spaces(s[1]); if (res in t) {active=1; name=res; class=t[res]; seq=""}} else {if (active) seq=seq $0}} if (active) output_sequence()} END{for (i in counts) print i"\t"counts[i]}' | awk -F '\t' '{counts[$1]+=$2} END{for (i in counts) print i"\t"counts[i]}' > STATS.txt
 
 ```
