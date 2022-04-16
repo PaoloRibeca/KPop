@@ -537,9 +537,11 @@ AY.3.4  186     5
 ```
 for which most of the sequences are unavailable in GISAID. We might find workarounds for that, but, as that would involve the downloading of more large datasets, we keep things simple and just exclude `B.60` and `AY.3.4` from the rest of the analysis.
 
-At this point we just have to split such files into the training and test set, as usual. The following command does it:
+At this point we just have to split each of the files containing lineage-specific sequences into training and test set, as usual. The following command does it:
+```bash
+rm -rf Train Test; mkdir Train Test; for FILE in Split/*.fasta; do BASE=$(basename $FILE); echo $BASE; done | Parallel -l 1 -- awk 'function output_seq(){if (name!="") print name"\n"seq >> (counts%2==1?"Train":"Test")"/"$0} {input="Split/"$0; counts=0; while (getline line < input) if (line~"^>") {output_seq(); ++counts; name=line} else seq=line; output_seq()}'
 ```
-```
+suitably populating the subdirectories `Test` and `Train`. As in most of the examples so far, we use `Parallel` to perform the splitting on many files in parallel and hence decrease the overall wallclock time taken by the command.
 
 ##### 4.1.2.2. Data analysis
 
