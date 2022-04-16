@@ -485,7 +485,19 @@ Parallel -l 1 -- awk -F '\t' -v BLOCK_SIZE="$BLOCK_SIZE" '
 ###### Sequential collection
 
 ```bash
-awk -F '\t' '{split($1,s,"/"); offset=s[1]; class=s[2]; system("cat \"Split/"$1".fasta\" >> \"Split/"class".fasta\"; rm \"Split/"$1".fasta\"; rmdir --ignore-fail-on-non-empty Split/"offset); counts[class]+=$2} END{for (i in counts) print i"\t"counts[i]}' > Stats.txt
+awk -F '\t' '
+  {
+    split($1,s,"/")
+    offset=s[1]
+    class=s[2]
+    system("cat \"Split/"$1".fasta\" >> \"Split/"class".fasta\"; rm \"Split/"$1".fasta\"; rmdir --ignore-fail-on-non-empty Split/"offset)
+    counts[class]+=$2
+  }
+  END{
+    for (i in counts)
+      print i"\t"counts[i]
+  }
+' > Stats.txt
 ```
 This part of the scripts receives information about the sequences processed by each worker as a series of records of the form
 
@@ -501,9 +513,33 @@ AY.4.2.fasta
 BA.1.15.1.fasta
 ```
 
-Each file contains (almost) all the sequences used as the ground truth for that lineage.
+Each file contains (almost) all the sequences used as the ground truth for that lineage. Note that the procedure we used does not retreive all sequences because some of the ones used to train Pangolin are not in GISAID. In particular, the following command:
+```bash
+awk -F '\t' 'BEGIN{nr=0; while (getline < "lineages.csv") {++nr; if (nr>1&&$0~",") {split($0,s,","); found[s[2]]; ++lineages[s[2]]}} while (getline < "Stats.txt") {found[$1]; stats[$1]=$2} for (i in found) {print i"\t"(i in lineages?lineages[i]:0)"\t"(i in stats?stats[i]:0)}}' | awk -F '\t' '{if (($3<0.9*$2&&$3<20)||$2<10&&$3!=$2) print}'
+```
+first generates a table containing the number of sequences in each category both in the Pangolin set and returned by our procedure,
+```
+...
+BA.1.13.1       1536    1536
+AY.4.2.1        1289    1288
+AY.4.2.2        3241    3234
+AY.4.2.3        1237    1235
+AY.4.2.4        114     114
+B.30    50      50
+B.31    212     166
+B.1.36.10       111     110
+...
+```
+and then it only keeps categories for which our procedure has produced too much change or an insufficient number of sequences. Further inspection shows that the only really probelmatic categories are
+```
+B.60    74      2
+AY.3.4  186     5
+```
+for which most of the sequences are unavailable in GISAID. We might find workarounds for that, but, as that would involve the downloading of more large datasets, we keep things simple and just exclude `B.60` and `AY.3.4` from the rest of the analysis.
 
-At this point we just have to split such files into the training and test set, as usual.
+At this point we just have to split such files into the training and test set, as usual. The following command does it:
+```
+```
 
 ##### 4.1.2.2. Data analysis
 
