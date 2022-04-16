@@ -267,7 +267,7 @@ and each directory will contain subdirectories, one for each sequence cluster:
 ...
 ./Train/100
 ```
-So for instance, directory `./Train/58` will contain input files for all the samples used as training data for sequence class 58, and command
+So for instance, directory `./Train/058` will contain input files for all the samples used as training data for sequence class `058`, and command
 ```
 $ ls ./Train/058
 ```
@@ -307,7 +307,7 @@ So, for instance,
 ```bash
 $ echo Train/058 | ./process_one_class
 ```
-would process all files present in directory `./Train/058`, generate the 10-mer spectra for each of them, combine them into an in-memory KPopCount database, generate their linear combination, discard the database, and output the combination to standard output. 
+would process all files present in directory `./Train/058`, generate the 10-mer spectra for each of them, combine them into an in-memory `KPopCount` database, generate their linear combination, discard the database, and output the combination to standard output. 
 
 Note that the script is implicitly parallelised, in that each of the programs used will check for the number of available processors, and start an adequate number of computing threads to take full advantage of them.
 
@@ -353,7 +353,19 @@ At this point we have several files in our directory, namely
 What is left to do in order to classify the sequences in our test set is to compute the distance in twisted space between each sequence (rows of file `Test.KPopTwisted`) and the representative of each equivalence class of the training set (rows of file `Classes.KPopTwisted`); the classification for each given sequence will be the closest equivalence class (provided that the closest and second closest match are separated by some reasonable margin). Computing all pairwise distances in twisted space between sequences and classes is accomplished by the command
 ```bash
 $ KPopTwistDB -i t Test -d Classes -O d Test-vs-Classes
-``` 
+```
+which reads "load twisted file `Test.KPopTwisted`, compute pairwise distances with the contents of `Classes.KPopTwisted` &mdash; the results will be placed in the "distance" register of `KPopTwistDB` &mdash;, and write results into tabular file `Test-vs-Classes.KPopDMatrix.txt` (we write to a text rather than binary file for illustration). File `Test-vs-Classes.KPopDMatrix.txt` will contain a header
+```
+""    "001"    "002"    "003"    "004"    "005"    "006"    "007"    "008"    "009"    "010"    "011"    "012"    "013"    "014"    "015"    "016"    "017"    "018"    "019"    "020"    "021"    "022"    "023"    "024"    "025"    "026"    "027"    "028"    "029"    "030"    "031"    "032"    "033"    "034"    "035"    "036"    "037"    "038"    "039"    "040"    "041"    "042"    "043"    "044"    "045"    "046"    "047"    "048"    "049"    "050"    "051"    "052"    "053"    "054"    "055"    "056"    "057"    "058"    "059"    "060"    "061"    "062"    "063"    "064"    "065"    "066"    "067"    "068"    "069"    "070"    "071"    "072"    "073"    "074"    "075"    "076"    "077"    "078"    "079"    "080"    "081"    "082"    "083"    "084"    "085"    "086"    "087"    "088"    "089"    "090"    "091"    "092"    "093"    "094"    "095"    "096"    "097"    "098"    "099"    "100"
+```
+i.e., the list of the training classes, followed by rows of corresponding distances, such as
+```
+"00002"    4.83318357568108    11.2700687698413    11.312275301648    11.3764544034853    11.3461374337725    11.3995743751314    11.3212630750153    11.3235657518601    11.2894831167086    11.2996189792259    11.3319535190977    11.3049899338697    11.3228806629005    10.7946131257386    11.2989551747821    11.3558238395219    11.3463712117818    11.3413347717848    11.2618856360064    11.2939890914082    11.2975021258629    10.9943136806685    11.3675942484271    11.3318345009204    11.2477131079917    11.3850214310342    11.339496082918    11.3512732628066    11.3805283679928    11.311696483027    11.3270984609357    11.2738264778713    11.3319347292255    11.3312805552031    11.3386564211209    11.3523905528578    11.3523801939233    11.2736454863803    11.3627258350476    11.3122176318586    11.1304466434475    11.2886203042309    11.3291458624942    11.2798698818615    11.3584269442804    11.3256941762598    11.3360992385991    11.4044126239344    11.3573797752414    11.3412980071085    11.3217385309613    11.2649251859287    11.3149809895284    11.3684126575704    11.2129191129393    11.3173113023552    11.2650040203027    11.2638052741922    11.3596195002195    11.3276044208353    11.2916429174247    11.2528032578129    11.3282351768788    11.2101731026977    11.308760763843    11.3350961792258    11.3781799486808    11.363751496013    11.2858863236711    11.3017512672026    11.2478994650813    11.3259720371017    11.2276363181204    11.3591481763441    11.2524694906482    11.1954140195673    11.2726408581533    11.3262901145608    11.2897238191158    11.111774981885    11.321534697352    11.3431179539068    11.3815709287912    11.3114731321002    11.2565581966433    11.3106489656005    11.3604250330645    11.3762292992287    11.3206443897329    11.3521555950233    11.3633309667897    11.3243176458611    11.3660329600687    11.317589842657    11.3872372791905    11.3480763014578    11.3171596442202    11.3144795186318    11.2903974518633    11.2476606139466
+```
+
+In this case, for instance, sequence `00002` has distance in twisted space of ~4.8 from class `001`, while the distance from all other classes is >11. That classifies the sequence as belonging to class `00002` (which is correct according to the truth table of the simulation).
+
+An automated 
 
 #### 4.1.2. Classifier for COVID-19 sequences (Hyena)
 
