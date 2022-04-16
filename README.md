@@ -20,7 +20,7 @@ Depending on the problem at hand, `KPop` analysis can require a large amount of 
 [4. Examples](#4-examples)<br>
 &emsp; [4.1. Sequence classification](#41-sequence-classification)<br>
 &emsp; &emsp; [4.1.1. Classifier for simulated COVID-19 sequencing reads](#411-classifier-for-simulated-covid-19-sequencing-reads)<br>
-&emsp; &emsp; [4.1.2. Classifier for COVID-19 sequences (Hyena)](#412-classifier-for-covid-19-sequences-(Hyena))<br>
+&emsp; &emsp; [4.1.2. Classifier for COVID-19 sequences (Hyena)](#412-classifier-for-covid-19-sequences-hyena)<br>
 &emsp; [4.2. Pseudo-phylogenetic trees](#42-pseudo-phylogenetic-trees)<br>
 
 ## 1. Installation
@@ -389,6 +389,121 @@ As a first step, we must extract the actual COVID-19 sequences that we need in o
 ```bash
 CHUNK_BLOCKS=125; BLOCK_SIZE=$(( 1024 * 1024 )); rm -rf Split; mkdir Split; echo sequences.fasta | awk -v CHUNK_BLOCKS="$CHUNK_BLOCKS" -v BLOCK_SIZE="$BLOCK_SIZE" 'END{get_size="ls -l \047"$0"\047 | awk \047{print $5}\047" |& getline size; close(get_size); blocks=int((size+BLOCK_SIZE)/BLOCK_SIZE); chunks=int((blocks+CHUNK_BLOCKS)/CHUNK_BLOCKS); for (i=0;i<chunks;++i) print $0"\t"i*CHUNK_BLOCKS}' | Parallel -l 1 -t $(( $(nproc) * 3 )) -- awk -F '\t' -v BLOCK_SIZE="$BLOCK_SIZE" '{get_chunk="dd bs="BLOCK_SIZE" if=\047"$1"\047 skip="$2" 2> /dev/null"; overhang=""; line=""; while (get_chunk |& getline line) {if (line==""||line~"^>") break; overhang=overhang line"\n"} print $1"\t"($2*BLOCK_SIZE)+length(overhang); close(get_chunk)}' | awk -F '\t' '{if (NR>1) print $1"\t"old"\t"($2-old); old=$2}' | Parallel -l 1 -- awk -F '\t' -v BLOCK_SIZE="$BLOCK_SIZE" 'function remove_spaces(name,     s){split(name,s,"/"); return gensub("[ _]","","g",s[1])"/"s[2]"/"s[3]} BEGIN{nr=0; while (getline < "lineages.csv") {++nr; if (nr>1) {split($0,s,","); t[remove_spaces(gensub("^BHR/","Bahrain/",1,s[1]))]=s[2]}}} function output_sequence(){++counts[offset"/"class]; print ">"name"\n"seq > "Split/"offset"/"class".fasta"; return} {offset=$2; system("mkdir -p Split/"offset); get_chunk="dd bs="BLOCK_SIZE" if=\047"$1"\047 iflag=\"skip_bytes,count_bytes\" skip="offset" count="$3" 2> /dev/null"; first=0; while (get_chunk |& getline) {if ($0~"^>") {if (first&&active) output_sequence(); first=1; active=0; split(substr($0,10),s,"[|]"); res=remove_spaces(s[1]); if (res in t) {active=1; name=res; class=t[res]; seq=""}} else {if (active) seq=seq $0}} if (active) output_sequence()} END{for (i in counts) print i"\t"counts[i]}' | awk -F '\t' '{split($1,s,"/"); offset=s[1]; class=s[2]; system("cat \"Split/"$1".fasta\" >> \"Split/"class".fasta\"; rm \"Split/"$1".fasta\"; rmdir --ignore-fail-on-non-empty Split/"offset); counts[class]+=$2} END{for (i in counts) print i"\t"counts[i]}' > Stats.txt
 ```
+
+Although apparently very complicated, the script is just performing a parallelised scan of the big file, in order to find the sequences specified in `lineages.csv` and write them as files &mdash; one per class &mdash; in the directory `Split`. In particular, the script is made of three parts, each one performing a specific task:
+
+###### Indexing
+
+```bash
+CHUNK_BLOCKS=125
+BLOCK_SIZE=$(( 1024 * 1024 ))
+rm -rf Split
+mkdir Split
+echo sequences.fasta |
+awk -v CHUNK_BLOCKS="$CHUNK_BLOCKS" -v BLOCK_SIZE="$BLOCK_SIZE" '
+  END{
+    get_size="ls -l \047"$0"\047 | awk \047{print $5}\047" |& getline size
+    close(get_size)
+    blocks=int((size+BLOCK_SIZE)/BLOCK_SIZE)
+    chunks=int((blocks+CHUNK_BLOCKS)/CHUNK_BLOCKS)
+    for (i=0;i<chunks;++i)
+      print $0"\t"i*CHUNK_BLOCKS}
+' |
+Parallel -l 1 -t $(( $(nproc) * 3 )) -- awk -F '\t' -v BLOCK_SIZE="$BLOCK_SIZE" '
+  {
+    get_chunk="dd bs="BLOCK_SIZE" if=\047"$1"\047 skip="$2" 2> /dev/null"
+    overhang=""
+    line=""
+    while (get_chunk |& getline line) {
+      if (line==""||line~"^>")
+        break;
+      overhang=overhang line"\n"
+    }
+    print $1"\t"($2*BLOCK_SIZE)+length(overhang)
+    close(get_chunk)
+  }' |
+awk -F '\t' '{if (NR>1) print $1"\t"old"\t"($2-old); old=$2}'
+```
+
+###### Parallel scan
+
+```bash
+Parallel -l 1 -- awk -F '\t' -v BLOCK_SIZE="$BLOCK_SIZE" '
+  function remove_spaces(name,     s) {
+    split(name,s,"/")
+    return gensub("[ _]","","g",s[1])"/"s[2]"/"s[3]
+  }
+  BEGIN {
+    nr=0
+    while (getline < "lineages.csv") {
+      ++nr;
+      if (nr>1) {
+        split($0,s,",")
+        t[remove_spaces(gensub("^BHR/","Bahrain/",1,s[1]))]=s[2]
+      }
+    }
+  }
+  function output_sequence() {
+    ++counts[offset"/"class]
+    print ">"name"\n"seq > "Split/"offset"/"class".fasta"
+    return
+  }
+  {
+    offset=$2
+    system("mkdir -p Split/"offset)
+    get_chunk="dd bs="BLOCK_SIZE" if=\047"$1"\047 iflag=\"skip_bytes,count_bytes\" skip="offset" count="$3" 2> /dev/null"
+    first=0
+    while (get_chunk |& getline) {
+      if ($0~"^>") {
+        if (first&&active)
+          output_sequence();
+        first=1
+        active=0
+        split(substr($0,10),s,"[|]")
+        res=remove_spaces(s[1])
+        if (res in t) {
+          active=1
+          name=res
+          class=t[res]
+          seq=""
+        }
+      } else {
+        if (active)
+          seq=seq $0
+      }
+    }
+    if (active)
+      output_sequence()
+  }
+  END {
+    for (i in counts)
+      print i"\t"counts[i]
+  }
+'
+```
+
+###### Sequential collection
+
+```bash
+awk -F '\t' '{split($1,s,"/"); offset=s[1]; class=s[2]; system("cat \"Split/"$1".fasta\" >> \"Split/"class".fasta\"; rm \"Split/"$1".fasta\"; rmdir --ignore-fail-on-non-empty Split/"offset); counts[class]+=$2} END{for (i in counts) print i"\t"counts[i]}' > Stats.txt
+```
+This part of the scripts receives information about the sequences processed by each worker as a series of records of the form
+
+`<offset>`<kbd>/</kbd>`<lineage>`<kbd>Tab</kbd>`<frequency>`
+
+It then accumulates the worker-specific results, which have been stored into the `Split/<offset>` directory, into global ones that have the same name but in the `Split` directory. Worker-specific files and temporary directories are then deleted. Finally, the script outputs a file named `Stats.txt` containing the number of sequences successfully found and written for each lineage.
+
+Unfortunately this step cannot be easily parallelised, as a concurrent write to the same file by several processes would result in corruption of the file &mdash; so it turns out to be the bottleneck. We could implement some locking/mutexing mechanism, but, after all, we have to prepare data only once. So we sit down and wait a couple hours.
+
+By the end of the script, the `Split` directory is populated by files names as COVID-19 lineages, such as
+```
+AY.4.2.fasta
+BA.1.15.1.fasta
+```
+
+Each file contains (almost) all the sequences used as the ground truth for that lineage.
+
+At this point we just have to split such files into the training and test set, as usual.
 
 ##### 4.1.2.2. Data analysis
 
