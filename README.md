@@ -566,7 +566,7 @@ $ KPopTwist -i Classes -v
 ```
 
 ```bash
-cat Test/*.fasta | awk 'function print_sequence(){if (name!="") print name"\t"seq; return} {if ($0~"^>") {print_sequence(); name=substr($0,2)} else seq=$0}' | Parallel -l 1 -- awk -F '\t' '{system("echo -e \">"$1"\\n"$2"\" | KPopCount -k 10 -l \""$1"\" -f /dev/stdin")}' | KPopTwistDB -i T Classes -f /dev/stdin -o t Classes -v
+cat Test/*.fasta | Parallel -l 2 -- awk '{if (NR==1) {job="KPopCount -k 10 -l \""substr($0,2)"\" -f /dev/stdin"; print $0 |& job} else {print $0 |& job; close(job,"to"); while (job |& getline) print $0}}' | KPopTwistDB -i T Classes -f /dev/stdin -o t Test -v
 ```
 
 ### 4.2. Pseudo-phylogenetic trees
