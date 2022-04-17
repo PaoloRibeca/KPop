@@ -330,9 +330,16 @@ include (
         storage = storage }
     exception Incompatible_geometries of string array * string array
     exception Duplicate_label of string
-    let [@warning "-27"] merge_rowwise ?(verbose = false) m1 m2 =
-      if m1.idx_to_col_names <> m2.idx_to_col_names then
+    let merge_rowwise ?(verbose = false) m1 m2 =
+      let merged_idx_to_col_names =
+        if m1 = empty then
+          m2.idx_to_col_names
+        else m1.idx_to_col_names in
+      if merged_idx_to_col_names <> m2.idx_to_col_names then
         Incompatible_geometries (m1.idx_to_col_names, m2.idx_to_col_names) |> raise;
+      if verbose then
+        Printf.eprintf "(%s): Merging matrices (%d+%d rows)...%!"
+          __FUNCTION__ (Array.length m1.idx_to_row_names) (Array.length m2.idx_to_row_names);
       let merged_rows = ref Tools.StringMap.empty in
       Array.iteri
         (fun i name ->
@@ -355,7 +362,9 @@ include (
           merged_storage.(i) <- arr;
           merged_idx_to_row_names.(i) <- name)
         !merged_rows;
-      { idx_to_col_names = m1.idx_to_col_names;
+      if verbose then
+        Printf.eprintf " done.\n%!";
+      { idx_to_col_names = merged_idx_to_col_names;
         idx_to_row_names = merged_idx_to_row_names;
         storage = merged_storage }
     let multiply_matrix_vector_single_threaded ?(verbose = false) m v =

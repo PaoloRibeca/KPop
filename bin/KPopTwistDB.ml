@@ -452,14 +452,14 @@ module RegisterType =
       | Twister
       | Twisted
       | Distances
-    exception Invalid_register_type
+    exception Invalid_register_type of string
     let of_string = function
       | "T" -> Twister
       | "t" -> Twisted
       | "d" -> Distances
-      | _ ->
+      | w ->
         Tools.Argv.usage ();
-        raise Invalid_register_type
+        Invalid_register_type w |> raise
   end
 
 (* There are three registers in this program, one per DB type *)
