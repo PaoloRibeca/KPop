@@ -566,8 +566,19 @@ $ KPopTwist -i Classes -v
 ```
 
 ```bash
-cat Test/*.fasta | Parallel -l 2 -- awk '{if (NR==1) {job="KPopCount -k 10 -l \""substr($0,2)"\" -f /dev/stdin"; print $0 |& job} else {print $0 |& job; close(job,"to"); while (job |& getline) print $0}}' | KPopTwistDB -i T Classes -f /dev/stdin -o t Test -v
+cat Test/*.fasta | awk 'BEGIN{ok=1} {if ($0~"^>") {ok=!($0 in t); t[$0]} if (ok) print}' | Parallel -l 2 -- awk '{if (NR==1) {job="KPopCount -k 10 -l \""substr($0,2)"\" -f /dev/stdin"; print $0 |& job} else {print $0 |& job; close(job,"to"); while (job |& getline) print $0}}' | KPopTwistDB -i T Classes -f /dev/stdin -o t Test -v
 ```
+
+Note that right at the beginning of the script, with the part
+```bash
+awk 'BEGIN{ok=1} {if ($0~"^>") {ok=!($0 in t); t[$0]} if (ok) print}'
+```
+we are removing repeated sequences (yes, apparently there are repeated sequences in GISAID :astonished: ) as `KPopTwistDB` is unhappy with them and will bail out if it finds some in the input.
+
+Also, as there are ~700k sequences to be classified, doing so will take long (~14h on the node I'm using for these tests). So, you might wish to further parallelise the process, as I did, by splitting the input into smaller files and processing them separately on different nodes.
+
+
+
 
 ### 4.2. Pseudo-phylogenetic trees
 
