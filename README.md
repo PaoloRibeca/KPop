@@ -577,8 +577,12 @@ awk 'BEGIN{ok=1} {if ($0~"^>") {ok=!($0 in t); t[$0]} if (ok) print}'
 ```
 we are removing repeated sequences (yes, apparently there are repeated sequences in GISAID :astonished: ) as `KPopTwistDB` is unhappy with them and will bail out if it finds some in the input.
 
-Also, as there are ~700k sequences to be classified, doing so will take long (~14h on the node I'm using for these tests). So, you might wish to further parallelise the process, as I did, by splitting the input into smaller files and processing them separately on different nodes.
+Also, as there are ~700K sequences to be classified, doing so will take long (~14h on the node I'm using for these tests). So, you might wish to further parallelise the process, as I did, by splitting the input into smaller files and processing them separately on different nodes. After that, you can merge together all the pieces with a command such as
+```bash
+$ KPopTwistDB -a t Test.aa -a t Test.ab ... -o t Test -v
+```
 
+The final size of the file `Test.KPopTwisted` containing all the ~700K twisted COVID-19 sequences in the test set is ~8.4 GB.
 
 
 
