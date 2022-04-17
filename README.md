@@ -294,7 +294,7 @@ will return
 ```
 A similar structure will have been put in place for test data under the `./Test` directory, with files equally split under `./Train` and `./Test` for cross-validation purposes (but different choices would be possible).
 
-##### 4.1.1.2. Data preparation
+##### 4.1.1.2. Data analysis
 
 In order to analyse sequences in parallel fashion and decrease waiting times, we first prepare a short `bash` script named `process_one_class`, as follows:
 ```bash
@@ -410,8 +410,7 @@ awk -v CHUNK_BLOCKS="$CHUNK_BLOCKS" -v BLOCK_SIZE="$BLOCK_SIZE" '
     chunks=int((blocks+CHUNK_BLOCKS)/CHUNK_BLOCKS)
     for (i=0;i<chunks;++i)
       print $0"\t"i*CHUNK_BLOCKS}
-' |
-Parallel -l 1 -t $(( $(nproc) * 3 )) -- awk -F '\t' -v BLOCK_SIZE="$BLOCK_SIZE" '
+' | Parallel -l 1 -t $(( $(nproc) * 3 )) -- awk -F '\t' -v BLOCK_SIZE="$BLOCK_SIZE" '
   {
     get_chunk="dd bs="BLOCK_SIZE" if=\047"$1"\047 skip="$2" 2> /dev/null"
     overhang=""
@@ -423,8 +422,7 @@ Parallel -l 1 -t $(( $(nproc) * 3 )) -- awk -F '\t' -v BLOCK_SIZE="$BLOCK_SIZE" 
     }
     print $1"\t"($2*BLOCK_SIZE)+length(overhang)
     close(get_chunk)
-  }' |
-awk -F '\t' '{if (NR>1) print $1"\t"old"\t"($2-old); old=$2}'
+  }' | awk -F '\t' '{if (NR>1) print $1"\t"old"\t"($2-old); old=$2}'
 ```
 
 ###### Parallel scan
@@ -583,6 +581,24 @@ $ KPopTwistDB -a t Test.aa -a t Test.ab ... -o t Test -v
 ```
 
 The final size of the file `Test.KPopTwisted` containing all the ~700K twisted COVID-19 sequences in the test set is ~8.4 GB.
+
+At this point, the analysis proceeds exactly as in the case of [the previous section](#4112-data-analysis), with a command such as
+```bash
+$ KPopTwistDB -i t Test -d Classes -O d Test-vs-Classes -v
+```
+that allows us to compute all the distances of each test sequence from each of the "training" classes. However, given that in this case there is a very large number of distances to be computed, another and perhaps more appropriate strategy would have been not to merge the twisted test files into a single `Test.KPopTwisted` file, but rather to compute the distances from the twisted classes for each of the chunks with commands such as
+```bash
+$ KPopTwistDB -i t Test.aa -d Classes -O d Test-vs-Classes.aa
+```
+and then merge together all the distance files, as in
+```bash
+$ KPopTwistDB -a d Test-vs-Classes.aa -a d Test-vs-Classes.ab ... -o d Test-vs-Classes -v
+```
+
+One way or another, once a file `Test-vs-Classes.KPopDMatrix` containing all the distances has been generated, we can 
+```bash
+```
+in order to
 
 
 
