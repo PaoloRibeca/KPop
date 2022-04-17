@@ -546,12 +546,12 @@ suitably populating the subdirectories `Test` and `Train`. As in most of the exa
 ##### 4.1.2.2. Data analysis
 
 ```bash
-$ ls Train/*.fasta | Parallel -l 1 -- awk '{l=split($0,s,"/"); class=substr(s[l],1,length(s[l])-6); system("KPopCount -k 10 -l "class" -f Train/"class".fasta")}' | KPopCountDB -f /dev/stdin -o Train
+$ ls Train/*.fasta | Parallel -l 1 -- awk '{l=split($0,s,"/"); class=substr(s[l],1,length(s[l])-6); system("KPopCount -k 10 -l "class" -f Train/"class".fasta")}' | KPopCountDB -f /dev/stdin -o Classes
 ```
 
-This produces a `Train.KPopCounter` file which is ~2.0 GB. The command
+This produces a `Classes.KPopCounter` file which is ~2.0 GB. The command
 ```bash
-$ KPopCountDB -i Train --summary
+$ KPopCountDB -i Classes --summary
 ```
 confirms that indeed this database contains the spectra for all the classes:
 ```
@@ -562,7 +562,11 @@ confirms that indeed this database contains the spectra for all the classes:
 According to the usual procedure, we then twist the 
 
 ```bash
-$ KPopTwist -i Train -v
+$ KPopTwist -i Classes -v
+```
+
+```bash
+cat Test/*.fasta | awk 'function print_sequence(){if (name!="") print name"\t"seq; return} {if ($0~"^>") {print_sequence(); name=substr($0,2)} else seq=$0}' | Parallel -l 1 -- awk -F '\t' '{system("echo -e \">"$1"\\n"$2"\" | KPopCount -k 10 -l \""$1"\" -f /dev/stdin")}' | KPopTwistDB -i T Classes -f /dev/stdin -o t Classes -v
 ```
 
 ### 4.2. Pseudo-phylogenetic trees
