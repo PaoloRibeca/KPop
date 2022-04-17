@@ -329,6 +329,35 @@ include (
         idx_to_row_names = m.idx_to_col_names;
         storage = storage }
     exception Incompatible_geometries of string array * string array
+    exception Duplicate_label of string
+    let [@warning "-27"] merge_rowwise ?(verbose = false) m1 m2 =
+      if m1.idx_to_col_names <> m2.idx_to_col_names then
+        Incompatible_geometries (m1.idx_to_col_names, m2.idx_to_col_names) |> raise;
+      let merged_rows = ref Tools.StringMap.empty in
+      Array.iteri
+        (fun i name ->
+          (* There ought to be no repeated names here *)
+          merged_rows := Tools.StringMap.add name m1.storage.(i) !merged_rows)
+        m1.idx_to_row_names;
+      Array.iteri
+        (fun i name ->
+          match Tools.StringMap.find_opt name !merged_rows with
+          | Some _ ->
+            Duplicate_label name |> raise
+          | None ->
+            merged_rows := Tools.StringMap.add name m2.storage.(i) !merged_rows)
+        m2.idx_to_row_names;
+      let row_num = Tools.StringMap.cardinal !merged_rows in
+      let merged_storage = Array.init row_num (fun _ -> Float.Array.create 0)
+      and merged_idx_to_row_names = Array.make row_num "" in
+      Tools.StringMap.iteri
+        (fun i name arr ->
+          merged_storage.(i) <- arr;
+          merged_idx_to_row_names.(i) <- name)
+        !merged_rows;
+      { idx_to_col_names = m1.idx_to_col_names;
+        idx_to_row_names = merged_idx_to_row_names;
+        storage = merged_storage }
     let multiply_matrix_vector_single_threaded ?(verbose = false) m v =
       if Array.length m.idx_to_col_names <> Float.Array.length v then
         Incompatible_geometries (m.idx_to_col_names, Array.make (Float.Array.length v) "") |> raise;
@@ -606,6 +635,8 @@ include (
     val transpose_single_threaded: ?verbose:bool -> t -> t
     val transpose: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> t
     exception Incompatible_geometries of string array * string array
+    exception Duplicate_label of string
+    val merge_rowwise: ?verbose:bool -> t -> t -> t
     val multiply_matrix_vector:
       ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> Float.Array.t -> Float.Array.t
     val multiply_matrix_vector_single_threaded: ?verbose:bool -> t -> Float.Array.t -> Float.Array.t

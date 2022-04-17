@@ -39,6 +39,8 @@ module [@warning "-32"] KPopMatrix:
     val to_file: ?precision:int -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> string -> unit
     val transpose_single_threaded: ?verbose:bool -> t -> t
     val transpose: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> t
+    exception Incompatible_matrices of Type.t * Type.t
+    val merge_rowwise: ?verbose:bool -> t -> t -> t
     val multiply_matrix_vector_single_threaded: ?verbose:bool -> t -> Float.Array.t -> Float.Array.t
     val multiply_matrix_sparse_vector_single_threaded: ?verbose:bool -> t -> Matrix.sparse_vector_t -> Float.Array.t
     val multiply_matrix_vector:
@@ -103,6 +105,11 @@ module [@warning "-32"] KPopMatrix:
       { m with matrix = Matrix.transpose_single_threaded ~verbose m.matrix }
     let transpose ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) m =
       { m with matrix = Matrix.transpose ~threads ~elements_per_step ~verbose m.matrix }
+    exception Incompatible_matrices of Type.t * Type.t
+    let merge_rowwise ?(verbose = false) m1 m2 =
+      if m1.which <> m2.which then
+        Incompatible_matrices (m1.which, m2.which) |> raise;
+      { which = m1.which; matrix = Matrix.merge_rowwise ~verbose m1.matrix m2.matrix }
     let multiply_matrix_vector_single_threaded ?(verbose = false) m =
       Matrix.multiply_matrix_vector_single_threaded ~verbose m.matrix
     let multiply_matrix_sparse_vector_single_threaded ?(verbose = false) m =
@@ -163,7 +170,7 @@ module [@warning "-32"] KPopMatrix:
       (* We find the median and filter the result *)
 
 
-            res := FloatStringMultimap.add dist v.idx_to_col_names.(i) !res; 
+            res := FloatStringMultimap.add dist v.idx_to_col_names.(i) !res;
 
 
       let res = !res and req_len =
@@ -386,7 +393,7 @@ module [@warning "-32"] KPopTwister:
           let res = KPopMatrix.multiply_matrix_sparse_vector_single_threaded ~verbose:false twister.twister s_v in
           let t3 = Sys.time () in
           if debug then
-	    Printf.eprintf "DEBUG=(lines=%d/%d/%d,%.3g,%.3g,%.3g)\n%!"
+            Printf.eprintf "DEBUG=(lines=%d/%d/%d,%.3g,%.3g,%.3g)\n%!"
               (List.length rev_lines) num_twister_cols (Float.Array.length res) (t1 -. t0) (t2 -. t1) (t3 -. t2);
           label, res)
         (fun (label, row) ->
@@ -405,7 +412,7 @@ module [@warning "-32"] KPopTwister:
           idx_to_row_names.(i) <- label;
           storage.(i) <- row)
         !res;
-      { KPopMatrix.which = Twisted; 
+      { KPopMatrix.which = Twisted;
         matrix = { Matrix.idx_to_col_names = twisted_idx_to_col_names; idx_to_row_names; storage } }
     (* *)
     let make_filename_binary = function
@@ -460,7 +467,9 @@ type to_do_t =
   | Empty of RegisterType.t
   | Binary_to_register of RegisterType.t * string
   | Tables_to_register of RegisterType.t * string
-  | Add_files_to_twisted of string list
+  | Add_binary_to_register of RegisterType.t * string
+  | Add_tables_to_register of RegisterType.t * string
+  | Add_kmer_files_to_twisted of string list
   | Register_to_binary of RegisterType.t * string
   | Set_precision of int
   | Register_to_tables of RegisterType.t * string
@@ -487,7 +496,7 @@ module Parameters =
     let verbose = ref Defaults.verbose
   end
 
-let version = "0.9"
+let version = "0.11"
 
 let header =
   Printf.sprintf begin
@@ -525,19 +534,45 @@ let _ =
         " (T=twister; t=twisted; d=distance).";
         "File extension is automatically determined depending on database type";
         " (will be: .KPopTwister.txt and .KPopInertia.txt; .KPopTwisted.txt;";
-        "  or .KPopDMatrix, respectively)" ],
+        "  or .KPopDMatrix.txt, respectively)" ],
       TA.Optional,
       (fun _ ->
         let register_type = TA.get_parameter () |> RegisterType.of_string in
         Tables_to_register (register_type, TA.get_parameter ()) |> TL.accum Parameters.program);
-    [ "-f"; "-F"; "-k"; "-K"; "-a"; "-A";
-      "--add"; "--files"; "--kmers"; "--add-files"; "--add-kmers" ],
+    [ "-a"; "--add" ],
+      Some "t|d <binary_file_prefix>",
+      [ "add the contents of the specified binary database to the specified register";
+        " (t=twisted; d=distance).";
+        "File extension is automatically determined depending on database type";
+        " (will be: .KPopTwisted; or .KPopDMatrix, respectively)" ],
+      TA.Optional,
+      (fun _ ->
+        match TA.get_parameter () |> RegisterType.of_string with
+        | Twister ->
+          TA.parse_error "You cannot add content to the twister register"
+        | Twisted | Distances as register_type ->
+          Add_binary_to_register (register_type, TA.get_parameter ()) |> TL.accum Parameters.program);
+    [ "-A"; "--Add" ],
+      Some "t|d <table_file_prefix>",
+      [ "add the contents of the specified tabular database into the specified register";
+        " (t=twisted; d=distance).";
+        "File extension is automatically determined depending on database type";
+        " (will be: .KPopTwisted.txt; or .KPopDMatrix.txt, respectively)" ],
+      TA.Optional,
+      (fun _ ->
+        match TA.get_parameter () |> RegisterType.of_string with
+        | Twister ->
+          TA.parse_error "You cannot add content to the twister register"
+        | Twisted | Distances as register_type ->
+          Add_tables_to_register (register_type, TA.get_parameter ()) |> TL.accum Parameters.program);
+    [ "-k"; "-K"; "--kmers"; "--add-kmers"; "--add-kmer-files" ],
       Some "<k-mer_table_file_name>[','...','<k-mer_table_file_name>]",
       [ "twist k-mers from the specified files through the transformation";
         "present in the twister register, and add the results";
         "to the database present in the twisted register" ],
       TA.Optional,
-      (fun _ -> Add_files_to_twisted (TA.get_parameter () |> TS.on_char_as_list ',') |> TL.accum Parameters.program);
+      (fun _ ->
+        Add_kmer_files_to_twisted (TA.get_parameter () |> TS.on_char_as_list ',') |> TL.accum Parameters.program);
     [ "--distance"; "--distance-function"; "--set-distance"; "--set-distance-function" ],
       Some "'euclidean'|'minkowski'",
       [ "set the function to be used when computing distances" ],
@@ -644,6 +679,18 @@ let _ =
         distances := KPopMatrix.of_binary ~verbose:!Parameters.verbose DMatrix prefix;
         if !distances.which <> DMatrix then
           KPopMatrix.Unexpected_type (!distances.which, DMatrix) |> raise
+      | Add_binary_to_register (RegisterType.Twister, _) ->
+        assert false
+      | Add_binary_to_register (RegisterType.Twisted, prefix) ->
+        let additional = KPopMatrix.of_binary ~verbose:!Parameters.verbose Twisted prefix in
+        if additional.which <> Twisted then
+          KPopMatrix.Unexpected_type (additional.which, Twisted) |> raise;
+        twisted := KPopMatrix.merge_rowwise ~verbose:!Parameters.verbose !twisted additional
+      | Add_binary_to_register (RegisterType.Distances, prefix) ->
+        let additional = KPopMatrix.of_binary ~verbose:!Parameters.verbose DMatrix prefix in
+        if additional.which <> DMatrix then
+          KPopMatrix.Unexpected_type (additional.which, DMatrix) |> raise;
+        distances := KPopMatrix.merge_rowwise ~verbose:!Parameters.verbose !distances additional
       | Tables_to_register (RegisterType.Twister, prefix) ->
         twister := KPopTwister.of_files ~threads:!Parameters.threads ~verbose:!Parameters.verbose prefix
       | Tables_to_register (RegisterType.Twisted, prefix) ->
@@ -654,7 +701,19 @@ let _ =
         distances := KPopMatrix.of_file ~threads:!Parameters.threads ~verbose:!Parameters.verbose DMatrix prefix;
         if !distances.which <> DMatrix then
           KPopMatrix.Unexpected_type (!distances.which, DMatrix) |> raise
-      | Add_files_to_twisted fnames ->
+      | Add_tables_to_register (RegisterType.Twister, _) ->
+        assert false
+      | Add_tables_to_register (RegisterType.Twisted, prefix) ->
+        let additional = KPopMatrix.of_file ~threads:!Parameters.threads ~verbose:!Parameters.verbose Twisted prefix in
+        if additional.which <> Twisted then
+          KPopMatrix.Unexpected_type (additional.which, Twisted) |> raise;
+        twisted := KPopMatrix.merge_rowwise ~verbose:!Parameters.verbose !twisted additional
+      | Add_tables_to_register (RegisterType.Distances, prefix) ->
+        let additional = KPopMatrix.of_file ~threads:!Parameters.threads ~verbose:!Parameters.verbose DMatrix prefix in
+        if additional.which <> DMatrix then
+          KPopMatrix.Unexpected_type (additional.which, DMatrix) |> raise;
+        distances := KPopMatrix.merge_rowwise ~verbose:!Parameters.verbose !distances additional
+      | Add_kmer_files_to_twisted fnames ->
         twisted :=
           KPopTwister.add_twisted_from_files
             ~threads:!Parameters.threads ~verbose:!Parameters.verbose !twister !twisted fnames
@@ -697,7 +756,7 @@ let _ =
                   Float.Array.create 0
                 else
                   1. /. float_of_int len |> Float.Array.make len |> !metric
-              end 
+              end
             end !twisted twisted_db)
     program
 
