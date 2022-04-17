@@ -37,8 +37,9 @@ module [@warning "-32"] KPopMatrix:
     val of_file: ?threads:int -> ?bytes_per_step:int -> ?verbose:bool -> Type.t -> string -> t
     (* This one discards type information - use at your own risk *)
     val to_file: ?precision:int -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> string -> unit
-    val transpose_single_threaded: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> t
+    val transpose_single_threaded: ?verbose:bool -> t -> t
     val transpose: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> t
+    val multiply_matrix_vector_single_threaded: ?verbose:bool -> t -> Float.Array.t -> Float.Array.t
     val multiply_matrix_vector:
       ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> Float.Array.t -> Float.Array.t
     val multiply_matrix_matrix: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Type.t -> t -> t -> t
@@ -97,10 +98,12 @@ module [@warning "-32"] KPopMatrix:
       { which; matrix = make_filename_table which prefix |> Matrix.of_file ~threads ~bytes_per_step ~verbose }
     let to_file ?(precision = 15) ?(threads = 1) ?(elements_per_step = 40000) ?(verbose = false) m prefix =
       make_filename_table m.which prefix |> Matrix.to_file ~precision ~threads ~elements_per_step ~verbose m.matrix
-    let transpose_single_threaded ?(threads = 1) ?(elements_per_step = 40000) ?(verbose = false) m =
-      { m with matrix = Matrix.transpose_single_threaded ~threads ~elements_per_step ~verbose m.matrix }
+    let transpose_single_threaded ?(verbose = false) m =
+      { m with matrix = Matrix.transpose_single_threaded ~verbose m.matrix }
     let transpose ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) m =
       { m with matrix = Matrix.transpose ~threads ~elements_per_step ~verbose m.matrix }
+    let multiply_matrix_vector_single_threaded ?(verbose = false) m v =
+      Matrix.multiply_matrix_vector_single_threaded ~verbose m.matrix v
     let multiply_matrix_vector ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) m v =
       Matrix.multiply_matrix_vector ~threads ~elements_per_step ~verbose m.matrix v
     let multiply_matrix_matrix ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) which m1 m2 =
@@ -367,7 +370,7 @@ module [@warning "-32"] KPopTwister:
               (fun i el ->
                 el /. acc |> Float.Array.set col i)
               col;
-          label, KPopMatrix.multiply_matrix_vector ~threads:1 ~elements_per_step:n ~verbose:false twister.twister col)
+          label, KPopMatrix.multiply_matrix_vector_single_threaded ~verbose:false twister.twister col)
         (fun (label, row) ->
           (* The transformed column vector becomes a row *)
           match Tools.StringMap.find_opt label !res with

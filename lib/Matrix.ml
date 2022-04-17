@@ -279,7 +279,7 @@ include (
       { idx_to_col_names = !idx_to_col_names;
         idx_to_row_names = Tools.Array.of_rlist !idx_to_row_names;
         storage = Tools.Array.of_rlist !storage }
-    let [@warning "-27"] transpose_single_threaded ?(threads = 1) ?(elements_per_step = 1) ?(verbose = false) m =
+    let [@warning "-27"] transpose_single_threaded ?(verbose = false) m =
       { idx_to_col_names = m.idx_to_row_names;
         idx_to_row_names = m.idx_to_col_names;
         storage =
@@ -329,6 +329,27 @@ include (
         idx_to_row_names = m.idx_to_col_names;
         storage = storage }
     exception Incompatible_geometries of string array * string array
+    let multiply_matrix_vector_single_threaded ?(verbose = false) m v =
+      if Array.length m.idx_to_col_names <> Float.Array.length v then
+        Incompatible_geometries (m.idx_to_col_names, Array.make (Float.Array.length v) "") |> raise;
+      let d = Array.length m.idx_to_row_names in
+      (* We immediately allocate all the needed memory, as we already know how much we will need *)
+      let red_d = d - 1 and res = Float.Array.create d and elts_done = ref 0 in
+      (* We decorate each vector element coordinate with the respective value *)
+      for i = 0 to red_d do
+        let acc = ref 0. in
+        Float.Array.iter2
+          (fun el_1 el_2 ->
+            acc := !acc +. (el_1 *. el_2))
+          m.storage.(i) v;
+        Float.Array.set res i !acc;
+        incr elts_done;
+        if verbose && !elts_done mod 100 = 0 then
+          Printf.eprintf "\r(%s): Done %d/%d elements%!            \r" __FUNCTION__ !elts_done d
+      done;
+      if verbose then
+        Printf.eprintf "\r(%s): Done %d/%d elements.            \n%!" __FUNCTION__ !elts_done d;
+      res
     let multiply_matrix_vector ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) m v =
       if Array.length m.idx_to_col_names <> Float.Array.length v then
         Incompatible_geometries (m.idx_to_col_names, Array.make (Float.Array.length v) "") |> raise;
@@ -557,11 +578,12 @@ include (
     exception Wrong_number_of_columns of int * int * int
     val of_file: ?threads:int -> ?bytes_per_step:int -> ?verbose:bool -> string -> t
     val to_file: ?precision:int -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> string -> unit
-    val transpose_single_threaded: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> t
+    val transpose_single_threaded: ?verbose:bool -> t -> t
     val transpose: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> t
     exception Incompatible_geometries of string array * string array
     val multiply_matrix_vector:
       ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> Float.Array.t -> Float.Array.t
+    val multiply_matrix_vector_single_threaded: ?verbose:bool -> t -> Float.Array.t -> Float.Array.t
     val multiply_matrix_matrix:
       ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> t -> t
     val get_distance_matrix:
