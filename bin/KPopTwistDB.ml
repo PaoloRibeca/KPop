@@ -40,6 +40,7 @@ module [@warning "-32"] KPopMatrix:
     val transpose_single_threaded: ?verbose:bool -> t -> t
     val transpose: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> t
     val multiply_matrix_vector_single_threaded: ?verbose:bool -> t -> Float.Array.t -> Float.Array.t
+    val multiply_matrix_sparse_vector_single_threaded: ?verbose:bool -> t -> Matrix.sparse_vector_t -> Float.Array.t
     val multiply_matrix_vector:
       ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> Float.Array.t -> Float.Array.t
     val multiply_matrix_matrix: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Type.t -> t -> t -> t
@@ -102,8 +103,10 @@ module [@warning "-32"] KPopMatrix:
       { m with matrix = Matrix.transpose_single_threaded ~verbose m.matrix }
     let transpose ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) m =
       { m with matrix = Matrix.transpose ~threads ~elements_per_step ~verbose m.matrix }
-    let multiply_matrix_vector_single_threaded ?(verbose = false) m v =
-      Matrix.multiply_matrix_vector_single_threaded ~verbose m.matrix v
+    let multiply_matrix_vector_single_threaded ?(verbose = false) m =
+      Matrix.multiply_matrix_vector_single_threaded ~verbose m.matrix
+    let multiply_matrix_sparse_vector_single_threaded ?(verbose = false) m =
+      Matrix.multiply_matrix_sparse_vector_single_threaded ~verbose m.matrix
     let multiply_matrix_vector ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) m v =
       Matrix.multiply_matrix_vector ~threads ~elements_per_step ~verbose m.matrix v
     let multiply_matrix_matrix ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) which m1 m2 =
@@ -209,10 +212,11 @@ module [@warning "-32"] KPopTwister:
     exception Incompatible_twister_and_twisted
     exception Wrong_number_of_columns of int * int * int
     exception Header_expected of string
-    exception Wrong_format of int * string
+    exception Float_expected of string
     exception Duplicate_label of string
     val add_twisted_from_files:
-      ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> KPopMatrix.t -> string list -> KPopMatrix.t
+      ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> ?debug:bool ->
+      t -> KPopMatrix.t -> string list -> KPopMatrix.t
     (* *)
     val to_binary: ?verbose:bool -> t -> string -> unit
     val of_binary: ?verbose:bool -> string -> t
@@ -252,10 +256,10 @@ module [@warning "-32"] KPopTwister:
     exception Incompatible_twister_and_twisted
     exception Wrong_number_of_columns of int * int * int
     exception Header_expected of string
-    exception Wrong_format of int * string
+    exception Float_expected of string
     exception Duplicate_label of string
     let [@warning "-27"] add_twisted_from_files
-        ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) twister twisted fnames =
+        ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) ?(debug = false) twister twisted fnames =
       if twisted.KPopMatrix.which <> Twisted then
         KPopMatrix.Unexpected_type (twisted.KPopMatrix.which, Twisted) |> raise;
       let twisted_idx_to_col_names =
@@ -340,37 +344,51 @@ module [@warning "-32"] KPopTwister:
             fst !labels, !buf
           end)
         (fun (label, rev_lines) ->
-          let n = List.length rev_lines
-          (* We allocate the column vector to be transformed *)
-          and col = Float.Array.make num_twister_cols 0. in
-          List.iteri
-            (fun i (name, v) ->
-              let v =
-                try
-                  float_of_string v
-                with _ ->
-                  Wrong_format (n - i, v) |> raise in
+          let t0 = Sys.time () in
+          let s_v = ref Tools.IntMap.empty and acc = ref 0. in
+          List.iter
+            (fun (name, v) ->
               match Hashtbl.find_opt twister_col_names_to_idx name with
               | Some idx ->
-                (* If there are repeated k-mers, we just accumulate them *)
-                Float.Array.get col idx +. v |> Float.Array.set col idx
+                let v =
+                  try
+                    float_of_string v
+                  with _ ->
+                    Float_expected v |> raise in
+                acc := !acc +. v;
+                s_v := begin
+                  match Tools.IntMap.find_opt idx !s_v with
+                  | Some vv ->
+                    (* If there are repeated k-mers, we accumulate them *)
+                    Tools.IntMap.add idx (vv +. v) !s_v
+                  | None ->
+                    Tools.IntMap.add idx v !s_v
+                end
               | None ->
                 (* In this case, we just discard the k-mer *)
                 ())
             rev_lines;
+          let t1 = Sys.time () in
           (* We first normalise and then transform the spectrum *)
-          let acc = ref 0. in
-          Float.Array.iter
-            (fun el ->
-              acc := !acc +. el)
-            col;
           let acc = !acc in
-          if acc <> 0. then
-            Float.Array.iteri
-              (fun i el ->
-                el /. acc |> Float.Array.set col i)
-              col;
-          label, KPopMatrix.multiply_matrix_vector_single_threaded ~verbose:false twister.twister col)
+          let s_v = {
+            Matrix.length = num_twister_cols;
+            elements =
+              if acc <> 0. then
+                Tools.IntMap.map
+                  (fun el ->
+                    el /. acc)
+                  !s_v
+              else
+                !s_v
+          } in
+          let t2 = Sys.time () in
+          let res = KPopMatrix.multiply_matrix_sparse_vector_single_threaded ~verbose:false twister.twister s_v in
+          let t3 = Sys.time () in
+          if debug then
+	    Printf.eprintf "DEBUG=(lines=%d/%d/%d,%.3g,%.3g,%.3g)\n%!"
+              (List.length rev_lines) num_twister_cols (Float.Array.length res) (t1 -. t0) (t2 -. t1) (t3 -. t2);
+          label, res)
         (fun (label, row) ->
           (* The transformed column vector becomes a row *)
           match Tools.StringMap.find_opt label !res with

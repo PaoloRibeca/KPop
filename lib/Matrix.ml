@@ -350,6 +350,31 @@ include (
       if verbose then
         Printf.eprintf "\r(%s): Done %d/%d elements.            \n%!" __FUNCTION__ !elts_done d;
       res
+    type sparse_vector_t = {
+      length: int;
+      elements: float Tools.IntMap.t
+    }
+    let multiply_matrix_sparse_vector_single_threaded ?(verbose = false) m s_v =
+      if Array.length m.idx_to_col_names <> s_v.length then
+        Incompatible_geometries (m.idx_to_col_names, Array.make (s_v.length) "") |> raise;
+      let d = Array.length m.idx_to_row_names in
+      (* We immediately allocate all the needed memory, as we already know how much we will need *)
+      let red_d = d - 1 and res = Float.Array.make d 0. and elts_done = ref 0 in
+      (* We decorate each vector element coordinate with the respective value *)
+      for i = 0 to red_d do
+        let m_v = m.storage.(i) and acc = ref 0. in
+        Tools.IntMap.iter
+          (fun j el ->
+            acc := !acc +. (Float.Array.get m_v j *. el))
+          s_v.elements;
+        Float.Array.set res i !acc;
+        incr elts_done;
+        if verbose && !elts_done mod 100 = 0 then
+          Printf.eprintf "\r(%s): Done %d/%d elements%!            \r" __FUNCTION__ !elts_done d
+      done;
+      if verbose then
+        Printf.eprintf "\r(%s): Done %d/%d elements.            \n%!" __FUNCTION__ !elts_done d;
+      res
     let multiply_matrix_vector ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) m v =
       if Array.length m.idx_to_col_names <> Float.Array.length v then
         Incompatible_geometries (m.idx_to_col_names, Array.make (Float.Array.length v) "") |> raise;
@@ -584,6 +609,11 @@ include (
     val multiply_matrix_vector:
       ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> Float.Array.t -> Float.Array.t
     val multiply_matrix_vector_single_threaded: ?verbose:bool -> t -> Float.Array.t -> Float.Array.t
+    type sparse_vector_t = {
+      length: int;
+      elements: float Tools.IntMap.t
+    }
+    val multiply_matrix_sparse_vector_single_threaded: ?verbose:bool -> t -> sparse_vector_t -> Float.Array.t
     val multiply_matrix_matrix:
       ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> t -> t
     val get_distance_matrix:
