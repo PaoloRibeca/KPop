@@ -584,21 +584,22 @@ The final size of the file `Test.KPopTwisted` containing all the ~700K twisted C
 
 At this point, the analysis proceeds exactly as in the case of [the previous section](#4112-data-analysis), with a command such as
 ```bash
-$ KPopTwistDB -i t Test -d Classes -O d Test-vs-Classes -v
+$ KPopTwistDB -i t Test -d Classes -o d Test-vs-Classes -v
 ```
 that allows us to compute all the distances of each test sequence from each of the "training" classes. However, given that in this case there is a very large number of distances to be computed, another and perhaps more appropriate strategy would have been not to merge the twisted test files into a single `Test.KPopTwisted` file, but rather to compute the distances from the twisted classes for each of the chunks with commands such as
 ```bash
-$ KPopTwistDB -i t Test.aa -d Classes -O d Test-vs-Classes.aa
+$ KPopTwistDB -i t Test.aa -d Classes -o d Test-vs-Classes.aa
 ```
 and then merge together all the distance files, as in
 ```bash
 $ KPopTwistDB -a d Test-vs-Classes.aa -a d Test-vs-Classes.ab ... -o d Test-vs-Classes -v
 ```
 
-One way or another, once a file `Test-vs-Classes.KPopDMatrix` containing all the distances has been generated, we can 
+One way or another, once a file `Test-vs-Classes.KPopDMatrix` containing all the distances has been generated, we can run
 ```bash
+$ KPopTwistDB -i d Test-vs-Classes -s Test-vs-Classes -v
 ```
-in order to
+in order to produce a textual summary of the 
 
 
 
