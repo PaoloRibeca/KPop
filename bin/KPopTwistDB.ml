@@ -51,12 +51,14 @@ module [@warning "-32"] KPopMatrix:
     (* Compute distances between the rows of two matrices - more general version of the previous one *)
     val get_distance_rowwise:
       ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Matrix.Distance.t -> Float.Array.t -> t -> t -> t
+    exception Unexpected_type of Type.t * Type.t
+    val summarize_distance:
+      ?keep_at_most:int option -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> string -> unit
     (* Binary marshalling of the matrix *)
     val to_channel: out_channel -> t -> unit
     exception Incompatible_archive_version of string * string
     val of_channel: in_channel -> t
     val to_binary: ?verbose:bool -> t -> string -> unit
-    exception Unexpected_type of Type.t * Type.t
     val of_binary: ?verbose:bool -> Type.t -> string -> t
   end
 = struct
@@ -87,7 +89,7 @@ module [@warning "-32"] KPopMatrix:
     }
     let empty which =
       { which; matrix = Matrix.empty }
-    (* The two following functions implement automatic file naming *)
+    (* The three following functions implement automatic file naming *)
     let make_filename_table which = function
       | w when String.length w >= 5 && String.sub w 0 5 = "/dev/" -> w
       | prefix -> prefix ^ "." ^ Type.to_string which ^ ".txt"
@@ -96,6 +98,9 @@ module [@warning "-32"] KPopMatrix:
       | _, _ when String.length name >= 5 && String.sub name 0 5 = "/dev/" -> name
       | Type.Twisted, prefix | DMatrix, prefix -> prefix ^ "." ^ Type.to_string which
       | Twister, _ | Inertia, _ -> assert false (* Should always be done through KPopTwister *)
+    let make_filename_summary = function
+      | w when String.length w >= 5 && String.sub w 0 5 = "/dev/" -> w
+      | prefix -> prefix ^ ".KPopSummary.txt"
     (* We redefine the implementation for Matrix in order to set the correct KPop types *)
     let of_file ?(threads = 1) ?(bytes_per_step = 4194304) ?(verbose = false) which prefix =
       { which; matrix = make_filename_table which prefix |> Matrix.of_file ~threads ~bytes_per_step ~verbose }
@@ -125,6 +130,108 @@ module [@warning "-32"] KPopMatrix:
     let get_distance_rowwise ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) distance metric m1 m2 =
       { which = DMatrix;
         matrix = Matrix.get_distance_rowwise ~threads ~elements_per_step ~verbose distance metric m1.matrix m2.matrix }
+    exception Unexpected_type of Type.t * Type.t
+    module FloatIntMultimap = Tools.OrderedMultimap (Tools.ComparableFloat) (Tools.ComparableInt)
+    let summarize_distance
+        ?(keep_at_most = Some 2) ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) m prefix =
+      if m.which <> DMatrix then
+        Unexpected_type (m.which, DMatrix) |> raise;
+      let n_cols = Array.length m.matrix.idx_to_col_names in
+      let req_len =
+        match keep_at_most with
+        | None -> n_cols
+        | Some at_most -> at_most
+      and f_n_cols = float_of_int n_cols in
+      let process_row buf row_idx =
+        let name = m.matrix.idx_to_row_names.(row_idx) and row = m.matrix.storage.(row_idx)
+        and distr = ref FloatIntMultimap.empty in
+        (* We find the median and filter the result *)
+        Float.Array.iteri
+          (fun col_idx dist ->
+            distr := FloatIntMultimap.add dist col_idx !distr)
+          row;
+        let eff_len = ref 0 and median_pos = n_cols / 2 |> ref and median = ref 0. and acc = ref 0. in
+        FloatIntMultimap.iter_set
+          (fun dist set ->
+            let set_len = FloatIntMultimap.ValSet.cardinal set in
+            acc := !acc +. (float_of_int set_len *. dist);
+            if !median_pos >= 0 && !median_pos - set_len < 0 then
+              median := dist;
+            median_pos := !median_pos - set_len;
+            if !eff_len < req_len then
+              eff_len := !eff_len + set_len)
+          !distr;
+        let eff_len = !eff_len and median = !median and mean =
+          if n_cols > 0 then
+            !acc /. f_n_cols
+          else
+            0. in
+        (* We compute standard deviation e MAD *)
+        acc := 0.;
+        let ddistr = ref Tools.FloatMap.empty in
+        Float.Array.iteri
+          (fun _ dist ->
+            let d = dist -. mean in
+            acc := !acc +. (d *. d);
+            let d = (dist -. median) |> abs_float in
+            ddistr :=
+              match Tools.FloatMap.find_opt d !ddistr with
+              | None ->
+                Tools.FloatMap.add d 1 !ddistr
+              | Some n ->
+                Tools.FloatMap.add d (n + 1) !ddistr)
+          row;
+        median_pos := n_cols / 2;
+        let mad = ref 0. in
+        Tools.FloatMap.iter
+          (fun d occs ->
+            if !median_pos >= 0 && !median_pos - occs < 0 then
+              mad := d;
+            median_pos := !median_pos - occs)
+          !ddistr;
+        let mad = !mad and stddev =
+          if n_cols > 1 then
+            !acc /. (f_n_cols -. 1.) |> sqrt
+          else
+            0. in
+        Printf.bprintf buf "\"%s\"\t%.15g\t%.15g\t%.15g\t%.15g" name mean stddev median mad;
+        FloatIntMultimap.iteri
+          (fun i dist col_idx ->
+            if i < eff_len then
+              Printf.bprintf buf "\t\"%s\"\t%.15g\t%.15g"
+                m.matrix.idx_to_col_names.(col_idx) dist ((dist -. mean) /. stddev))
+          !distr in
+      let n_rows = Array.length m.matrix.idx_to_row_names and processed_rows = ref 0 and buf = Buffer.create 1048576
+      and fname = make_filename_summary prefix in
+      let output = open_out fname in
+      (* Parallel section *)
+      Tools.Parallel.process_stream_chunkwise
+        (fun () ->
+          if !processed_rows < n_rows then
+            let to_do = max 1 (elements_per_step / n_cols) |> min (n_rows - !processed_rows) in
+            let new_processed_rows = !processed_rows + to_do in
+            let res = !processed_rows, new_processed_rows - 1 in
+            processed_rows := new_processed_rows;
+            res
+          else
+            raise End_of_file)
+        (fun (lo_row, hi_row) ->
+          Buffer.clear buf;
+          for i = lo_row to hi_row do
+            process_row buf i
+          done;
+          hi_row - lo_row + 1, Buffer.contents buf)
+        (fun (n_processed, block) ->
+          Printf.fprintf output "%s\n" block;
+          let old_processed_rows = !processed_rows in
+          processed_rows := !processed_rows + n_processed;
+          if verbose && !processed_rows / 10000 > old_processed_rows / 10000 then
+            Printf.eprintf "\rWriting distance digest to file '%s': done %d/%d lines%!"
+              fname !processed_rows n_rows)
+        threads;
+      if verbose then
+        Printf.eprintf "\rWriting distance digest to file '%s': done %d/%d lines.\n%!" fname n_rows n_rows;
+      close_out output
     (* *)
     let archive_version = "2022-04-03"
     (* *)
@@ -148,7 +255,6 @@ module [@warning "-32"] KPopMatrix:
       if version <> archive_version then
         Incompatible_archive_version (which, version) |> raise;
       { which = Type.of_string which; matrix = (input_value input: Matrix.t) }
-    exception Unexpected_type of Type.t * Type.t
     let of_binary ?(verbose = false) which prefix =
       let fname = make_filename_binary which prefix in
       let input = open_in fname in
@@ -162,48 +268,6 @@ module [@warning "-32"] KPopMatrix:
         Printf.eprintf " done.\n%!";
       res
   end
-
-
-(*
-    module FloatStringMultimap = Tools.OrderedMultimap (Tools.ComparableFloat) (Tools.ComparableString)
-      let res = ref FloatStringMultimap.empty in
-      (* We find the median and filter the result *)
-
-
-            res := FloatStringMultimap.add dist v.idx_to_col_names.(i) !res;
-
-
-      let res = !res and req_len =
-        match keep_at_most with
-        | None -> d
-        | Some at_most -> at_most
-      and eff_len = ref 0 and median_pos = d / 2 |> ref and median = ref 0. in
-      FloatStringMultimap.iter_set
-        (fun dist set ->
-          let set_len = FloatStringMultimap.ValSet.cardinal set in
-          if !median_pos >= 0 && !median_pos - set_len < 0 then
-            median := dist;
-          median_pos := !median_pos - set_len;
-          if !eff_len < req_len then
-            eff_len := !eff_len + set_len)
-        res;
-      let eff_len = !eff_len and median = !median in
-      (* At this point, we can allocate storage... *)
-      let storage = Array.init eff_len (fun _ -> Float.Array.create 2) and row_names = Array.make eff_len "" in
-      (* ...and fill it *)
-      FloatStringMultimap.iteri
-        (fun i dist key ->
-          row_names.(i) <- key;
-          let arr = storage.(i) in
-          Float.Array.set arr 0 dist;
-          (dist -. median) /. median |> Float.Array.set arr 1)
-        res;
-      Printf.eprintf "\r                                                             \r%!";
-      { idx_to_col_names = [| "distance"; "z_score" |];
-        idx_to_row_names = row_names;
-        storage = storage }
-*)
-
 
 module [@warning "-32"] KPopTwister:
   sig
@@ -462,6 +526,26 @@ module RegisterType =
         Invalid_register_type w |> raise
   end
 
+module KeepAtMost =
+  struct
+    type t = int option
+    exception Invalid_keep_at_most of string
+    let of_string = function
+      | "all" -> None
+      | w ->
+        try
+          let res = int_of_string w in
+          if res <= 0 then
+            raise Exit;
+          Some res
+        with _ ->
+          Tools.Argv.usage ();
+          Invalid_keep_at_most w |> raise
+    let to_string = function
+      | None -> "all"
+      | Some n -> string_of_int n
+  end
+
 (* There are three registers in this program, one per DB type *)
 type to_do_t =
   | Empty of RegisterType.t
@@ -476,13 +560,15 @@ type to_do_t =
   | Set_distance of Matrix.Distance.parameters_t
   | Set_metric of Matrix.Distance.Metric.t
   | Distances_from_twisted_binary of string
-  (*| Summary*)
+  | Set_keep_at_most of KeepAtMost.t
+  | Distances_summary of string
 
 module Defaults =
   struct
     let distance = { Matrix.Distance.which = "euclidean"; power = 2. }
     let metric = Matrix.Distance.Metric.Flat
     let precision = 15
+    let keep_at_most = Some 2
     let threads = Tools.Parallel.get_nproc ()
     let verbose = false
   end
@@ -594,12 +680,10 @@ let _ =
       Some "<twisted_binary_file_prefix>",
       [ "compute distances between all the vectors present in the twisted register";
         "and all the vectors present in the specified twisted binary file";
-        " (which must have extension .KPopTwisted)" ],
+        " (which must have extension .KPopTwisted).";
+        "The result will be placed in the distance register" ],
       TA.Optional,
       (fun _ -> Distances_from_twisted_binary (TA.get_parameter ()) |> TL.accum Parameters.program);
-
-(* SOMETHING TO SUMMARISE DISTANCES? *)
-
     [ "-o"; "--output" ],
       Some "T|t|d <binary_file_prefix>",
       [ "dump the database present in the specified register";
@@ -626,6 +710,21 @@ let _ =
       (fun _ ->
         let register_type = TA.get_parameter () |> RegisterType.of_string in
         Register_to_tables (register_type, TA.get_parameter ()) |> TL.accum Parameters.program);
+    [ "--keep-at-most"; "--set-keep-at-most"; "--summary-keep-at-most" ],
+      Some "<positive_integer>|all",
+      [ "set the maximum number of closest target sequences";
+        "to be kept when summarizing distances" ],
+      TA.Default
+        (fun () -> KeepAtMost.to_string Defaults.keep_at_most),
+      (fun _ -> Set_keep_at_most (TA.get_parameter () |> KeepAtMost.of_string) |> TL.accum Parameters.program);
+    [ "-s"; "--summarize-distances" ],
+      Some "<summary_file_prefix>",
+      [ "summarize the distances present in the distance register";
+        "and write the result to the specified tabular file.";
+        "File extension will be automatically determined";
+        " (will be .KPopSummary.txt)" ],
+      TA.Optional,
+      (fun _ -> Distances_summary (TA.get_parameter ()) |> TL.accum Parameters.program);
     [], None, [ "Miscellaneous (executed immediately):" ], TA.Optional, (fun _ -> ());
     [ "-T"; "--threads" ],
       Some "<computing_threads>",
@@ -657,7 +756,8 @@ let _ =
   let twister = ref KPopTwister.empty and twisted = KPopMatrix.empty Twisted |> ref
   and distance = Matrix.Distance.of_parameters Defaults.distance |> ref
   and metric = Matrix.Distance.Metric.of_string "flat" |> Matrix.Distance.Metric.compute |> ref
-  and distances = KPopMatrix.empty DMatrix |> ref and precision = ref Defaults.precision in
+  and distances = KPopMatrix.empty DMatrix |> ref and precision = ref Defaults.precision
+  and keep_at_most = ref Defaults.keep_at_most in
 
   (* The addition of an exception handler would be nice *)
 
@@ -757,6 +857,11 @@ let _ =
                 else
                   1. /. float_of_int len |> Float.Array.make len |> !metric
               end
-            end !twisted twisted_db)
+            end !twisted twisted_db
+      | Set_keep_at_most kam ->
+        keep_at_most := kam
+      | Distances_summary prefix ->
+        KPopMatrix.summarize_distance
+          ~keep_at_most:!keep_at_most ~threads:!Parameters.threads ~verbose:!Parameters.verbose !distances prefix)
     program
 

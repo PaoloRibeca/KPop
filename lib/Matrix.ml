@@ -617,10 +617,12 @@ include (
             Float.Array.set storage.(i) j dist;
             incr elts_done;
             if verbose && !elts_done mod elements_per_step = 0 then
-              Printf.eprintf "\r(%s): Done %d/%d elements%!            \r" __FUNCTION__ prod !elts_done))
+              Printf.eprintf "\r(%s): Done %d/%d elements=%.3g%%%!            \r"
+                __FUNCTION__ !elts_done prod (100. *. float_of_int !elts_done /. float_of_int prod)))
         threads;
       if verbose then
-        Printf.eprintf "\r(%s): Done %d/%d elements.            \n%!" __FUNCTION__ prod !elts_done;
+        Printf.eprintf "\r(%s): Done %d/%d elements=%.3g%%.            \n%!"
+          __FUNCTION__ !elts_done prod (100. *. float_of_int !elts_done /. float_of_int prod);
       { idx_to_col_names = m2.idx_to_row_names;
         idx_to_row_names = m1.idx_to_row_names;
         storage = storage }
