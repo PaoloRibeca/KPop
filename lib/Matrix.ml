@@ -20,10 +20,13 @@ module Distance:
     module Metric:
       (* Functions to deduce a metric from a vector *)
       sig
-        type t =
-          | Flat
+        type t (* We hide the type to implement constraints *)
+        exception Negative_metric_element of float
+        exception Unsorted_metric_vector of Float.Array.t
         val compute: t -> Float.Array.t -> Float.Array.t
         exception Unknown_metric of string
+        exception Negative_power of float
+        exception Negative_tightness of float
         val of_string: string -> t
         val to_string: t -> string
       end
@@ -50,20 +53,129 @@ module Distance:
       struct
         type t =
           | Flat
+          | Power of float
+          (* Parameters are: threshold (1/n/t), tightness left, tightness right *)
+          | Sigmoid of float * float * float * float
+        exception Negative_metric_element of float
+        exception Unsorted_metric_vector of Float.Array.t
         let compute = function
           | Flat ->
             Float.Array.map
-             (fun _ ->
+             (fun el ->
+               if el < 0. then
+                 Negative_metric_element el |> raise;
                1.)
+          | Power power ->
+            (fun v ->
+              (* We normalise with respect to the transformed max *)
+              let m = ref 0. in
+              Float.Array.iter
+                (fun el ->
+                  if el < 0. then
+                   Negative_metric_element el |> raise;
+                  m := el ** power |> max !m)
+                v;
+              let m = !m in
+              if m > 0. then
+                Float.Array.map
+                  (fun el ->
+                    (el ** power) /. m)
+                  v
+              else
+                (* All zeros *)
+                v)
+          | Sigmoid (power, threshold, l_tightness, r_tightness) ->
+            (fun v ->
+              (* We normalise to one *)
+              let acc = ref 0. in
+              Float.Array.iteri
+                (fun i el ->
+                  if el < 0. then
+                    Negative_metric_element el |> raise;
+                  if i > 0 && el > Float.Array.get v (i - 1) then
+                    Unsorted_metric_vector v |> raise;
+                  acc := !acc +. el ** power)
+                v;
+              let acc = !acc in
+              if acc > 0. then begin
+                (* Determine inflection point *)
+                let f_n = float_of_int (Float.Array.length v) in
+                let threshold = 1. /. threshold /. f_n and t = ref (-1) in
+                Float.Array.iteri
+                  (fun i el ->
+                    let el = (el ** power) /. acc in
+                    if el < threshold && !t = (-1) then
+                      t := i)
+                  v;
+                if !t <> (-1) then begin
+                  let t = (float_of_int !t +. 0.5) /. f_n in
+                  Float.Array.mapi
+(*
+f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,(-(2*a-3)*a*a-1)+1/2/(1-t)*((a-1)*a*a),1/t/2*((a-2)*a*a+a)-(2*a-3)*a*a); (ifelse(y>0,-y*((1+kr)/kr)/((1+y*kr)/kr),-y*((1+kl)/kl)/((1-y*kl)/kl))+1)/2}
+*)
+                    (fun i el ->
+                      let el = (el ** power) /. acc and x = (float_of_int i +. 0.5) /. f_n in
+                      let y =
+                        if x < t then begin
+                          let a = x /. t in
+                          let a_a = a *. a in
+                          ((-2. *. a +. 3.) *. a_a -. 1.) +. 0.5 /. (1. -. t) *. ((a -. 1.) *. a_a)
+                        end else begin
+                          let a = (x -. t) /. (1. -. t) in
+                          let a_a = a *. a in
+                          0.5 /. t *. ((a -. 2.) *. a_a +. a) -. (2. *. a -. 3.) *. a_a
+                        end in
+                      let res =
+                        if y > 0. then
+                          -. y *. ((1. +. r_tightness) /. r_tightness) /. ((1. +. y *. r_tightness) /. r_tightness)
+                        else
+                          -. y *. ((1. +. l_tightness) /. l_tightness) /. ((1. -. y *. l_tightness) /. l_tightness) in
+                      (1. +. res) /. 2. |> max 0. |> min 1. |> ( *. ) el)
+                    v
+                end else
+                  v
+              end else
+                (* All zeros *)
+                v)
         exception Unknown_metric of string
+        exception Negative_power of float
+        exception Negative_tightness of float
+        let of_string_re = Str.regexp "[(,)]"
         let of_string name =
           match name with
           | "flat" ->
             Flat
           | w ->
-            Unknown_metric w |> raise
+            match Str.full_split of_string_re w with
+            | [ Text "power"; Delim "("; Text power; Delim ")" ] ->
+              let power =
+                try
+                  float_of_string power
+                with _ ->
+                  Unknown_metric w |> raise in
+              if power < 0. then
+                Negative_power power |> raise;
+              Power power
+            | [ Text "sigmoid"; Delim "(";
+                Text power; Delim ","; Text thresh; Delim ","; Text l_tight; Delim ","; Text r_tight;
+                Delim ")" ] ->
+              let power, thresh, l_tight, r_tight =
+                try
+                  float_of_string power, float_of_string thresh, float_of_string l_tight, float_of_string r_tight
+                with _ ->
+                  Unknown_metric w |> raise in
+              if power < 0. then
+                Negative_power power |> raise;
+              Sigmoid (power, thresh, l_tight, r_tight)
+            | _ ->
+              Unknown_metric w |> raise
         let to_string = function
-          | Flat -> "flat"
+          | Flat ->
+            "flat"
+          | Power power ->
+            Printf.sprintf "power(%.15g)" power
+          | Sigmoid (power, thresh, l_tight, r_tight) ->
+            Printf.sprintf "power(%.15g,%.15g,%.15g,%.15g)" power thresh l_tight r_tight
       end
     type t =
       | Euclidean

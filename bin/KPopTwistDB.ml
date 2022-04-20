@@ -566,7 +566,7 @@ type to_do_t =
 module Defaults =
   struct
     let distance = { Matrix.Distance.which = "euclidean"; power = 2. }
-    let metric = Matrix.Distance.Metric.Flat
+    let metric = Matrix.Distance.Metric.of_string "sigmoid(1,3,10,10)"
     let precision = 15
     let keep_at_most = Some 2
     let threads = Tools.Parallel.get_nproc ()
@@ -582,7 +582,7 @@ module Parameters =
     let verbose = ref Defaults.verbose
   end
 
-let version = "0.11"
+let version = "0.15"
 
 let header =
   Printf.sprintf begin
@@ -640,7 +640,7 @@ let _ =
           Add_binary_to_register (register_type, TA.get_parameter ()) |> TL.accum Parameters.program);
     [ "-A"; "--Add" ],
       Some "t|d <table_file_prefix>",
-      [ "add the contents of the specified tabular database into the specified register";
+      [ "add the contents of the specified tabular database to the specified register";
         " (t=twisted; d=distance).";
         "File extension is automatically determined depending on database type";
         " (will be: .KPopTwisted.txt; or .KPopDMatrix.txt, respectively)" ],
@@ -672,8 +672,13 @@ let _ =
         Set_distance { !Parameters.distance with power = TA.get_parameter_float_non_neg () }
           |> TL.accum Parameters.program);
     [ "--metric"; "--metric-function"; "--set-metric"; "--set-metric-function" ],
-      Some "'flat'",
-      [ "set the metric function to be used when computing distances" ],
+      Some "'flat'|'power('<non_negative_float>')'|'sigmoid('SIGMOID_PARAMETERS')'",
+      [ "where SIGMOID_PARAMETERS :=";
+        " <non_negative_float>','<non_negative_float>','";
+        " <non_negative_float>','<non_negative_float> :";
+        "set the metric function to be used when computing distances.";
+        "Parameters are:";
+        " power; thresholding multiplier; left and right sigmoid tightnesses." ],
       TA.Default (fun () -> Matrix.Distance.Metric.to_string Defaults.metric),
       (fun _ -> Set_metric (TA.get_parameter () |> Matrix.Distance.Metric.of_string) |> TL.accum Parameters.program);
     [ "-d"; "--distances"; "--compute-distances"; "--compute-distances-twisted" ],
