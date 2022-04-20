@@ -24,7 +24,8 @@ module KMerCounter (KMH: KMer.KMerHash with type t = int):
                 let min_binding =
                   KMer.IntHashtbl.fold (fun _ occs old_min -> min old_min !occs) res max_int in
                 if verbose then
-                  Printf.eprintf "\rKMerCounter.compute: Outputting and removing hashes having #%d occurrences...%!" min_binding;
+                  Printf.eprintf "\rKMerCounter.compute: Outputting and removing hashes having #%d occurrences...%!"
+                    min_binding;
                 KMer.IntHashtbl.filter_map_inplace
                   (fun hash occs ->
                     if !occs = min_binding then begin
@@ -52,12 +53,26 @@ module KMerCounter (KMH: KMer.KMerHash with type t = int):
       if verbose then
         Printf.eprintf " done.%!\n";
       close_out output
-
   end
 
+module Content =
+  struct
+    type t =
+      | DNA
+      | Protein
+    exception Invalid_content of string
+    let of_string = function
+      | "DNA" | "dna" -> DNA
+      | "protein" | "prot" -> Protein
+      | w -> Invalid_content w |> raise
+    let to_string = function
+      | DNA -> "DNA"
+      | Protein -> "protein"
+  end
 
 module Defaults =
   struct
+    let content = Content.DNA
     let k = 12
     let max_results_size = 16777216 (* Or: 4^12 *)
     let output = ""
@@ -69,6 +84,7 @@ module Defaults =
 
 module Parameters =
   struct
+    let content = ref Defaults.content
     let k = ref Defaults.k
     let max_results_size = ref Defaults.max_results_size
     let inputs = ref []
@@ -78,7 +94,7 @@ module Parameters =
     let verbose = ref Defaults.verbose
   end
 
-let version = "0.3"
+let version = "0.4"
 
 let header =
   Printf.sprintf begin
@@ -95,7 +111,7 @@ let _ =
     [], None, [ "Algorithmic parameters:" ], TA.Optional, (fun _ -> ());
     [ "-k"; "-K"; "--k-mer-size"; "--k-mer-length" ],
       Some "<k_mer_length>",
-      [ "k-mer length"; "(must be positive and <= 30)" ],
+      [ "k-mer length"; "(must be positive, and <= 30 for DNA or <= 12 for protein)" ],
       TA.Default (fun () -> string_of_int !Parameters.k),
       (fun _ -> Parameters.k := TA.get_parameter_int_pos ());
     [ "-m"; "-M"; "--max-results-size" ],
@@ -107,6 +123,11 @@ let _ =
       TA.Default (fun () -> string_of_int !Parameters.max_results_size),
       (fun _ -> Parameters.max_results_size := TA.get_parameter_int_pos ());
     [], None, [ "Input/Output:" ], TA.Optional, (fun _ -> ());
+    [ "-c"; "-C"; "--content"; "--mode" ],
+      Some "'DNA'|'protein'",
+      [ "how file contents should be interpreted" ],
+      TA.Default (fun () -> Content.to_string !Parameters.content),
+      (fun _ -> Parameters.content := TA.get_parameter () |> Content.of_string);
     [ "-f"; "-F"; "--fasta" ],
       Some "<fasta_file_name>",
       [ "FASTA input file containing sequences" ],
@@ -157,14 +178,17 @@ let _ =
       TA.Optional,
       (fun _ -> TA.usage (); exit 1)
   ];
-  let module KMC = KMerCounter (KMer.EncodingHash (struct let value = !Parameters.k end)) in
+  let module KMCD = KMerCounter (KMer.DNAEncodingHash (struct let value = !Parameters.k end)) in
+  let module KMCP = KMerCounter (KMer.ProteinEncodingHash (struct let value = !Parameters.k end)) in
   Parameters.inputs := List.rev !Parameters.inputs;
   if !Parameters.inputs <> [] then begin
     let store = ref RS.empty in
     List.iter
       (fun input -> store := RS.add_from_files ~verbose:!Parameters.verbose !store input)
       !Parameters.inputs;
-    let store = !store in
-    KMC.compute
-      ~verbose:!Parameters.verbose store !Parameters.max_results_size !Parameters.label !Parameters.output
+    begin match !Parameters.content with
+    | DNA -> KMCD.compute
+    | Protein -> KMCP.compute
+    end ~verbose:!Parameters.verbose !store !Parameters.max_results_size !Parameters.label !Parameters.output
   end
+
