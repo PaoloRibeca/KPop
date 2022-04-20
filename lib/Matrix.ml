@@ -30,9 +30,7 @@ module Distance:
         val of_string: string -> t
         val to_string: t -> string
       end
-    type t =
-      | Euclidean
-      | Minkowski of float (* Theoretically speaking, the parameter should be an integer *)
+    type t (* We hide the type to implement constraints *)
     exception Incompatible_lengths of int * int * int
     (* What happens when the vectors have incompatible lengths *)
     type mode_t =
@@ -40,13 +38,10 @@ module Distance:
       | Infinity
     val set_mode: mode_t -> unit
     val compute: t -> Float.Array.t -> Float.Array.t -> Float.Array.t -> float
-    type parameters_t = {
-      which: string;
-      power: float
-    }
     exception Unknown_distance of string
-    val of_parameters: parameters_t -> t
-    val to_parameters: t -> parameters_t
+    exception Negative_power of float
+    val of_string: string -> t
+    val to_string: t -> string
   end
 = struct
     module Metric =
@@ -145,14 +140,14 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
           match name with
           | "flat" ->
             Flat
-          | w ->
-            match Str.full_split of_string_re w with
+          | s ->
+            match Str.full_split of_string_re s with
             | [ Text "power"; Delim "("; Text power; Delim ")" ] ->
               let power =
                 try
                   float_of_string power
                 with _ ->
-                  Unknown_metric w |> raise in
+                  Unknown_metric s |> raise in
               if power < 0. then
                 Negative_power power |> raise;
               Power power
@@ -163,12 +158,12 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
                 try
                   float_of_string power, float_of_string thresh, float_of_string l_tight, float_of_string r_tight
                 with _ ->
-                  Unknown_metric w |> raise in
+                  Unknown_metric s |> raise in
               if power < 0. then
                 Negative_power power |> raise;
               Sigmoid (power, thresh, l_tight, r_tight)
             | _ ->
-              Unknown_metric w |> raise
+              Unknown_metric s |> raise
         let to_string = function
           | Flat ->
             "flat"
@@ -179,7 +174,7 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
       end
     type t =
       | Euclidean
-      | Minkowski of float
+      | Minkowski of float (* Theoretically speaking, the parameter should be an integer *) 
     exception Incompatible_lengths of int * int * int
     type mode_t =
       | Fail
@@ -210,22 +205,28 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
               acc := !acc +. ((diff ** power) *. Float.Array.get m i))
             a;
           !acc ** (1. /. power)
-    type parameters_t = {
-      which: string;
-      power: float
-    }
     exception Unknown_distance of string
-    let of_parameters parameters =
-      match parameters.which with
+    exception Negative_power of float
+    let of_string_re = Str.regexp "[()]"
+    let of_string = function
       | "euclidean" ->
         Euclidean
-      | "minkowski" ->
-        Minkowski parameters.power
-      | w ->
-        Unknown_distance w |> raise
-    let to_parameters = function
-      | Euclidean -> { which = "euclidean"; power = 2. }
-      | Minkowski power -> { which = "minkowski"; power }
+      | s ->
+        match Str.full_split of_string_re s with
+        | [ Text "minkowski"; Delim "("; Text power; Delim ")" ] ->
+          let power =
+            try
+              float_of_string power
+            with _ ->
+              Unknown_distance s |> raise in
+          if power < 0. then
+            Negative_power power |> raise;
+          Minkowski power
+        | _ ->
+          Unknown_distance s |> raise
+    let to_string = function
+      | Euclidean -> "euclidean"
+      | Minkowski power -> Printf.sprintf "minkowski(%.15g)" power
   end
 
 module Misc =

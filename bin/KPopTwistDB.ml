@@ -557,7 +557,7 @@ type to_do_t =
   | Register_to_binary of RegisterType.t * string
   | Set_precision of int
   | Register_to_tables of RegisterType.t * string
-  | Set_distance of Matrix.Distance.parameters_t
+  | Set_distance of Matrix.Distance.t
   | Set_metric of Matrix.Distance.Metric.t
   | Distances_from_twisted_binary of string
   | Set_keep_at_most of KeepAtMost.t
@@ -565,7 +565,7 @@ type to_do_t =
 
 module Defaults =
   struct
-    let distance = { Matrix.Distance.which = "euclidean"; power = 2. }
+    let distance = Matrix.Distance.of_string "euclidean"
     let metric = Matrix.Distance.Metric.of_string "sigmoid(1,3,10,10)"
     let precision = 15
     let keep_at_most = Some 2
@@ -575,8 +575,6 @@ module Defaults =
 
 module Parameters =
   struct
-    (* This is just to correctly propagate values in the program *)
-    let distance = ref Defaults.distance
     let program = ref []
     let threads = ref Defaults.threads
     let verbose = ref Defaults.verbose
@@ -660,17 +658,11 @@ let _ =
       (fun _ ->
         Add_kmer_files_to_twisted (TA.get_parameter () |> TS.on_char_as_list ',') |> TL.accum Parameters.program);
     [ "--distance"; "--distance-function"; "--set-distance"; "--set-distance-function" ],
-      Some "'euclidean'|'minkowski'",
-      [ "set the function to be used when computing distances" ],
-      TA.Default (fun () -> Defaults.distance.which),
-      (fun _ -> Set_distance { !Parameters.distance with which = TA.get_parameter () } |> TL.accum Parameters.program);
-    [ "--distance-power"; "--set-distance-power" ],
-      Some "<non_negative_float>",
-      [ "set the power to be used when computing (Minkowski) distances" ],
-      TA.Default (fun () -> string_of_float Defaults.distance.power),
-      (fun _ ->
-        Set_distance { !Parameters.distance with power = TA.get_parameter_float_non_neg () }
-          |> TL.accum Parameters.program);
+      Some "'euclidean'|'minkowski(<non_negative_float>)'",
+      [ "set the function to be used when computing distances.";
+        "The parameter for Minkowski is the power" ],
+      TA.Default (fun () -> Matrix.Distance.to_string Defaults.distance),
+      (fun _ -> Set_distance (TA.get_parameter () |> Matrix.Distance.of_string) |> TL.accum Parameters.program);
     [ "--metric"; "--metric-function"; "--set-metric"; "--set-metric-function" ],
       Some "'flat'|'power('<non_negative_float>')'|'sigmoid('SIGMOID_PARAMETERS')'",
       [ "where SIGMOID_PARAMETERS :=";
@@ -759,7 +751,7 @@ let _ =
     TA.header ();
   (* These are the two registers available to the program *)
   let twister = ref KPopTwister.empty and twisted = KPopMatrix.empty Twisted |> ref
-  and distance = Matrix.Distance.of_parameters Defaults.distance |> ref
+  and distance = ref Defaults.distance
   and metric = Matrix.Distance.Metric.of_string "flat" |> Matrix.Distance.Metric.compute |> ref
   and distances = KPopMatrix.empty DMatrix |> ref and precision = ref Defaults.precision
   and keep_at_most = ref Defaults.keep_at_most in
@@ -840,7 +832,7 @@ let _ =
         KPopMatrix.to_file
           ~precision:!precision ~threads:!Parameters.threads ~verbose:!Parameters.verbose !distances prefix
       | Set_distance dist ->
-        distance := Matrix.Distance.of_parameters dist
+        distance := dist
       | Set_metric metr ->
         metric := Matrix.Distance.Metric.compute metr
       | Distances_from_twisted_binary prefix ->
