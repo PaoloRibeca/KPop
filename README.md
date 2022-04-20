@@ -62,7 +62,7 @@ $ KPopCount -h
 ```
 in your terminal. You will see a header containing information about the version:
 ```
-This is the KPopCount program (version 0.3)
+This is the KPopCount program (version 0.4)
  (c) 2017-2022 Paolo Ribeca, <paolo.ribeca@gmail.com>
 ```
 followed by detailed information. The general form(s) the command can be used is:
@@ -73,12 +73,13 @@ KPopCount -l|--label <output_vector_label> [OPTIONS]
 Algorithmic parameters:
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
-| `-k`<br>`-K`<br>`--k-mer-size`<br>`--k-mer-length` | _&lt;k\_mer\_length&gt;_ |  k\-mer length \(must be positive and &lt;= 30\) | <ins>default=<mark>_12_</mark></ins> |
+| `-k`<br>`-K`<br>`--k-mer-size`<br>`--k-mer-length` | _&lt;k\_mer\_length&gt;_ |  k\-mer length \(must be positive, and &lt;= 30 for DNA or &lt;= 12 for protein\) | <ins>default=<mark>_12_</mark></ins> |
 | `-m`<br>`-M`<br>`--max-results-size` | _&lt;positive\_integer&gt;_ |  maximum number of k\-mer signatures to be kept in memory at any given time\.<br>If more are present, the ones corresponding to the lowest cardinality will be removed from memory and printed out, and there will be repeated signatures in the output | <ins>default=<mark>_16777216_</mark></ins> |
 
 Input/Output:
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
+| `-c`<br>`-C`<br>`--content`<br>`--mode` | _'DNA'&#124;'protein'_ |  how file contents should be interpreted | <ins>default=<mark>_DNA_</mark></ins> |
 | `-f`<br>`-F`<br>`--fasta` | _&lt;fasta\_file\_name&gt;_ |  FASTA input file containing sequences |  |
 | `-s`<br>`-S`<br>`--single-end` | _&lt;fastq\_file\_name&gt;_ |  FASTQ input file containing single\-end sequencing reads |  |
 | `-p`<br>`-P`<br>`--paired-end` | _&lt;fastq\_file\_name1&gt; &lt;fastq\_file\_name2&gt;_ |  FASTQ input files containing paired\-end sequencing reads |  |
@@ -179,7 +180,7 @@ $ KPopTwistDB -h
 ```
 in your terminal. You will see a header containing information about the version:
 ```
-This is the KPopTwistDB program (version 0.11)
+This is the KPopTwistDB program (version 0.15)
  (c) 2022 Paolo Ribeca, <paolo.ribeca@gmail.com>
 ```
 followed by detailed information. The general form(s) the command can be used is:
@@ -194,11 +195,11 @@ Actions \(executed delayed and in order of specification\):
 | `-i`<br>`--input` | _T&#124;t&#124;d &lt;binary\_file\_prefix&gt;_ |  load the specified binary database into the specified register  \(T=twister; t=twisted; d=distance\)\.<br>File extension is automatically determined depending on database type  \(will be: \.KPopTwister; \.KPopTwisted; or \.KPopDMatrix, respectively\) |  |
 | `-I`<br>`--Input` | _T&#124;t&#124;d &lt;table\_file\_prefix&gt;_ |  load the specified tabular database\(s\) into the specified register  \(T=twister; t=twisted; d=distance\)\.<br>File extension is automatically determined depending on database type  \(will be: \.KPopTwister\.txt and \.KPopInertia\.txt; \.KPopTwisted\.txt;   or \.KPopDMatrix\.txt, respectively\) |  |
 | `-a`<br>`--add` | _t&#124;d &lt;binary\_file\_prefix&gt;_ |  add the contents of the specified binary database to the specified register  \(t=twisted; d=distance\)\.<br>File extension is automatically determined depending on database type  \(will be: \.KPopTwisted; or \.KPopDMatrix, respectively\) |  |
-| `-A`<br>`--Add` | _t&#124;d &lt;table\_file\_prefix&gt;_ |  add the contents of the specified tabular database into the specified register  \(t=twisted; d=distance\)\.<br>File extension is automatically determined depending on database type  \(will be: \.KPopTwisted\.txt; or \.KPopDMatrix\.txt, respectively\) |  |
+| `-A`<br>`--Add` | _t&#124;d &lt;table\_file\_prefix&gt;_ |  add the contents of the specified tabular database to the specified register  \(t=twisted; d=distance\)\.<br>File extension is automatically determined depending on database type  \(will be: \.KPopTwisted\.txt; or \.KPopDMatrix\.txt, respectively\) |  |
 | `-k`<br>`-K`<br>`--kmers`<br>`--add-kmers`<br>`--add-kmer-files` | _&lt;k\-mer\_table\_file\_name&gt;\[','\.\.\.','&lt;k\-mer\_table\_file\_name&gt;\]_ |  twist k\-mers from the specified files through the transformation present in the twister register, and add the results to the database present in the twisted register |  |
 | `--distance`<br>`--distance-function`<br>`--set-distance`<br>`--set-distance-function` | _'euclidean'&#124;'minkowski'_ |  set the function to be used when computing distances | <ins>default=<mark>_euclidean_</mark></ins> |
 | `--distance-power`<br>`--set-distance-power` | _&lt;non\_negative\_float&gt;_ |  set the power to be used when computing \(Minkowski\) distances | <ins>default=<mark>_2\._</mark></ins> |
-| `--metric`<br>`--metric-function`<br>`--set-metric`<br>`--set-metric-function` | _'flat'_ |  set the metric function to be used when computing distances | <ins>default=<mark>_flat_</mark></ins> |
+| `--metric`<br>`--metric-function`<br>`--set-metric`<br>`--set-metric-function` | _'flat'&#124;'power\('&lt;non\_negative\_float&gt;'\)'&#124;'sigmoid\('SIGMOID\_PARAMETERS'\)'_ |  where SIGMOID\_PARAMETERS :=  &lt;non\_negative\_float&gt;','&lt;non\_negative\_float&gt;','  &lt;non\_negative\_float&gt;','&lt;non\_negative\_float&gt; : set the metric function to be used when computing distances\.<br>Parameters are:  power; thresholding multiplier; left and right sigmoid tightnesses\. | <ins>default=<mark>_power\(1,3,10,10\)_</mark></ins> |
 | `-d`<br>`--distances`<br>`--compute-distances`<br>`--compute-distances-twisted` | _&lt;twisted\_binary\_file\_prefix&gt;_ |  compute distances between all the vectors present in the twisted register and all the vectors present in the specified twisted binary file  \(which must have extension \.KPopTwisted\)\.<br>The result will be placed in the distance register |  |
 | `-o`<br>`--output` | _T&#124;t&#124;d &lt;binary\_file\_prefix&gt;_ |  dump the database present in the specified register  \(T=twister; t=twisted; d=distance\) to the specified binary file\.<br>File extension is automatically determined depending on database type  \(will be: \.KPopTwister; \.KPopTwisted; or \.KPopDMatrix, respectively\) |  |
 | `--precision`<br>`--set-precision`<br>`--set-table-precision` | _&lt;positive\_integer&gt;_ |  set the number of precision digits to be used when outputting numbers | <ins>default=<mark>_15_</mark></ins> |
