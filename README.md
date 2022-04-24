@@ -577,16 +577,16 @@ awk 'BEGIN{ok=1} {if ($0~"^>") {ok=!($0 in t); t[$0]} if (ok) print}'
 ```
 we are removing repeated sequences (yes, apparently there are repeated sequences in GISAID :astonished: ) as `KPopTwistDB` is unhappy with them and will bail out if it finds some in the input.
 
-Also, as there are ~700K sequences to be classified, doing so will take long (~14h on the node I'm using for these tests). So, you might wish to further parallelise the process, as I did, by splitting the input into smaller files and processing them separately on different nodes. After that, you can merge together all the pieces with a command such as
+Also, as there are ~650K sequences to be classified, doing so will take long (~14h on the node I'm using for these tests). So, you might wish to further parallelise the process, as I did, by splitting the input into smaller files and processing them separately on different nodes. After that, you can merge together all the pieces with a command such as
 ```bash
 $ KPopTwistDB -a t Test.aa -a t Test.ab ... -o t Test -v
 ```
 
-The final size of the file `Test.KPopTwisted` containing all the ~700K twisted COVID-19 sequences in the test set is ~8.4 GB.
+The final size of the file `Test.KPopTwisted` containing all the ~650K twisted COVID-19 sequences in the test set is ~8.4 GB.
 
-At this point, the analysis proceeds exactly as in the case of [the previous section](#4112-data-analysis), with a command such as
+At this point, the analysis proceeds exactly as in the case of [the previous section](#4112-data-analysis), with a command<a name="compute-distances"></a> such as
 ```bash
-$ KPopTwistDB -i t Test -d Classes -o d Test-vs-Classes -v<a name="compute-distances"></a>
+$ KPopTwistDB -i t Test -d Classes -o d Test-vs-Classes -v
 ```
 that allows us to compute all the distances of each test sequence from each of the "training" classes. However, given that in this case there is a very large number of distances to be computed, another and perhaps more appropriate strategy would have been not to merge the twisted test files into a single `Test.KPopTwisted` file, but rather to compute the distances from the twisted classes for each of the chunks with commands such as
 ```bash
@@ -621,7 +621,7 @@ will produce a summary of the
 
 Note that as not all the classes describing lineages are disjoint, here we consider a classification correct
 
-And finally, with this example you might wish to tune the distance . In order to do so, you would replace the [command to compute distance](#compute_distance) we used in our example
+And finally, with this example you might wish to tune the distance . In order to do so, you would replace the [command to compute distances](#compute-distances) we used in our example
 
 ```bash
 KPopTwistDB -m "sigmoid(0.5,1,10,10)" -i T Classes -i t Test -d Classes -o d Test-vs-Classes.sigmoid_0~5_1_10_10 -T 92 -v
