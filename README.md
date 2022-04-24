@@ -198,11 +198,11 @@ Actions \(executed delayed and in order of specification\):
 | `-A`<br>`--Add` | _t&#124;d &lt;table\_file\_prefix&gt;_ |  add the contents of the specified tabular database to the specified register  \(t=twisted; d=distance\)\.<br>File extension is automatically determined depending on database type  \(will be: \.KPopTwisted\.txt; or \.KPopDMatrix\.txt, respectively\) |  |
 | `-k`<br>`-K`<br>`--kmers`<br>`--add-kmers`<br>`--add-kmer-files` | _&lt;k\-mer\_table\_file\_name&gt;\[','\.\.\.','&lt;k\-mer\_table\_file\_name&gt;\]_ |  twist k\-mers from the specified files through the transformation present in the twister register, and add the results to the database present in the twisted register |  |
 | `--distance`<br>`--distance-function`<br>`--set-distance`<br>`--set-distance-function` | _'euclidean'&#124;'minkowski\(&lt;non\_negative\_float&gt;\)'_ |  set the function to be used when computing distances\.<br>The parameter for Minkowski is the power | <ins>default=<mark>_euclidean_</mark></ins> |
-| `--metric`<br>`--metric-function`<br>`--set-metric`<br>`--set-metric-function` | _'flat'&#124;'power\('&lt;non\_negative\_float&gt;'\)'&#124;'sigmoid\('SIGMOID\_PARAMETERS'\)'_ |  where SIGMOID\_PARAMETERS :=  &lt;non\_negative\_float&gt;','&lt;non\_negative\_float&gt;','  &lt;non\_negative\_float&gt;','&lt;non\_negative\_float&gt; : set the metric function to be used when computing distances\.<br>Parameters are:  power; thresholding multiplier; left and right sigmoid tightnesses\. | <ins>default=<mark>_power\(1,3,10,10\)_</mark></ins> |
+| `-m`<br>`--metric`<br>`--metric-function`<br>`--set-metric`<br>`--set-metric-function` | _'flat'&#124;'power\('&lt;non\_negative\_float&gt;'\)'&#124;'sigmoid\('SIGMOID\_PARAMETERS'\)'_ |  where SIGMOID\_PARAMETERS :=  &lt;non\_negative\_float&gt;','&lt;non\_negative\_float&gt;','  &lt;non\_negative\_float&gt;','&lt;non\_negative\_float&gt; : set the metric function to be used when computing distances\.<br>Parameters are:  power; thresholding multiplier; left and right sigmoid tightnesses\. | <ins>default=<mark>_sigmoid\(1,3,10,10\)_</mark></ins> |
 | `-d`<br>`--distances`<br>`--compute-distances`<br>`--compute-distances-twisted` | _&lt;twisted\_binary\_file\_prefix&gt;_ |  compute distances between all the vectors present in the twisted register and all the vectors present in the specified twisted binary file  \(which must have extension \.KPopTwisted\)\.<br>The result will be placed in the distance register |  |
 | `-o`<br>`--output` | _T&#124;t&#124;d &lt;binary\_file\_prefix&gt;_ |  dump the database present in the specified register  \(T=twister; t=twisted; d=distance\) to the specified binary file\.<br>File extension is automatically determined depending on database type  \(will be: \.KPopTwister; \.KPopTwisted; or \.KPopDMatrix, respectively\) |  |
 | `--precision`<br>`--set-precision`<br>`--set-table-precision` | _&lt;positive\_integer&gt;_ |  set the number of precision digits to be used when outputting numbers | <ins>default=<mark>_15_</mark></ins> |
-| `-O`<br>`--Output` | _T&#124;t&#124;d &lt;table\_file\_prefix&gt;_ |  dump the database present in the specified register  \(T=twister; t=twisted; d=distance\) to the specified tabular file\(s\)\.<br>File extension is automatically determined depending on database type  \(will be: \.KPopTwister\.txt and \.KPopInertia\.txt; \.KPopTwisted\.txt;   or \.KPopDMatrix, respectively\) |  |
+| `-O`<br>`--Output` | _T&#124;t&#124;d&#124;m &lt;table\_file\_prefix&gt;_ |  dump the database present in the specified register  \(T=twister; t=twisted; d=distance; m=metrics\) to the specified tabular file\(s\)\.<br>File extension is automatically determined depending on database type  \(will be: \.KPopTwister\.txt and \.KPopInertia\.txt; \.KPopTwisted\.txt;   \.KPopDMatrix; or \.KPopMetrics, respectively\) |  |
 | `--keep-at-most`<br>`--set-keep-at-most`<br>`--summary-keep-at-most` | _&lt;positive\_integer&gt;&#124;all_ |  set the maximum number of closest target sequences to be kept when summarizing distances | <ins>default=<mark>_2_</mark></ins> |
 | `-s`<br>`--summarize-distances` | _&lt;summary\_file\_prefix&gt;_ |  summarize the distances present in the distance register and write the result to the specified tabular file\.<br>File extension will be automatically determined  \(will be \.KPopSummary\.txt\) |  |
 
@@ -609,7 +609,17 @@ in order to produce a textual summary of the
 $ cat Test-vs-Classes.KPopSummary.txt | awk 'function remove_spaces(name,     s){split(name,s,"/"); return gensub("[ _]","","g",s[1])"/"s[2]"/"s[3]} BEGIN{nr=0; while (getline < "lineages.csv") {++nr; if (nr>1) {split($0,s,","); t[remove_spaces(gensub("^BHR/","Bahrain/",1,s[1]))]=s[2]}}} {printf $1"\t\""t[substr($1,2,length($1)-2)]"\""; for (i=2;i<=NF;++i) printf "\t"$i; printf "\n"}' > Test-vs-Classes.KPopSummary.Truth.txt
 ```
 
+And finally, something like
+```bash
+$ cat Test-vs-Classes.KPopSummary.Truth.txt | tawk 'function strip_quotes(s){return substr(s,2,length(s)-2)} {one=strip_quotes($2); two=strip_quotes($7); print one"\t"two"\t"(substr(two,1,length(one)+1)) > "/dev/null"; if ($2!=$7&&substr(two,1,length(one)+1)!=one".") ++ko; else ++ok} END{printf("%d\t%d\t%d\t%.3g%%\n",ok+ko,ok,ko,ko/(ok+ko)*100)}'
+```
+will produce a summary of the
 
+```
+641847  611770  30077   4.69%
+```
+
+Note that as not all the classes describing lineages are disjoint, here we consider a classification correct
 
 ### 4.2. Pseudo-phylogenetic trees
 
