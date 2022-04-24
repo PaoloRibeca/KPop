@@ -555,7 +555,7 @@ This produces a `Classes.KPopCounter` file which is ~2.0 GB. The command
 ```bash
 $ KPopCountDB -i Classes --summary
 ```
-confirms that indeed this database contains the spectra for all the classes:
+confirms that indeed this database contains the spectra for all classes:
 ```
 [Vector labels (1636)]: 'A.11' 'A.12' 'A.15' 'A.16' 'A.17' 'A.18' 'A.19' 'A.1' 'A.21' 'A.2.2' 'A.22' 'A.23.1' 'A.2.3' 'A.23' 'A.2.4' 'A.24' 'A.2.5.1' 'A.2.5.2' 'A.2.5.3' 'A.2.5' 'A.25' 'A.26' 'A.27' 'A.28' 'A.29' 'A.2' 'A.30' 'A.3' 'A.4' 'A.5' 'A.6' 'A.7' 'A.9' 'AA.1' 'AA.2' 'AA.3' 'AA.4' 'AA.5' 'AA.6' 'AA.7' 'AA.8' 'AB.1' 'AC.1' 'AD.1' 'AD.2.1' 'AD.2' 'AE.1' 'AE.2' 'AE.3' 'AE.4' 'AE.5' 'AE.6' 'AE.7' 'AE.8' 'AF.1' 'A' 'AG.1' 'AH.1' 'AH.2' 'AH.3' 'AJ.1' 'AK.1' 'AK.2' 'AL.1' 'AM.1' 'AM.2' 'AM.3' 'AM.4' 'AN.1' 'AP.1' 'AQ.1' 'AQ.2' 'AS.1' 'AS.2' 'AT.1' 'AU.1' 'AU.2' 'AU.3' 'AV.1' 'AW.1' 'AY.100' 'AY.101' 'AY.102.1' 'AY.102.2' 'AY.102' 'AY.103.1' 'AY.103.2' 'AY.103' 'AY.104' 'AY.105' 'AY.106' 'AY.107' 'AY.108' 'AY.109' 'AY.10' 'AY.110' 'AY.111' 'AY.112.1' 'AY.112' 'AY.113' 'AY.114' 'AY.116.1' 'AY.116' 'AY.117' 'AY.118' 'AY.119.1' 'AY.119.2' 'AY.119' 'AY.11' 'AY.120.1' 'AY.120.2.1' 'AY.120.2' 'AY.120' 'AY.121.1' 'AY.121' 'AY.122.1' ... 'P.6' 'P.7' 'Q.1' 'Q.2' 'Q.3' 'Q.4' 'Q.5' 'Q.6' 'Q.7' 'Q.8' 'R.1' 'R.2' 'S.1' 'U.1' 'U.2' 'U.3' 'V.1' 'V.2' 'W.1' 'W.2' 'W.3' 'W.4' 'XA' 'XB' 'XC' 'Y.1' 'Z.1'
 [Meta-data fields (0)]:
@@ -586,7 +586,7 @@ The final size of the file `Test.KPopTwisted` containing all the ~700K twisted C
 
 At this point, the analysis proceeds exactly as in the case of [the previous section](#4112-data-analysis), with a command such as
 ```bash
-$ KPopTwistDB -i t Test -d Classes -o d Test-vs-Classes -v
+$ KPopTwistDB -i t Test -d Classes -o d Test-vs-Classes -v<a name="compute-distances"></a>
 ```
 that allows us to compute all the distances of each test sequence from each of the "training" classes. However, given that in this case there is a very large number of distances to be computed, another and perhaps more appropriate strategy would have been not to merge the twisted test files into a single `Test.KPopTwisted` file, but rather to compute the distances from the twisted classes for each of the chunks with commands such as
 ```bash
@@ -620,6 +620,12 @@ will produce a summary of the
 ```
 
 Note that as not all the classes describing lineages are disjoint, here we consider a classification correct
+
+And finally, with this example you might wish to tune the distance . In order to do so, you would replace the [command to compute distance](#compute_distance) we used in our example
+
+```bash
+KPopTwistDB -m "sigmoid(0.5,1,10,10)" -i T Classes -i t Test -d Classes -o d Test-vs-Classes.sigmoid_0~5_1_10_10 -T 92 -v
+```
 
 ### 4.2. Pseudo-phylogenetic trees
 
