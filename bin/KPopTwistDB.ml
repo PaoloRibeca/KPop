@@ -24,6 +24,7 @@ module [@warning "-32"] KPopMatrix:
           | Inertia
           | Twisted
           | DMatrix
+          | Metrics
         val to_string: t -> string
         exception Unknown_type of string
         val of_string: string -> t
@@ -69,17 +70,20 @@ module [@warning "-32"] KPopMatrix:
           | Inertia
           | Twisted
           | DMatrix
+          | Metrics
         let to_string = function
           | Twister -> "KPopTwister"
           | Inertia -> "KPopInertia"
           | Twisted -> "KPopTwisted"
           | DMatrix -> "KPopDMatrix"
+          | Metrics -> "KPopMetrics"
         exception Unknown_type of string
         let of_string = function
           | "KPopTwister" -> Twister
           | "KPopInertia" -> Inertia
           | "KPopTwisted" -> Twisted
           | "KPopDMatrix" -> DMatrix
+          | "KPopMetrics" -> Metrics
           | w ->
             Unknown_type w |> raise
       end
@@ -96,7 +100,7 @@ module [@warning "-32"] KPopMatrix:
     let make_filename_binary which name =
       match which, name with
       | _, _ when String.length name >= 5 && String.sub name 0 5 = "/dev/" -> name
-      | Type.Twisted, prefix | DMatrix, prefix -> prefix ^ "." ^ Type.to_string which
+      | Type.Twisted, prefix | DMatrix, prefix | Metrics, prefix -> prefix ^ "." ^ Type.to_string which
       | Twister, _ | Inertia, _ -> assert false (* Should always be done through KPopTwister *)
     let make_filename_summary = function
       | w when String.length w >= 5 && String.sub w 0 5 = "/dev/" -> w
@@ -516,11 +520,13 @@ module RegisterType =
       | Twister
       | Twisted
       | Distances
+      | Metrics
     exception Invalid_register_type of string
     let of_string = function
       | "T" -> Twister
       | "t" -> Twisted
       | "d" -> Distances
+      | "m" -> Metrics
       | w ->
         Tools.Argv.usage ();
         Invalid_register_type w |> raise
@@ -601,7 +607,12 @@ let _ =
       [ "load an empty twisted database into the specified register";
         " (T=twister; t=twisted; d=distance)" ],
       TA.Optional,
-      (fun _ -> Empty (TA.get_parameter () |> RegisterType.of_string) |> TL.accum Parameters.program);
+      (fun _ ->
+        match TA.get_parameter () |> RegisterType.of_string with
+        | Metrics ->
+          TA.parse_error "You cannot load content into the metrics register"
+        | Twister | Twisted | Distances as register_type ->
+          Empty register_type |> TL.accum Parameters.program);
     [ "-i"; "--input" ],
       Some "T|t|d <binary_file_prefix>",
       [ "load the specified binary database into the specified register";
@@ -610,8 +621,11 @@ let _ =
         " (will be: .KPopTwister; .KPopTwisted; or .KPopDMatrix, respectively)" ],
       TA.Optional,
       (fun _ ->
-        let register_type = TA.get_parameter () |> RegisterType.of_string in
-        Binary_to_register (register_type, TA.get_parameter ()) |> TL.accum Parameters.program);
+        match TA.get_parameter () |> RegisterType.of_string with
+        | Metrics ->
+          TA.parse_error "You cannot load content into the metrics register"
+        | Twister | Twisted | Distances as register_type ->
+          Binary_to_register (register_type, TA.get_parameter ()) |> TL.accum Parameters.program);
     [ "-I"; "--Input" ],
       Some "T|t|d <table_file_prefix>",
       [ "load the specified tabular database(s) into the specified register";
@@ -621,8 +635,11 @@ let _ =
         "  or .KPopDMatrix.txt, respectively)" ],
       TA.Optional,
       (fun _ ->
-        let register_type = TA.get_parameter () |> RegisterType.of_string in
-        Tables_to_register (register_type, TA.get_parameter ()) |> TL.accum Parameters.program);
+        match TA.get_parameter () |> RegisterType.of_string with
+        | Metrics ->
+          TA.parse_error "You cannot load content into the metrics register"
+        | Twister | Twisted | Distances as register_type ->
+          Tables_to_register (register_type, TA.get_parameter ()) |> TL.accum Parameters.program);
     [ "-a"; "--add" ],
       Some "t|d <binary_file_prefix>",
       [ "add the contents of the specified binary database to the specified register";
@@ -632,8 +649,8 @@ let _ =
       TA.Optional,
       (fun _ ->
         match TA.get_parameter () |> RegisterType.of_string with
-        | Twister ->
-          TA.parse_error "You cannot add content to the twister register"
+        | Twister | Metrics ->
+          TA.parse_error "You cannot add content to the twister or metrics registers"
         | Twisted | Distances as register_type ->
           Add_binary_to_register (register_type, TA.get_parameter ()) |> TL.accum Parameters.program);
     [ "-A"; "--Add" ],
@@ -645,8 +662,8 @@ let _ =
       TA.Optional,
       (fun _ ->
         match TA.get_parameter () |> RegisterType.of_string with
-        | Twister ->
-          TA.parse_error "You cannot add content to the twister register"
+        | Twister | Metrics ->
+          TA.parse_error "You cannot add content to the twister or metrics registers"
         | Twisted | Distances as register_type ->
           Add_tables_to_register (register_type, TA.get_parameter ()) |> TL.accum Parameters.program);
     [ "-k"; "-K"; "--kmers"; "--add-kmers"; "--add-kmer-files" ],
@@ -663,7 +680,7 @@ let _ =
         "The parameter for Minkowski is the power" ],
       TA.Default (fun () -> Matrix.Distance.to_string Defaults.distance),
       (fun _ -> Set_distance (TA.get_parameter () |> Matrix.Distance.of_string) |> TL.accum Parameters.program);
-    [ "--metric"; "--metric-function"; "--set-metric"; "--set-metric-function" ],
+    [ "-m"; "--metric"; "--metric-function"; "--set-metric"; "--set-metric-function" ],
       Some "'flat'|'power('<non_negative_float>')'|'sigmoid('SIGMOID_PARAMETERS')'",
       [ "where SIGMOID_PARAMETERS :=";
         " <non_negative_float>','<non_negative_float>','";
@@ -689,20 +706,23 @@ let _ =
         " (will be: .KPopTwister; .KPopTwisted; or .KPopDMatrix, respectively)" ],
       TA.Optional,
       (fun _ ->
-        let register_type = TA.get_parameter () |> RegisterType.of_string in
-        Register_to_binary (register_type, TA.get_parameter ()) |> TL.accum Parameters.program);
+        match TA.get_parameter () |> RegisterType.of_string with
+        | Metrics ->
+          TA.parse_error "You cannot output binary content from the metrics registers"
+        | Twister | Twisted | Distances as register_type ->
+          Register_to_binary (register_type, TA.get_parameter ()) |> TL.accum Parameters.program);
     [ "--precision"; "--set-precision"; "--set-table-precision" ],
       Some "<positive_integer>",
       [ "set the number of precision digits to be used when outputting numbers" ],
       TA.Default (fun () -> string_of_int Defaults.precision),
       (fun _ -> Set_precision (TA.get_parameter_int_pos ()) |> TL.accum Parameters.program);
     [ "-O"; "--Output" ],
-      Some "T|t|d <table_file_prefix>",
+      Some "T|t|d|m <table_file_prefix>",
       [ "dump the database present in the specified register";
-        " (T=twister; t=twisted; d=distance) to the specified tabular file(s).";
+        " (T=twister; t=twisted; d=distance; m=metrics) to the specified tabular file(s).";
         "File extension is automatically determined depending on database type";
         " (will be: .KPopTwister.txt and .KPopInertia.txt; .KPopTwisted.txt;";
-        "  or .KPopDMatrix, respectively)" ],
+        "  .KPopDMatrix; or .KPopMetrics, respectively)" ],
       TA.Optional,
       (fun _ ->
         let register_type = TA.get_parameter () |> RegisterType.of_string in
@@ -749,13 +769,25 @@ let _ =
   end;
   if !Parameters.verbose then
     TA.header ();
-  (* These are the two registers available to the program *)
+  (* These are the registers available to the program *)
   let twister = ref KPopTwister.empty and twisted = KPopMatrix.empty Twisted |> ref
   and distance = ref Defaults.distance
-  and metric = Matrix.Distance.Metric.of_string "flat" |> Matrix.Distance.Metric.compute |> ref
+  and metric = Matrix.Distance.Metric.compute Defaults.metric |> ref
   and distances = KPopMatrix.empty DMatrix |> ref and precision = ref Defaults.precision
   and keep_at_most = ref Defaults.keep_at_most in
-
+  let compute_metrics () =
+    if Array.length !twister.inertia.matrix.idx_to_row_names > 0 then
+      (* We use the metric induced by inertia *)
+      { Matrix.idx_to_row_names = [| "metrics" |];
+        idx_to_col_names = !twister.inertia.matrix.idx_to_col_names;
+        storage = [| !metric !twister.inertia.matrix.storage.(0) |] }
+    else begin
+      (* We assume a flat inertia *)
+      let len = Array.length !twisted.matrix.idx_to_col_names in
+      { idx_to_row_names = [| "metrics" |];
+        idx_to_col_names = !twisted.matrix.idx_to_col_names;
+        storage = [| Float.Array.make len 1. |> !metric |] }
+    end in
   (* The addition of an exception handler would be nice *)
 
   List.iter
@@ -766,6 +798,8 @@ let _ =
         twisted := KPopMatrix.empty Twisted
       | Empty RegisterType.Distances ->
         distances := KPopMatrix.empty DMatrix
+      | Empty RegisterType.Metrics ->
+        assert false
       | Binary_to_register (RegisterType.Twister, prefix) ->
         twister := KPopTwister.of_binary ~verbose:!Parameters.verbose prefix
       | Binary_to_register (RegisterType.Twisted, prefix) ->
@@ -776,6 +810,8 @@ let _ =
         distances := KPopMatrix.of_binary ~verbose:!Parameters.verbose DMatrix prefix;
         if !distances.which <> DMatrix then
           KPopMatrix.Unexpected_type (!distances.which, DMatrix) |> raise
+      | Binary_to_register (RegisterType.Metrics, _) ->
+        assert false
       | Add_binary_to_register (RegisterType.Twister, _) ->
         assert false
       | Add_binary_to_register (RegisterType.Twisted, prefix) ->
@@ -788,6 +824,8 @@ let _ =
         if additional.which <> DMatrix then
           KPopMatrix.Unexpected_type (additional.which, DMatrix) |> raise;
         distances := KPopMatrix.merge_rowwise ~verbose:!Parameters.verbose !distances additional
+      | Add_binary_to_register (RegisterType.Metrics, _) ->
+        assert false
       | Tables_to_register (RegisterType.Twister, prefix) ->
         twister := KPopTwister.of_files ~threads:!Parameters.threads ~verbose:!Parameters.verbose prefix
       | Tables_to_register (RegisterType.Twisted, prefix) ->
@@ -798,6 +836,8 @@ let _ =
         distances := KPopMatrix.of_file ~threads:!Parameters.threads ~verbose:!Parameters.verbose DMatrix prefix;
         if !distances.which <> DMatrix then
           KPopMatrix.Unexpected_type (!distances.which, DMatrix) |> raise
+      | Tables_to_register (RegisterType.Metrics, _) ->
+        assert false
       | Add_tables_to_register (RegisterType.Twister, _) ->
         assert false
       | Add_tables_to_register (RegisterType.Twisted, prefix) ->
@@ -810,6 +850,8 @@ let _ =
         if additional.which <> DMatrix then
           KPopMatrix.Unexpected_type (additional.which, DMatrix) |> raise;
         distances := KPopMatrix.merge_rowwise ~verbose:!Parameters.verbose !distances additional
+      | Add_tables_to_register (RegisterType.Metrics, _) ->
+        assert false
       | Add_kmer_files_to_twisted fnames ->
         twisted :=
           KPopTwister.add_twisted_from_files
@@ -820,6 +862,8 @@ let _ =
         KPopMatrix.to_binary ~verbose:!Parameters.verbose !twisted prefix
       | Register_to_binary (RegisterType.Distances, prefix) ->
         KPopMatrix.to_binary ~verbose:!Parameters.verbose !distances prefix
+      | Register_to_binary (RegisterType.Metrics, _) ->
+        assert false
       | Set_precision prec ->
         precision := prec
       | Register_to_tables (RegisterType.Twister, prefix) ->
@@ -831,6 +875,12 @@ let _ =
       | Register_to_tables (RegisterType.Distances, prefix) ->
         KPopMatrix.to_file
           ~precision:!precision ~threads:!Parameters.threads ~verbose:!Parameters.verbose !distances prefix
+      | Register_to_tables (RegisterType.Metrics, prefix) ->
+        KPopMatrix.to_file
+          ~precision:!precision ~threads:!Parameters.threads ~verbose:!Parameters.verbose {
+            which = Metrics;
+            matrix = compute_metrics ()
+          } prefix
       | Set_distance dist ->
         distance := dist
       | Set_metric metr ->
@@ -841,20 +891,7 @@ let _ =
           KPopMatrix.Unexpected_type (!twisted.which, Twisted) |> raise;
         distances :=
           KPopMatrix.get_distance_rowwise ~verbose:!Parameters.verbose ~threads:!Parameters.threads
-            !distance begin
-              (* We compute the metric vector *)
-              if Array.length !twister.inertia.matrix.idx_to_row_names > 0 then
-                (* We use the metric induced by inertia *)
-                !metric !twister.inertia.matrix.storage.(0)
-              else begin
-                (* We assume a flat inertia *)
-                let len = Array.length !twisted.matrix.idx_to_col_names in
-                if len = 0 then
-                  Float.Array.create 0
-                else
-                  1. /. float_of_int len |> Float.Array.make len |> !metric
-              end
-            end !twisted twisted_db
+            !distance (compute_metrics ()).storage.(0) !twisted twisted_db
       | Set_keep_at_most kam ->
         keep_at_most := kam
       | Distances_summary prefix ->

@@ -108,8 +108,8 @@ module Distance:
 (*
 f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,(-(2*a-3)*a*a-1)+1/2/(1-t)*((a-1)*a*a),1/t/2*((a-2)*a*a+a)-(2*a-3)*a*a); (ifelse(y>0,-y*((1+kr)/kr)/((1+y*kr)/kr),-y*((1+kl)/kl)/((1-y*kl)/kl))+1)/2}
 *)
-                    (fun i el ->
-                      let el = (el ** power) /. acc and x = (float_of_int i +. 0.5) /. f_n in
+                    (fun i _ ->
+                      let x = (float_of_int i +. 0.5) /. f_n in
                       let y =
                         if x < t then begin
                           let a = x /. t in
@@ -125,7 +125,7 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
                           -. y *. ((1. +. r_tightness) /. r_tightness) /. ((1. +. y *. r_tightness) /. r_tightness)
                         else
                           -. y *. ((1. +. l_tightness) /. l_tightness) /. ((1. -. y *. l_tightness) /. l_tightness) in
-                      (1. +. res) /. 2. |> max 0. |> min 1. |> ( *. ) el)
+                      (1. +. res) /. 2. |> max 0. |> min 1.)
                     v
                 end else
                   v
@@ -170,11 +170,11 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
           | Power power ->
             Printf.sprintf "power(%.15g)" power
           | Sigmoid (power, thresh, l_tight, r_tight) ->
-            Printf.sprintf "power(%.15g,%.15g,%.15g,%.15g)" power thresh l_tight r_tight
+            Printf.sprintf "sigmoid(%.15g,%.15g,%.15g,%.15g)" power thresh l_tight r_tight
       end
     type t =
       | Euclidean
-      | Minkowski of float (* Theoretically speaking, the parameter should be an integer *) 
+      | Minkowski of float (* Theoretically speaking, the parameter should be an integer *)
     exception Incompatible_lengths of int * int * int
     type mode_t =
       | Fail
