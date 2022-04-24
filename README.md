@@ -601,36 +601,37 @@ One way or another, once a file `Test-vs-Classes.KPopDMatrix` containing all the
 ```bash
 $ KPopTwistDB -i d Test-vs-Classes -s Test-vs-Classes -v
 ```
-in order to produce a textual summary of the distances. The resulting file will be made of tab-separated lines<a name="distance-summary-line"></a> such as
+in order to produce a textual summary of the distances. The resulting file (~118 MB in size) will be made of tab-separated lines<a name="distance-summary-line"></a> such as
 ```
 "Andorra/AND-233_2120014134_GC/2021"    29.4039559581116    9.31337835887503    25.4387583046277    5.53805839322387    "AY.73"    6.47858919958511    -2.46155217528344    "AY.9"    18.4433084234649    -1.17687128261057
 ```
 
 The first 5 fields have a fixed meaning, being:
 1. Sequence name
-2. Mean of distances from all classes of the sequence being considered
-3. Standard deviation of distances from all classes of the sequence being considered
-4. Median of distances from all classes of the sequence being considered
-5. MAD of distances from all classes of the sequence being considered.
+2. Mean of distances from all classes for the sequence being considered
+3. Standard deviation of distances from all classes for the sequence being considered
+4. Median of distances from all classes for the sequence being considered
+5. MAD of distances from all classes for the sequence being considered.
 
 Those are followed by groups (how many depends on the parameters given when the summary was created) of 3 fields, each one being:
 1. Class name
-2. Distance from this class of the sequence being considered
-3. _z_-score for the distance from this class of the sequence being considered.
+2. Distance from this class for the sequence being considered
+3. _z_-score of the distance from this class for the sequence being considered.
 The groups list the classes closest to the sequence. They are sorted by increasing distance.
 
-For instance, in the [example line shown above](#distance-summary-line) the summary examines sequence `Andorra/AND-233_2120014134_GC/2021`, revealing that its mean distance from classes is `29.4`; the closest class is `AY.73`, at a distance of `6.47` (corresponding to a _z_-score of `-2.46`) while the second closest class is `AY.9`, at a distance of `18.4` (corresponding to a _z_-score of `-1.17`).
+For instance, in the [example line shown above](#distance-summary-line) the summary examines sequence `Andorra/AND-233_2120014134_GC/2021`, revealing that its mean distance from classes is 29.4; the closest class is `AY.73`, at a distance of 6.47 (corresponding to a _z_-score of -2.46) while the second closest class is `AY.9`, at a distance of 18.4 (corresponding to a _z_-score of -1.17).
 
-And quite likely, one would also wish to run something like
+And quite likely, one would also wish to run something like the following commands:
 ```bash
 $ cat Test-vs-Classes.KPopSummary.txt | awk 'function remove_spaces(name,     s){split(name,s,"/"); return gensub("[ _]","","g",s[1])"/"s[2]"/"s[3]} BEGIN{nr=0; while (getline < "lineages.csv") {++nr; if (nr>1) {split($0,s,","); t[remove_spaces(gensub("^BHR/","Bahrain/",1,s[1]))]=s[2]}}} {printf $1"\t\""t[substr($1,2,length($1)-2)]"\""; for (i=2;i<=NF;++i) printf "\t"$i; printf "\n"}' > Test-vs-Classes.KPopSummary.Truth.txt
-$ cat Test-vs-Classes.KPopSummary.Truth.txt | tawk 'function strip_quotes(s){return substr(s,2,length(s)-2)} {one=strip_quotes($2); two=strip_quotes($7); print one"\t"two"\t"(substr(two,1,length(one)+1)) > "/dev/null"; if ($2!=$7&&substr(two,1,length(one)+1)!=one".") ++ko; else ++ok} END{printf("%d\t%d\t%d\t%.3g%%\n",ok+ko,ok,ko,ko/(ok+ko)*100)}'
+$ cat Test-vs-Classes.KPopSummary.Truth.txt | tawk 'function strip_quotes(s){return substr(s,2,length(s)-2)} {one=strip_quotes($2); two=strip_quotes($7); print one"\t"two"\t"(substr(two,1,length(one)+1)) > "/dev/null"; if ($2!=$7&&substr(two,1,length(one)+1)!=one".") ++ko; else ++ok} END{printf("%d\t%d\t%.3g%%\t%d\t%.3g%%\n",ok+ko,ok,ok/(ok+ko)*100,ko,ko/(ok+ko)*100)}'
 ```
-to, first, annotate the summary with the original "true" classification of the sequences, and, second, generate a one-line summary of the results. The last command will produce something like
+to, first, annotate the summary with the original "true" classification of the sequences, and, second, generate a one-line summary of the results. The last command will produce something like:
 
 ```
-641847  611770  30077   4.69%
+641847    611770    95.3%    30077    4.69%
 ```
+meaning that, of the 641,847 sequences present in the `Test` set, 611,770 (the 95.3%) were correctly classified, while 30,077 (the 4.69%) were not.
 
 Note that as not all the classes describing lineages are disjoint, here we consider a classification correct
 
