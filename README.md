@@ -21,7 +21,8 @@ Depending on the problem at hand, `KPop` analysis can require a large amount of 
 &emsp; [4.1. Sequence classification](#41-sequence-classification)<br>
 &emsp; &emsp; [4.1.1. Classifier for simulated COVID-19 sequencing reads](#411-classifier-for-simulated-covid-19-sequencing-reads)<br>
 &emsp; &emsp; [4.1.2. Classifier for COVID-19 sequences (Hyena)](#412-classifier-for-covid-19-sequences-hyena)<br>
-&emsp; [4.2. Pseudo-phylogenetic trees](#42-pseudo-phylogenetic-trees)<br>
+&emsp; [4.2. Relatedness engine](#42-relatedness-engine)<br>
+&emsp; [4.3. Pseudo-phylogenetic trees](#43-pseudo-phylogenetic-trees)<br>
 
 ## 1. Installation
 
@@ -638,9 +639,19 @@ Note that as not all the classes describing lineages are disjoint, here we consi
 Finally, with this example you might wish to tune the distance . In order to do so, you would replace the [command to compute distances](#compute-distances) we used in our example
 
 ```bash
-KPopTwistDB -m "sigmoid(1,1,5,5)" -i T Classes -i t Test -d Classes -o d Test-vs-Classes.sigmoid_1_1_5_5 -v
+$ KPopTwistDB -m "sigmoid(1,1,5,5)" -i T Classes -i t Test -d Classes -o d Test-vs-Classes.sigmoid_1_1_5_5 -v
 ```
 
-### 4.2. Pseudo-phylogenetic trees
+### 4.2. Relatedness engine
+
+In the same vein, by using `KPop` one can also easily generate a "relatedness engine" out of a classification (i.e., a system finding the most similar sequences in a large database). Here we do that taking the previous exercise on COVID-19 as a starting point.
+
+First, we twist all the COVID-19 sequences in the GISAID database according to the classifier we generated in [the previous section](#412-classifier-for-covid-19-sequences-hyena), by running the command
+```bash
+```
+
+That generates a database containing 
+
+### 4.3. Pseudo-phylogenetic trees
 
 
