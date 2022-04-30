@@ -48,10 +48,10 @@ module [@warning "-32"] KPopMatrix:
       ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> Float.Array.t -> Float.Array.t
     val multiply_matrix_matrix: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Type.t -> t -> t -> t
     val get_distance_matrix:
-      ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Matrix.Distance.t -> Float.Array.t -> t -> t
+      ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Space.Distance.t -> Float.Array.t -> t -> t
     (* Compute distances between the rows of two matrices - more general version of the previous one *)
     val get_distance_rowwise:
-      ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Matrix.Distance.t -> Float.Array.t -> t -> t -> t
+      ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Space.Distance.t -> Float.Array.t -> t -> t -> t
     exception Unexpected_type of Type.t * Type.t
     val summarize_distance:
       ?keep_at_most:int option -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> string -> unit
@@ -563,16 +563,16 @@ type to_do_t =
   | Register_to_binary of RegisterType.t * string
   | Set_precision of int
   | Register_to_tables of RegisterType.t * string
-  | Set_distance of Matrix.Distance.t
-  | Set_metric of Matrix.Distance.Metric.t
+  | Set_distance of Space.Distance.t
+  | Set_metric of Space.Distance.Metric.t
   | Distances_from_twisted_binary of string
   | Set_keep_at_most of KeepAtMost.t
   | Distances_summary of string
 
 module Defaults =
   struct
-    let distance = Matrix.Distance.of_string "euclidean"
-    let metric = Matrix.Distance.Metric.of_string "sigmoid(1,3,10,10)"
+    let distance = Space.Distance.of_string "euclidean"
+    let metric = Space.Distance.Metric.of_string "sigmoid(1,3,10,10)"
     let precision = 15
     let keep_at_most = Some 2
     let threads = Tools.Parallel.get_nproc ()
@@ -678,8 +678,8 @@ let _ =
       Some "'euclidean'|'minkowski(<non_negative_float>)'",
       [ "set the function to be used when computing distances.";
         "The parameter for Minkowski is the power" ],
-      TA.Default (fun () -> Matrix.Distance.to_string Defaults.distance),
-      (fun _ -> Set_distance (TA.get_parameter () |> Matrix.Distance.of_string) |> TL.accum Parameters.program);
+      TA.Default (fun () -> Space.Distance.to_string Defaults.distance),
+      (fun _ -> Set_distance (TA.get_parameter () |> Space.Distance.of_string) |> TL.accum Parameters.program);
     [ "-m"; "--metric"; "--metric-function"; "--set-metric"; "--set-metric-function" ],
       Some "'flat'|'power('<non_negative_float>')'|'sigmoid('SIGMOID_PARAMETERS')'",
       [ "where SIGMOID_PARAMETERS :=";
@@ -688,8 +688,8 @@ let _ =
         "set the metric function to be used when computing distances.";
         "Parameters are:";
         " power; thresholding multiplier; left and right sigmoid tightnesses." ],
-      TA.Default (fun () -> Matrix.Distance.Metric.to_string Defaults.metric),
-      (fun _ -> Set_metric (TA.get_parameter () |> Matrix.Distance.Metric.of_string) |> TL.accum Parameters.program);
+      TA.Default (fun () -> Space.Distance.Metric.to_string Defaults.metric),
+      (fun _ -> Set_metric (TA.get_parameter () |> Space.Distance.Metric.of_string) |> TL.accum Parameters.program);
     [ "-d"; "--distances"; "--compute-distances"; "--compute-distances-twisted" ],
       Some "<twisted_binary_file_prefix>",
       [ "compute distances between all the vectors present in the twisted register";
@@ -772,7 +772,7 @@ let _ =
   (* These are the registers available to the program *)
   let twister = ref KPopTwister.empty and twisted = KPopMatrix.empty Twisted |> ref
   and distance = ref Defaults.distance
-  and metric = Matrix.Distance.Metric.compute Defaults.metric |> ref
+  and metric = Space.Distance.Metric.compute Defaults.metric |> ref
   and distances = KPopMatrix.empty DMatrix |> ref and precision = ref Defaults.precision
   and keep_at_most = ref Defaults.keep_at_most in
   let compute_metrics () =
@@ -884,7 +884,7 @@ let _ =
       | Set_distance dist ->
         distance := dist
       | Set_metric metr ->
-        metric := Matrix.Distance.Metric.compute metr
+        metric := Space.Distance.Metric.compute metr
       | Distances_from_twisted_binary prefix ->
         let twisted_db = KPopMatrix.of_binary ~verbose:!Parameters.verbose Twisted prefix in
         if !twisted.which <> Twisted then
