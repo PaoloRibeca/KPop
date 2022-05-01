@@ -31,6 +31,8 @@ module Distance:
         val to_string: t -> string
       end
     type t (* We hide the type to implement constraints *)
+    exception Invalid_dimension of int
+    val compute_1d_component: t -> Float.Array.t -> int -> float -> float
     exception Incompatible_lengths of int * int * int
     (* What happens when the vectors have incompatible lengths *)
     type mode_t =
@@ -42,6 +44,15 @@ module Distance:
     exception Negative_power of float
     val of_string: string -> t
     val to_string: t -> string
+    module Iterator:
+      sig
+        type distance_t = t
+        type t (* Mutable *)
+        val make: ?max_distance_component:float -> distance_t -> Float.Array.t -> int -> (int -> float) -> int -> t
+        (* Returns indices and 1D-component of the distance *)
+        val get_opt: t -> (int * int * float) option
+        val incr: ?max_distance_component:float -> t -> unit (* The operator is mutable *)
+      end
   end
 = struct
     module Metric =
@@ -205,6 +216,16 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
               acc := !acc +. ((diff ** power) *. Float.Array.get m i))
             a;
           !acc ** (1. /. power)
+    exception Invalid_dimension of int
+    let compute_1d_component f m dim diff =
+      let length_m = Float.Array.length m in
+      if dim >= length_m then
+        Invalid_dimension dim |> raise;
+      match f with
+      | Euclidean ->
+        diff *. diff *. Float.Array.get m dim
+      | Minkowski power ->
+        (diff ** power) *. Float.Array.get m dim
     exception Unknown_distance of string
     exception Negative_power of float
     let of_string_re = Str.regexp "[()]"
@@ -227,5 +248,199 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
     let to_string = function
       | Euclidean -> "euclidean"
       | Minkowski power -> Printf.sprintf "minkowski(%.15g)" power
+    module Iterator =
+      struct
+        module FloatIntMultimap = Tools.Multimap (Tools.ComparableFloat) (Tools.ComparableInt)
+        type distance_t = t
+        type t = {
+          (* Function of the _difference_ between components *)
+          compute_distance_component: float -> float;
+          n: int;
+          sorted: FloatIntMultimap.t;
+          (* There is, in the worst case, one minimum per stride *)
+          state: state_t option array;
+          mutable stride_lo: int;
+          (* The invariant is that the minimum for the highest stride is always global.
+             If the level is unbroken, one can avoid computing the following one *)
+          mutable stride_hi: int
+        } and state_t = {
+          lo: float * int; (* Value in the multimap *)
+          hi: float * int  (* Value in the multimap *)
+        }
+        (* Computes the minimum state, larger than a given bound for the difference, across the whole stride.
+           Can be None if the minimum difference induces a component above max_distance_component.
+           In the special case stride = 0, we return something only if there are coinciding points.
+           If stride > 0 and this is None, then all the strides above will be as well,
+            as we are considering the minimum over all possible intervals *)
+        let get_minimum_opt ?(max_distance_component = infinity) sorted stride diff_bound =
+          (* First, we generate the first interval *)
+
+
+          (* Second, we iterate over all possible intervals *)
+
+          ignore (max_distance_component);
+          ignore (sorted);
+          ignore (stride);
+          ignore (diff_bound);
+
+          None
+            
+            
+        (* Computes the next valid interval within a stride. The current interval is assumed to be valid.
+           The interval can be after the current one, but then the distance must be the same.
+           It can also be before the current one, but then the distance must be greater *)
+        let get_next_opt ?(max_distance_component = infinity) sorted stride state =
+          let lo_coord, lo_idx = state.lo and hi_coord, hi_idx = state.hi in
+          let diff = hi_coord -. lo_coord
+          and lo_set = FloatIntMultimap.KeyMap.find lo_coord sorted
+          and hi_set = FloatIntMultimap.KeyMap.find hi_coord sorted in
+          let max_lo_set = FloatIntMultimap.ValSet.max_elt lo_set
+          and max_hi_set = FloatIntMultimap.ValSet.max_elt hi_set
+          and max_coord, _ = FloatIntMultimap.max_binding sorted in
+          try
+            (* First, we try and see if there are other intervals with the same distance.
+               They will come _after_ the current one *)
+            if lo_idx = max_lo_set && hi_idx = max_hi_set && hi_coord = max_coord then
+              raise_notrace Exit;
+            if hi_idx <> max_hi_set then
+              Some
+                { state with
+                  hi =
+                    hi_coord,
+                    FloatIntMultimap.ValSet.find_first (fun k -> FloatIntMultimap.ValOrd.compare k hi_idx > 0) hi_set }
+            else if lo_idx <> max_lo_set then
+              Some
+                { state with
+                  lo =
+                    lo_coord,
+                    FloatIntMultimap.ValSet.find_first (fun k -> FloatIntMultimap.ValOrd.compare k lo_idx > 0) lo_set }
+            else begin
+              (* Here hi_coord <> max_coord *)
+              let lo_coord = ref lo_coord and hi_coord = ref hi_coord in
+              while begin
+                lo_coord :=
+                  FloatIntMultimap.KeyMap.find_first
+                    (fun k -> FloatIntMultimap.KeyOrd.compare k !lo_coord > 0) sorted
+                  |> fst;
+                hi_coord :=
+                  FloatIntMultimap.KeyMap.find_first
+                    (fun k -> FloatIntMultimap.KeyOrd.compare k !hi_coord > 0) sorted
+                  |> fst;
+                !hi_coord <> max_coord && !hi_coord -. !lo_coord <> diff
+              end do
+                ()
+              done;
+              (* Remember that for this to be valid, the distance must be exactly the same *)
+              if !hi_coord = max_coord then
+                (* We have to restart from the beginning *)
+                raise_notrace Exit
+              else begin
+                (* Here !hi_coord -. !lo_coord = diff *)
+                assert (!hi_coord -. !lo_coord = diff);
+                Some
+                  { lo = !lo_coord, FloatIntMultimap.KeyMap.find !lo_coord sorted |> FloatIntMultimap.ValSet.min_elt;
+                    hi = !hi_coord, FloatIntMultimap.KeyMap.find !hi_coord sorted |> FloatIntMultimap.ValSet.min_elt }
+              end
+            end
+          with Exit ->
+            (* If that has not worked, we proceed to the next valid interval within the same stride, if any *)
+            get_minimum_opt ~max_distance_component sorted stride diff
+        let make ?(max_distance_component = infinity) dist metr d init n =
+          let red_n = n - 1 and sorted = ref FloatIntMultimap.empty in
+          for i = 0 to red_n do
+            sorted := FloatIntMultimap.add (init i) i !sorted
+          done;
+          let res = {
+            compute_distance_component = compute_1d_component dist metr d;
+            n;
+            sorted = !sorted;
+            state = Array.make n None;
+            stride_lo = 0;
+            stride_hi = 0
+          } in
+          begin match get_minimum_opt ~max_distance_component res.sorted 0 neg_infinity with
+          | None ->
+            (* Means there are no coinciding points, we try with 1 *)
+            begin match get_minimum_opt ~max_distance_component res.sorted 1 neg_infinity with
+            | None ->
+              (* This might only occur when there are no points. We invalidate the iterator *)
+              res.stride_lo <- n;
+              res.stride_hi <- n - 1
+            | w ->
+              res.state.(1) <- w;
+              res.stride_lo <- 1;
+              res.stride_hi <- 1 (* At the moment, level 1 is complete *)
+            end
+          | w ->
+            res.state.(0) <- w;
+            res.stride_lo <- 0;
+            res.stride_hi <- 0 (* At the moment, level 0 is complete *)
+          end;
+          res
+        (* Auxiliary function. It assumes there is a valid interval *)
+        let find_minimum_interval it =
+          let min_stride = ref it.n and min_diff = ref infinity in
+          (* First we find what is the minimum across all active layers *)
+          for i = it.stride_lo to it.stride_hi do
+            match it.state.(i) with
+            | None -> ()
+            | Some state ->
+              let coord_lo, _ = state.lo and coord_hi, _ = state.hi in
+              let diff = coord_hi -. coord_lo in
+              if diff < !min_diff then begin
+                min_stride := i;
+                min_diff := diff
+              end
+          done;
+          let min_stride = !min_stride in
+          (* If there are no valid intervals, the iterator must have been previously invalidated *)
+          assert (min_stride <> it.n);
+          (* There must be at least one valid interval *)
+          match it.state.(min_stride) with
+          | None ->
+            assert false
+          | Some min_state ->
+            min_stride, min_state
+        let get_opt it =
+          if it.stride_lo = it.n then
+            None
+          else begin
+            let _, min_state = find_minimum_interval it in
+            let coord_lo, idx_lo = min_state.lo and coord_hi, idx_hi = min_state.hi in
+            Some (min idx_lo idx_hi, max idx_lo idx_hi, coord_hi -. coord_lo |> it.compute_distance_component)
+          end
+        let incr ?(max_distance_component = infinity) it =
+          (* We find and update the minimum interval.
+             If the update happens in the topmost stride, we compute the next one, if any is still available *)
+          if it.stride_lo <> it.n then begin
+            let min_stride, min_state = find_minimum_interval it in
+            it.state.(min_stride) <- get_next_opt ~max_distance_component it.sorted min_stride min_state;
+            let aug_min_stride = min_stride + 1 in
+            if min_stride = it.stride_hi && aug_min_stride <> it.n then begin
+              (* We can use the difference at this level as a bound for the next one, I hope :-) *)
+              let coord_lo, _ = min_state.lo and coord_hi, _ = min_state.hi in
+              let diff = coord_hi -. coord_lo in
+              it.state.(aug_min_stride) <- get_minimum_opt ~max_distance_component it.sorted aug_min_stride diff;
+              it.stride_hi <- aug_min_stride
+            end;
+            (* Should we invalidate the iterator? *)
+            let stride = ref 0 in
+            while !stride < it.n && it.state.(!stride) = None do
+              incr stride
+            done;
+            if !stride = it.n then begin
+              it.stride_lo <- it.n;
+              it.stride_hi <- it.n - 1
+            end else begin
+              (* Case it.state.(!stride) <> None *)
+              it.stride_lo <- !stride;
+              while !stride < it.n do
+                if it.state.(!stride) <> None then
+                  it.stride_hi <- !stride;
+                incr stride
+              done
+            end
+          end
+    end
   end
 

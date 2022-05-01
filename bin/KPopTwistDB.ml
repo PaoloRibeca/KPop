@@ -135,7 +135,7 @@ module [@warning "-32"] KPopMatrix:
       { which = DMatrix;
         matrix = Matrix.get_distance_rowwise ~threads ~elements_per_step ~verbose distance metric m1.matrix m2.matrix }
     exception Unexpected_type of Type.t * Type.t
-    module FloatIntMultimap = Tools.OrderedMultimap (Tools.ComparableFloat) (Tools.ComparableInt)
+    module FloatIntMultimap = Tools.Multimap (Tools.ComparableFloat) (Tools.ComparableInt)
     let summarize_distance
         ?(keep_at_most = Some 2) ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) m prefix =
       if m.which <> DMatrix then
