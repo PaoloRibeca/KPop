@@ -32,7 +32,7 @@ module Distance:
       end
     type t (* We hide the type to implement constraints *)
     exception Invalid_dimension of int
-    val compute_1d_component: t -> Float.Array.t -> int -> float -> float
+    val compute_component: t -> Float.Array.t -> int -> float -> float
     exception Incompatible_lengths of int * int * int
     (* What happens when the vectors have incompatible lengths *)
     type mode_t =
@@ -217,7 +217,7 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
             a;
           !acc ** (1. /. power)
     exception Invalid_dimension of int
-    let compute_1d_component f m dim diff =
+    let compute_component f m dim diff =
       let length_m = Float.Array.length m in
       if dim >= length_m then
         Invalid_dimension dim |> raise;
@@ -267,29 +267,63 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
           lo: float * int; (* Value in the multimap *)
           hi: float * int  (* Value in the multimap *)
         }
+        (* Auxiliary function *)
+        let sorted_to_state lo hi =
+          let lo_coord, lo_set = lo and hi_coord, hi_set = hi in
+          { lo = lo_coord, FloatIntMultimap.ValSet.min_elt lo_set;
+            hi = hi_coord, FloatIntMultimap.ValSet.min_elt hi_set }
         (* Computes the minimum state, larger than a given bound for the difference, across the whole stride.
            Can be None if the minimum difference induces a component above max_distance_component.
            In the special case stride = 0, we return something only if there are coinciding points.
            If stride > 0 and this is None, then all the strides above will be as well,
             as we are considering the minimum over all possible intervals *)
-        let get_minimum_opt ?(max_distance_component = infinity) sorted stride diff_bound =
-          (* First, we generate the first interval *)
-
-
-          (* Second, we iterate over all possible intervals *)
-
-          ignore (max_distance_component);
-          ignore (sorted);
-          ignore (stride);
-          ignore (diff_bound);
-
-          None
-            
-            
+        let get_minimum_opt ?(max_distance_component = infinity) dist sorted stride diff_bound =
+          try
+            let lo = FloatIntMultimap.KeyMap.min_binding sorted |> ref
+            and max_coord, _ = FloatIntMultimap.max_binding sorted and min_state = ref None in
+            if stride = 0 then begin
+              let process_lo () =
+                if snd !lo |> FloatIntMultimap.ValSet.cardinal > 1 then
+                  min_state := Some (sorted_to_state !lo !lo) in
+              process_lo ();
+              while fst !lo <> max_coord && !min_state = None do
+                lo := FloatIntMultimap.find_next (fst !lo) sorted;
+                process_lo ()
+              done;
+              !min_state
+            end else begin
+              (* First, we generate the first interval *)
+              let hi = ref !lo and i = ref stride in
+              while !i > 0 do
+                hi := FloatIntMultimap.find_next (fst !hi) sorted;
+                decr i
+              done;
+              let min_diff = ref infinity and min_state = ref None in
+              let process_interval () =
+                let diff = fst !hi -. fst !lo in
+                (* We also have to satisfy the lower bound *)
+                if diff > diff_bound && diff < !min_diff then begin
+                  min_diff := diff;
+                  min_state := Some (sorted_to_state !lo !hi)
+                end in
+              process_interval ();
+              (* Second, we iterate over all possible intervals *)
+              while fst !hi <> max_coord do
+                lo := FloatIntMultimap.find_next (fst !lo) sorted;
+                hi := FloatIntMultimap.find_next (fst !hi) sorted;
+                process_interval ()
+              done;
+              if !min_state <> None && dist !min_diff <= max_distance_component then
+                !min_state
+              else
+                None
+            end
+          with _ ->
+            None
         (* Computes the next valid interval within a stride. The current interval is assumed to be valid.
            The interval can be after the current one, but then the distance must be the same.
            It can also be before the current one, but then the distance must be greater *)
-        let get_next_opt ?(max_distance_component = infinity) sorted stride state =
+        let get_next_opt ?(max_distance_component = infinity) dist sorted stride state =
           let lo_coord, lo_idx = state.lo and hi_coord, hi_idx = state.hi in
           let diff = hi_coord -. lo_coord
           and lo_set = FloatIntMultimap.KeyMap.find lo_coord sorted
@@ -316,17 +350,12 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
                     FloatIntMultimap.ValSet.find_first (fun k -> FloatIntMultimap.ValOrd.compare k lo_idx > 0) lo_set }
             else begin
               (* Here hi_coord <> max_coord *)
-              let lo_coord = ref lo_coord and hi_coord = ref hi_coord in
+              let lo = ref (lo_coord, lo_set) and hi = ref (hi_coord, hi_set) and hi_coord = ref hi_coord in
               while begin
-                lo_coord :=
-                  FloatIntMultimap.KeyMap.find_first
-                    (fun k -> FloatIntMultimap.KeyOrd.compare k !lo_coord > 0) sorted
-                  |> fst;
-                hi_coord :=
-                  FloatIntMultimap.KeyMap.find_first
-                    (fun k -> FloatIntMultimap.KeyOrd.compare k !hi_coord > 0) sorted
-                  |> fst;
-                !hi_coord <> max_coord && !hi_coord -. !lo_coord <> diff
+                lo := FloatIntMultimap.find_next (fst !lo) sorted;
+                hi := FloatIntMultimap.find_next (fst !hi) sorted;
+                hi_coord := fst !hi;
+                !hi_coord <> max_coord && !hi_coord -. fst !lo <> diff
               end do
                 ()
               done;
@@ -336,32 +365,34 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
                 raise_notrace Exit
               else begin
                 (* Here !hi_coord -. !lo_coord = diff *)
-                assert (!hi_coord -. !lo_coord = diff);
-                Some
-                  { lo = !lo_coord, FloatIntMultimap.KeyMap.find !lo_coord sorted |> FloatIntMultimap.ValSet.min_elt;
-                    hi = !hi_coord, FloatIntMultimap.KeyMap.find !hi_coord sorted |> FloatIntMultimap.ValSet.min_elt }
+                assert (!hi_coord -. fst !lo = diff);
+                Some (sorted_to_state !lo !hi)
               end
             end
           with Exit ->
             (* If that has not worked, we proceed to the next valid interval within the same stride, if any *)
-            get_minimum_opt ~max_distance_component sorted stride diff
+            get_minimum_opt ~max_distance_component dist sorted stride diff
         let make ?(max_distance_component = infinity) dist metr d init n =
           let red_n = n - 1 and sorted = ref FloatIntMultimap.empty in
           for i = 0 to red_n do
             sorted := FloatIntMultimap.add (init i) i !sorted
           done;
           let res = {
-            compute_distance_component = compute_1d_component dist metr d;
+            compute_distance_component = compute_component dist metr d;
             n;
             sorted = !sorted;
             state = Array.make n None;
             stride_lo = 0;
             stride_hi = 0
           } in
-          begin match get_minimum_opt ~max_distance_component res.sorted 0 neg_infinity with
+          begin match
+            get_minimum_opt ~max_distance_component res.compute_distance_component res.sorted 0 neg_infinity
+          with
           | None ->
             (* Means there are no coinciding points, we try with 1 *)
-            begin match get_minimum_opt ~max_distance_component res.sorted 1 neg_infinity with
+            begin match
+              get_minimum_opt ~max_distance_component res.compute_distance_component res.sorted 1 neg_infinity
+            with
             | None ->
               (* This might only occur when there are no points. We invalidate the iterator *)
               res.stride_lo <- n;
@@ -414,13 +445,15 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
              If the update happens in the topmost stride, we compute the next one, if any is still available *)
           if it.stride_lo <> it.n then begin
             let min_stride, min_state = find_minimum_interval it in
-            it.state.(min_stride) <- get_next_opt ~max_distance_component it.sorted min_stride min_state;
+            it.state.(min_stride) <-
+              get_next_opt ~max_distance_component it.compute_distance_component it.sorted min_stride min_state;
             let aug_min_stride = min_stride + 1 in
             if min_stride = it.stride_hi && aug_min_stride <> it.n then begin
               (* We can use the difference at this level as a bound for the next one, I hope :-) *)
               let coord_lo, _ = min_state.lo and coord_hi, _ = min_state.hi in
               let diff = coord_hi -. coord_lo in
-              it.state.(aug_min_stride) <- get_minimum_opt ~max_distance_component it.sorted aug_min_stride diff;
+              it.state.(aug_min_stride) <-
+                get_minimum_opt ~max_distance_component it.compute_distance_component it.sorted aug_min_stride diff;
               it.stride_hi <- aug_min_stride
             end;
             (* Should we invalidate the iterator? *)
