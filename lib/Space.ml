@@ -48,10 +48,12 @@ module Distance:
       sig
         type distance_t = t
         type t (* Mutable *)
+        val range: t -> float * float
         val make: ?max_distance_component:float -> distance_t -> Float.Array.t -> int -> (int -> float) -> int -> t
         (* Returns indices and 1D-component of the distance *)
         val get_opt: t -> (int * int * float) option
         val incr: ?max_distance_component:float -> t -> unit (* The operator is mutable *)
+        val output_summary: t -> unit
       end
   end
 = struct
@@ -267,6 +269,26 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
           lo: float * int; (* Value in the multimap *)
           hi: float * int  (* Value in the multimap *)
         }
+        let range it =
+          if it.n = 0 then
+            0., 0.
+          else begin
+            let coord_lo, _ = FloatIntMultimap.KeyMap.min_binding it.sorted
+            and coord_hi, _ = FloatIntMultimap.KeyMap.max_binding it.sorted in
+            coord_lo, coord_hi
+          end
+        let output_summary it =
+          Printf.printf "Distance.Iterator(n=%d,state={" it.n;
+          for i = it.stride_lo to it.stride_hi do
+            let el = it.state.(i) in
+            Printf.printf "%s%d->" (if i > it.stride_lo then "," else "") i;
+            match el with
+            | None ->
+              Printf.printf "."
+            | Some {lo = (lo_coord, lo_idx); hi = (hi_coord, hi_idx)} ->
+              Printf.printf "[d=%.14g|%d->%.14g|%d->%.14g]" (hi_coord -. lo_coord) lo_idx lo_coord hi_idx hi_coord
+          done;
+          Printf.printf "},strides=[%d->%d])\n%!" it.stride_lo it.stride_hi
         (* Auxiliary function *)
         let sorted_to_state lo hi =
           let lo_coord, lo_set = lo and hi_coord, hi_set = hi in
@@ -283,11 +305,15 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
             and max_coord, _ = FloatIntMultimap.max_binding sorted and min_state = ref None in
             if stride = 0 then begin
               let process_lo () =
-                if snd !lo |> FloatIntMultimap.ValSet.cardinal > 1 then
-                  min_state := Some (sorted_to_state !lo !lo) in
+                let lo_coord, lo_set = !lo in
+                if FloatIntMultimap.ValSet.cardinal lo_set > 1 then begin
+                  let lo_first = FloatIntMultimap.ValSet.min_elt lo_set in
+                  let lo_second = FloatIntMultimap.ValSet.find_next lo_first lo_set in
+                  min_state := Some { lo = lo_coord, lo_first; hi = lo_coord, lo_second }
+                end in
               process_lo ();
               while fst !lo <> max_coord && !min_state = None do
-                lo := FloatIntMultimap.find_next (fst !lo) sorted;
+                lo := FloatIntMultimap.KeyMap.find_next (fst !lo) sorted;
                 process_lo ()
               done;
               !min_state
@@ -295,7 +321,7 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
               (* First, we generate the first interval *)
               let hi = ref !lo and i = ref stride in
               while !i > 0 do
-                hi := FloatIntMultimap.find_next (fst !hi) sorted;
+                hi := FloatIntMultimap.KeyMap.find_next (fst !hi) sorted;
                 decr i
               done;
               let min_diff = ref infinity and min_state = ref None in
@@ -309,8 +335,8 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
               process_interval ();
               (* Second, we iterate over all possible intervals *)
               while fst !hi <> max_coord do
-                lo := FloatIntMultimap.find_next (fst !lo) sorted;
-                hi := FloatIntMultimap.find_next (fst !hi) sorted;
+                lo := FloatIntMultimap.KeyMap.find_next (fst !lo) sorted;
+                hi := FloatIntMultimap.KeyMap.find_next (fst !hi) sorted;
                 process_interval ()
               done;
               if !min_state <> None && dist !min_diff <= max_distance_component then
@@ -326,47 +352,80 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
         let get_next_opt ?(max_distance_component = infinity) dist sorted stride state =
           let lo_coord, lo_idx = state.lo and hi_coord, hi_idx = state.hi in
           let diff = hi_coord -. lo_coord
-          and lo_set = FloatIntMultimap.KeyMap.find lo_coord sorted
-          and hi_set = FloatIntMultimap.KeyMap.find hi_coord sorted in
+          and lo_set = FloatIntMultimap.KeyMap.find lo_coord sorted in
           let max_lo_set = FloatIntMultimap.ValSet.max_elt lo_set
-          and max_hi_set = FloatIntMultimap.ValSet.max_elt hi_set
           and max_coord, _ = FloatIntMultimap.max_binding sorted in
           try
             (* First, we try and see if there are other intervals with the same distance.
                They will come _after_ the current one *)
-            if lo_idx = max_lo_set && hi_idx = max_hi_set && hi_coord = max_coord then
-              raise_notrace Exit;
-            if hi_idx <> max_hi_set then
-              Some
-                { state with
-                  hi =
-                    hi_coord,
-                    FloatIntMultimap.ValSet.find_first (fun k -> FloatIntMultimap.ValOrd.compare k hi_idx > 0) hi_set }
-            else if lo_idx <> max_lo_set then
-              Some
-                { state with
-                  lo =
-                    lo_coord,
-                    FloatIntMultimap.ValSet.find_first (fun k -> FloatIntMultimap.ValOrd.compare k lo_idx > 0) lo_set }
-            else begin
-              (* Here hi_coord <> max_coord *)
-              let lo = ref (lo_coord, lo_set) and hi = ref (hi_coord, hi_set) and hi_coord = ref hi_coord in
+            if stride = 0 then begin
+              (* Is there one more pair in this group?
+                 The last of the group is defined by lo = next_to_last, hi = last
+                  (we exclude pairs made of identical elements).
+                 If that has been reached, one has to move to the next group *)
+              let lo_idx = ref lo_idx and hi_idx = ref hi_idx in
               while begin
-                lo := FloatIntMultimap.find_next (fst !lo) sorted;
-                hi := FloatIntMultimap.find_next (fst !hi) sorted;
-                hi_coord := fst !hi;
-                !hi_coord <> max_coord && !hi_coord -. fst !lo <> diff
+                if !hi_idx = max_lo_set then begin
+                  lo_idx := FloatIntMultimap.ValSet.find_next !lo_idx lo_set;
+                  if !lo_idx <> max_lo_set then
+                    hi_idx := FloatIntMultimap.ValSet.find_next !lo_idx lo_set
+                end else
+                  hi_idx := FloatIntMultimap.ValSet.find_next !hi_idx lo_set;
+                !lo_idx <> max_lo_set && !lo_idx = !hi_idx
               end do
                 ()
               done;
-              (* Remember that for this to be valid, the distance must be exactly the same *)
-              if !hi_coord = max_coord then
-                (* We have to restart from the beginning *)
-                raise_notrace Exit
+              if !lo_idx <> max_lo_set then
+                Some { lo = lo_coord, !lo_idx; hi = lo_coord, !hi_idx }
               else begin
-                (* Here !hi_coord -. !lo_coord = diff *)
-                assert (!hi_coord -. fst !lo = diff);
-                Some (sorted_to_state !lo !hi)
+                (* Is there another group with more than one element? *)
+                let lo = ref (lo_coord, lo_set) in
+                while begin
+                  lo := FloatIntMultimap.KeyMap.find_next (fst !lo) sorted;
+                  fst !lo <> max_coord && snd !lo |> FloatIntMultimap.ValSet.cardinal = 1
+                end do
+                  ()
+                done;
+                let lo_coord, lo_set = !lo in
+                if lo_coord <> max_coord then begin
+                  (* Here cardinal > 1 *)
+                  let lo_first = FloatIntMultimap.ValSet.min_elt lo_set in
+                  let lo_second = FloatIntMultimap.ValSet.find_next lo_first lo_set in
+                  Some { lo = lo_coord, lo_first; hi = lo_coord, lo_second }
+                end else
+                  None
+              end
+            end else begin
+              let hi_set = FloatIntMultimap.KeyMap.find hi_coord sorted in
+              let max_hi_set = FloatIntMultimap.ValSet.max_elt hi_set in
+              if lo_idx = max_lo_set && hi_idx = max_hi_set && hi_coord = max_coord then
+                raise_notrace Exit;
+              if hi_idx <> max_hi_set then
+                Some { state with hi = hi_coord, FloatIntMultimap.ValSet.find_next hi_idx hi_set }
+              else if lo_idx <> max_lo_set then
+                Some
+                  { lo = lo_coord, FloatIntMultimap.ValSet.find_next lo_idx lo_set;
+                    hi = hi_coord, FloatIntMultimap.ValSet.min_elt hi_set }
+              else begin
+                (* Here hi_coord <> max_coord *)
+                let lo = ref (lo_coord, lo_set) and hi = ref (hi_coord, hi_set) and hi_coord = ref hi_coord in
+                while begin
+                  lo := FloatIntMultimap.KeyMap.find_next (fst !lo) sorted;
+                  hi := FloatIntMultimap.KeyMap.find_next (fst !hi) sorted;
+                  hi_coord := fst !hi;
+                  !hi_coord <> max_coord && !hi_coord -. fst !lo <> diff
+                end do
+                  ()
+                done;
+                (* Remember that for this to be valid, the distance must be exactly the same *)
+                if !hi_coord = max_coord then
+                  (* We have to restart from the beginning *)
+                  raise_notrace Exit
+                else begin
+                  (* Here !hi_coord -. !lo_coord = diff *)
+                  assert (!hi_coord -. fst !lo = diff);
+                  Some (sorted_to_state !lo !hi)
+                end
               end
             end
           with Exit ->
@@ -449,7 +508,7 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
               get_next_opt ~max_distance_component it.compute_distance_component it.sorted min_stride min_state;
             let aug_min_stride = min_stride + 1 in
             if min_stride = it.stride_hi && aug_min_stride <> it.n then begin
-              (* We can use the difference at this level as a bound for the next one, I hope :-) *)
+              (* We can use the difference at this level as a bound for the next one, or at least I hope :-) *)
               let coord_lo, _ = min_state.lo and coord_hi, _ = min_state.hi in
               let diff = coord_hi -. coord_lo in
               it.state.(aug_min_stride) <-
@@ -476,4 +535,21 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
           end
     end
   end
+
+(*
+(* Some test *)
+let () =
+  let distance = Distance.of_string "minkowski(1)"
+  and init = [| 0.1; 0.1; 0.2; 0.2; 0.2; 0.7; 0.5; 0.99; 0.999; 0.05; 0.4; 0.05 |] in
+  let len = Array.length init in
+  let it = Distance.Iterator.make ~max_distance_component:0.3 distance (Float.Array.make len 1.) 1 (fun i -> init.(i)) len in
+  let res = Distance.Iterator.get_opt it |> ref in
+  while !res <> None do
+    let idx_lo, idx_hi, comp = Tools.Option.unbox !res in
+    Printf.printf "(%d, %d): %.15g\n" idx_lo idx_hi comp;
+    Distance.Iterator.output_summary it;
+    Distance.Iterator.incr ~max_distance_component:0.3 it;
+    res := Distance.Iterator.get_opt it
+  done
+*)
 
