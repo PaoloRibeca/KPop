@@ -534,9 +534,9 @@ include (
     val empty: t
     (* We read in a matrix which has conditions as row names
         and a (large) number of tags (genes, k-mers, etc.) as column names.
-      Keeping with the convention accepted by R, the first row would be a header,
+       In keeping with the convention accepted by R, the first row would be a header,
         and the first column the row names.
-      Names might be quoted *)
+       Names might be quoted *)
     exception Wrong_number_of_columns of int * int * int
     val of_file: ?threads:int -> ?bytes_per_step:int -> ?verbose:bool -> string -> t
     val to_file: ?precision:int -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> string -> unit
