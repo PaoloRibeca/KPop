@@ -260,11 +260,9 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
           n: int;
           sorted: FloatIntMultimap.t;
           (* There is, in the worst case, one minimum per stride *)
-          state: state_t option array;
-          mutable stride_lo: int;
+          mutable state: state_t Tools.IntMap.t;
           (* The invariant is that the minimum for the highest stride is always global.
              If the level is unbroken, one can avoid computing the following one *)
-          mutable stride_hi: int
         } and state_t = {
           lo: float * int; (* Value in the multimap *)
           hi: float * int  (* Value in the multimap *)
@@ -278,17 +276,13 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
             coord_lo, coord_hi
           end
         let output_summary it =
-          Printf.printf "Distance.Iterator(n=%d,state={" it.n;
-          for i = it.stride_lo to it.stride_hi do
-            let el = it.state.(i) in
-            Printf.printf "%s%d->" (if i > it.stride_lo then "," else "") i;
-            match el with
-            | None ->
-              Printf.printf "."
-            | Some {lo = (lo_coord, lo_idx); hi = (hi_coord, hi_idx)} ->
-              Printf.printf "[d=%.14g|%d->%.14g|%d->%.14g]" (hi_coord -. lo_coord) lo_idx lo_coord hi_idx hi_coord
-          done;
-          Printf.printf "},strides=[%d->%d])\n%!" it.stride_lo it.stride_hi
+          Printf.printf "Distance.Iterator( n=%d state={" it.n;
+          Tools.IntMap.iter
+            (fun i {lo = (lo_coord, lo_idx); hi = (hi_coord, hi_idx)} ->
+              Printf.printf " %d->[d=%.14g|%d->%.14g|%d->%.14g]"
+                i (hi_coord -. lo_coord) lo_idx lo_coord hi_idx hi_coord)
+            it.state;
+          Printf.printf " } )\n%!"
         (* Auxiliary function *)
         let sorted_to_state lo hi =
           let lo_coord, lo_set = lo and hi_coord, hi_set = hi in
@@ -440,9 +434,7 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
             compute_distance_component = compute_component dist metr d;
             n;
             sorted = !sorted;
-            state = Array.make n None;
-            stride_lo = 0;
-            stride_hi = 0
+            state = Tools.IntMap.empty
           } in
           begin match
             get_minimum_opt ~max_distance_component res.compute_distance_component res.sorted 0 neg_infinity
@@ -453,46 +445,35 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
               get_minimum_opt ~max_distance_component res.compute_distance_component res.sorted 1 neg_infinity
             with
             | None ->
-              (* This might only occur when there are no points. We invalidate the iterator *)
-              res.stride_lo <- n;
-              res.stride_hi <- n - 1
-            | w ->
-              res.state.(1) <- w;
-              res.stride_lo <- 1;
-              res.stride_hi <- 1 (* At the moment, level 1 is complete *)
+              (* This might only occur when there are no points. Nothing to do, as the iterator is currently invalid *)
+              ()
+            | Some w ->
+              res.state <- Tools.IntMap.singleton 1 w (* At the moment, level 1 is complete *)
             end
-          | w ->
-            res.state.(0) <- w;
-            res.stride_lo <- 0;
-            res.stride_hi <- 0 (* At the moment, level 0 is complete *)
+          | Some w ->
+            res.state <- Tools.IntMap.singleton 0 w (* At the moment, level 0 is complete *)
           end;
           res
         (* Auxiliary function. It assumes there is a valid interval *)
         let find_minimum_interval it =
           let min_stride = ref it.n and min_diff = ref infinity in
           (* First we find what is the minimum across all active layers *)
-          for i = it.stride_lo to it.stride_hi do
-            match it.state.(i) with
-            | None -> ()
-            | Some state ->
+          Tools.IntMap.iter
+            (fun i state ->
               let coord_lo, _ = state.lo and coord_hi, _ = state.hi in
               let diff = coord_hi -. coord_lo in
               if diff < !min_diff then begin
                 min_stride := i;
                 min_diff := diff
-              end
-          done;
+              end)
+            it.state;
           let min_stride = !min_stride in
           (* If there are no valid intervals, the iterator must have been previously invalidated *)
-          assert (min_stride <> it.n);
+          assert (it.state <> Tools.IntMap.empty && min_stride <> it.n);
           (* There must be at least one valid interval *)
-          match it.state.(min_stride) with
-          | None ->
-            assert false
-          | Some min_state ->
-            min_stride, min_state
+          min_stride, Tools.IntMap.find min_stride it.state
         let get_opt it =
-          if it.stride_lo = it.n then
+          if it.state = Tools.IntMap.empty then
             None
           else begin
             let _, min_state = find_minimum_interval it in
@@ -502,35 +483,27 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
         let incr ?(max_distance_component = infinity) it =
           (* We find and update the minimum interval.
              If the update happens in the topmost stride, we compute the next one, if any is still available *)
-          if it.stride_lo <> it.n then begin
+          if it.state <> Tools.IntMap.empty then begin
             let min_stride, min_state = find_minimum_interval it in
-            it.state.(min_stride) <-
-              get_next_opt ~max_distance_component it.compute_distance_component it.sorted min_stride min_state;
-            let aug_min_stride = min_stride + 1 in
-            if min_stride = it.stride_hi && aug_min_stride <> it.n then begin
-              (* We can use the difference at this level as a bound for the next one, or at least I hope :-) *)
-              let coord_lo, _ = min_state.lo and coord_hi, _ = min_state.hi in
-              let diff = coord_hi -. coord_lo in
-              it.state.(aug_min_stride) <-
-                get_minimum_opt ~max_distance_component it.compute_distance_component it.sorted aug_min_stride diff;
-              it.stride_hi <- aug_min_stride
+            begin match begin
+              get_next_opt ~max_distance_component it.compute_distance_component it.sorted min_stride min_state
+            end with
+            | None -> it.state <- Tools.IntMap.remove min_stride it.state
+            | Some w -> it.state <- Tools.IntMap.add min_stride w it.state
             end;
-            (* Should we invalidate the iterator? *)
-            let stride = ref 0 in
-            while !stride < it.n && it.state.(!stride) = None do
-              incr stride
-            done;
-            if !stride = it.n then begin
-              it.stride_lo <- it.n;
-              it.stride_hi <- it.n - 1
-            end else begin
-              (* Case it.state.(!stride) <> None *)
-              it.stride_lo <- !stride;
-              while !stride < it.n do
-                if it.state.(!stride) <> None then
-                  it.stride_hi <- !stride;
-                incr stride
-              done
+            (* At this point the iterator can legitimately be invalid *)
+            if it.state <> Tools.IntMap.empty then begin
+              let aug_min_stride = min_stride + 1 and stride_hi, _ = Tools.IntMap.max_binding it.state in
+              if min_stride = stride_hi && aug_min_stride <> it.n then begin
+                (* We can use the difference at this level as a bound for the next one, I think :-) *)
+                let coord_lo, _ = min_state.lo and coord_hi, _ = min_state.hi in
+                let diff = coord_hi -. coord_lo in
+                match begin
+                  get_minimum_opt ~max_distance_component it.compute_distance_component it.sorted aug_min_stride diff
+                end with
+                | None -> ()
+                | Some w -> it.state <- Tools.IntMap.add aug_min_stride w it.state
+              end
             end
           end
     end
