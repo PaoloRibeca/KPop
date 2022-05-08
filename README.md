@@ -252,7 +252,17 @@ Miscellaneous
 
 ## 4. Examples
 
+By using the programs just described, it is possible to implement a number of interesting high-throughput workflows. We illustrate some examples here - for a more general description, please refer to our [bioRxiv preprint](https://bioRxiv.org).
+
 ### 4.1. Sequence classification
+
+One can implement a sequence classifier, starting from either a set of genomic sequences or a deep-sequencing dataset containing multiple samples, by using the following strategy:
+
+![KPop-based classifier](images/KPop-Classifier-RR.png)
+
+Shortly, one first generates a collection of spectra that describe the "classes" understood by the classifier; from the classes a "twister", i.e. a specialised transformation, is derived; the twister is then used to transform new sequences; and distances are computed and summarised between the twisted spectra for the classes and the twisted spectra for the sequences in order to understand what is the class closest to each sequence (possibly with some additional statistical refinement).
+
+Note that the classifier should be generated according to the data type of the input, i.e., you should not use a classifier trained on genomic sequences to process NGS samples or vice-versa. Doing so might occasionally work if contaminations are low and the sequencing bias is reasonably flat along the sequence, but in order to get consistent results significant post-processing might be needed.
 
 #### 4.1.1. Classifier for simulated COVID-19 sequencing reads
 
@@ -632,7 +642,7 @@ to, first, annotate the summary with the original "true" classification of the s
 ```
 641847    611770    95.3%    30077    4.69%
 ```
-meaning that, of the 641,847 sequences present in the `Test` set, 611,770 (the 95.3%) were correctly classified, while 30,077 (the 4.69%) were not.
+meaning that, of the 641,847 sequences present in the `Test` set, 611,770 (95.3%) were correctly classified, while 30,077 (4.69%) were not.
 
 Note that as not all the classes describing lineages are disjoint, here we consider a classification correct
 
@@ -645,6 +655,10 @@ $ KPopTwistDB -m "sigmoid(1,1,5,5)" -i T Classes -i t Test -d Classes -o d Test-
 ### 4.2. Relatedness engine
 
 In the same vein, by using `KPop` one can also easily generate a "relatedness engine" out of a classification (i.e., a system finding the most similar sequences in a large database). Here we do that taking the previous exercise on COVID-19 as a starting point.
+
+The overall strategy is illustrated in the following figure:
+
+![KPop-based relatedness engine](images/KPop-RelatednessEngine-RR.png)
 
 First, we twist all the COVID-19 sequences in the GISAID database according to the classifier we generated in [the previous section](#412-classifier-for-covid-19-sequences-hyena), by running the command
 ```bash
