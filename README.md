@@ -20,7 +20,8 @@ Depending on the problem at hand, `KPop` analysis can require a large amount of 
 [4. Examples](#4-examples)<br>
 &emsp; [4.1. Sequence classification](#41-sequence-classification)<br>
 &emsp; &emsp; [4.1.1. Classifier for simulated COVID-19 sequencing reads](#411-classifier-for-simulated-covid-19-sequencing-reads)<br>
-&emsp; &emsp; [4.1.2. Classifier for COVID-19 sequences (Hyena)](#412-classifier-for-covid-19-sequences-hyena)<br>
+&emsp; &emsp; [4.1.2. Classifier for deep-sequencing TB samples](#412-classifier-for-deep-sequencing-tb-samples)<br>
+&emsp; &emsp; [4.1.3. Classifier for COVID-19 sequences (Hyena)](#413-classifier-for-covid-19-sequences-hyena)<br>
 &emsp; [4.2. Relatedness engine](#42-relatedness-engine)<br>
 &emsp; [4.3. Pseudo-phylogenetic trees](#43-pseudo-phylogenetic-trees)<br>
 
@@ -386,11 +387,39 @@ In this case, for instance, sequence `00002` has distance in twisted space of ~4
 
 An automated 
 
-#### 4.1.2. Classifier for COVID-19 sequences (Hyena)
+#### 4.1.2. Classifier for deep-sequencing TB samples
+
+##### 4.1.2.1. Data preparation
+
+![Preprocessing for KPop-based deep-sequencing classifiers](images/KPop-Preprocessing-RR.png)
+
+```bash
+# First, trim
+trim_galore -j 8 --paired ERR275184_1.fastq.gz ERR275184_2.fastq.gz
+# Second, filter
+fastq-interleave <(zcat ERR275184_1_val_1.fq.gz) <(zcat ERR275184_2_val_2.fq.gz) | fastq-tabular | awk -F '\t' 'function round(x){return (x%1>=0.5?x+(1-x%1):x-x%1)} BEGIN{MIN_LEN=50; SEGM_LEN=25} {l=length($2); if (l>=MIN_LEN) {n=round(l/SEGM_LEN); segm_len=round(l/n); n=round(l/segm_len); split($1,s," "); for (i=1;i<=n;++i) {lo=1+segm_len*(i-1); hi=(i==n?l:segm_len*i); print "@"(i==1?s[1]"~"$2"~"$3:s[1])"\n"substr($2,lo,hi-lo+1)"\n+\n"substr($3,lo,hi-lo+1)}}}' | gem3-mapper -I Mycobacterium.CompleteGenomes.gem -t ${__CPUS__} -F MAP | awk -F '\t' 'BEGIN{current=""} function process_current(){if (current!="") print hits"\t"current} {l=split($1,s,"~"); if (l==3) {process_current(); current=gensub("~","\t","g",$1); hits=0} if ($4~"^(|0:|0:0:)[1-9]") ++hits} END{process_current()}' | awk -F '\t' -v FIRST=ERR275184_1.fastq -v SECOND=ERR275184_2.fastq 'BEGIN{MIN_HITS=3; current=""; found=0} function process_current(){if (current!=""&&hits>=MIN_HITS&&found==2) {print first > FIRST; print second > SECOND}} {if ($2!=current) {process_current(); current=$2; found=1; hits=$1; first="@"$2"\n"$3"\n+\n"$4} else {++found; hits+=$1; second="@"$2"\n"$3"\n+\n"$4}} END{process_current()}'
+# Third, merge
+flash -m 20 -M 500 ERR275184_1.fastq ERR275184_2.fastq -o ERR275184
+# Fourth, count k-mers
+KPopCount -l ERR275184 -s ERR275184.extendedFrags.fastq -p ERR275184.notCombined_1.fastq ERR275184.notCombined_2.fastq > ERR275184.k12.txt
+```
+
+```
+4       ERR275184.16    NGCACTCGGGGGCATGCCGATGCCCAAGGCAGTGGTCTGGGCGCTGCATGAGCACATCTTGGGCGCCAATCCGGCGGTATGGATGTACGCCGGCGGCGCGG   #1=DFFFFHHHHHJJJJJJJJJIJJICHIJJJHJHHHHHFFEDDDDDDDCCCDDDDDDDDCC@BD@BDDDDDDDDDDBBBDDDDDDED?BDDDBDDDD<99
+2       ERR275184.16    ACCCGAGGTAATGAACCGCTTGACGCCGTCGATGTGCCAGGACCCGTCGGCCTGTTGG      B?<DA:D60+:<<DGIIBEIIIACGHDE:FG0BF=@FCHCHGDG;B<;A/3;';>@:?
+4       ERR275184.17    TTGAACGCTACCCATCTCTTTATGGCGTGCCGTCGTGACCGACCCAAGGAGCAGTACACGATCGATTTTTCGACGGTTGCCGCGCTCGATTACGTACCGCT   CCCFFFFFHHHGGJJJJJJJJJJEHIJIJJJJJJJJJJJIJIIIGGFFFDFDDEEEEDCBDDBDDDDDDDA>?@BBBBB<A>BBDDB@BCCBA<?@BBB@9
+4       ERR275184.18    NACACCCCGACAATCTGCGGGCGCAGGTTGGGGTCGGGGAAGCCGCTGCGCAGCGGCGCGCCCGACGGGTCCTTGAGCCCGACGAAGTTGGCGAAGGTGCC   #1BDDFFFHHHHHJJJJJJJJJJIJJJIIIHHFFDCDDDD@@?BDDDDDDDDDDDDDDDDDD;7@BB5;5>BCD:>CCDDDDDB5<?83:>@B<B<<?CD9
+1       ERR275184.18    CAATTTGCAGGCGTTGGTCGTCGTCGTCAGCGCCCAGCGCGTGGACGTCACCG   @@@DDFDDFFFDFG6)+29B8?18??)0?@*877<6(8;;8993;639><8C@
+3       ERR275184.19    GTCGCAGCCGGGACGCTGCTATGGCTCGGACGTGTCGAAATTCGGGTCACCGCCGGCTCAGCGGATGGAGCC        CCCFFFFFHHHHHJJJJJJJJJGIJJJEHBEE@C?A86@D;C;=BD58?ACB?B5@B<;39A7<-55?C?9?
+```
+
+##### 4.1.2.2. Data analysis
+
+#### 4.1.3. Classifier for COVID-19 sequences (Hyena)
 
 This is a rather more complex example, that showcases many of the good qualities of `KPop` (mainly its being high-throughput and accurate). It's also not for the faint of heart, in that it requires large amounts of disk space and computing time (at the time of this writing, the file containing all COVID-19 sequences made available on GISAID has an uncompressed size of ~303 GB, and counting).
 
-##### 4.1.2.1. Data preparation
+##### 4.1.3.1. Data preparation
 
 We assume as a starting point that you have downloaded from GISAID and decompressed in your current directory the `sequences.fasta` file containing all the sequences available until that moment (note that the file is _not_ publicly available &mdash; you'll have to obtain access to GISAID if you want to be able to download it). We'll also assume you have downloaded to your local directory the [file `lineages.csv` containing the Pangolin designations of COVID-19 lineages](https://raw.githubusercontent.com/cov-lineages/pango-designation/master/lineages.csv).
 
@@ -556,7 +585,7 @@ $ rm -rf Train Test; mkdir Train Test; for FILE in Split/*.fasta; do BASE=$(base
 ```
 suitably populating the subdirectories `Test` and `Train`. As in most of the examples so far, we use `Parallel` to perform the splitting on many files in parallel and hence reduce the overall wallclock time taken by the command.
 
-##### 4.1.2.2. Data analysis
+##### 4.1.3.2. Data analysis
 
 ```bash
 $ ls Train/*.fasta | Parallel -l 1 -- awk '{l=split($0,s,"/"); class=substr(s[l],1,length(s[l])-6); system("KPopCount -k 10 -l "class" -f Train/"class".fasta")}' | KPopCountDB -f /dev/stdin -o Classes
