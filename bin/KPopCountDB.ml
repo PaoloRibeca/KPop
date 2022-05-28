@@ -473,7 +473,7 @@ and KMerDB:
             M.N.to_float a.M.=(i) |> Float.Array.set res i
           done;
           res
-        *) 
+        *)
       end
     module IBAVectorMisc = BAVectorMisc (IBAVector)
     module FBAVectorMisc = BAVectorMisc (FBAVector)
@@ -604,7 +604,7 @@ and KMerDB:
     exception Header_expected of string
     exception Wrong_format of int * string
     let add_files ?(verbose = false) db fnames =
-      let db = ref db and n = List.length fnames in
+      let db = ref db and n = List.length fnames and num_spectra = ref (-1) in
       List.iteri
         (fun i fname ->
           let input = open_in fname and line_num = ref 0 and col_idx = ref 0 in
@@ -623,7 +623,12 @@ and KMerDB:
               if line.(0) = "" then begin
                 (* Header *)
                 add_empty_column_if_needed db line.(1);
-                col_idx := Hashtbl.find !db.col_names_to_idx line.(1)
+                col_idx := Hashtbl.find !db.col_names_to_idx line.(1);
+                incr num_spectra;
+                if verbose then
+                  Printf.eprintf "\r[%d/%d] File '%s': Read %d %s on %d %s%!" (i + 1) n fname
+                    !num_spectra (Tools.String.pluralize_int ~plural:"spectra" "spectrum" !num_spectra)
+                    !line_num (Tools.String.pluralize_int "line" !line_num)
               end else begin
                 (* A regular line. The first element is the hash, the second one the count *)
                 if Hashtbl.mem !db.row_names_to_idx line.(0) |> not then begin
@@ -651,14 +656,15 @@ and KMerDB:
                     Wrong_format (!line_num, line.(1)) |> raise in
                 (* If there are repeated k-mers, we just accumulate them *)
                 !db.core.storage.(!col_idx).IBAVector.+(row_idx) <- v
-              end;
-              if verbose && !line_num mod 10000 = 0 then
-                Printf.eprintf "\r[%d/%d] File '%s': Read %d lines%!" (i + 1) n fname !line_num
+              end
             done
           with End_of_file ->
             close_in input;
+            incr num_spectra;
             if verbose then
-              Printf.eprintf "\r[%d/%d] File '%s': Read %d lines\n%!" (i + 1) n fname !line_num;
+              Printf.eprintf "\r[%d/%d] File '%s': Read %d %s on %d %s%s%!" (i + 1) n fname
+                !num_spectra (Tools.String.pluralize_int ~plural:"spectra" "spectrum" !num_spectra)
+                !line_num (Tools.String.pluralize_int "line" !line_num) (if i + 1 = n then ".\n" else "")
           end)
         fnames;
       !db
@@ -824,7 +830,7 @@ and KMerDB:
           print_zero_rows = false;
           filter_columns = StringSet.empty;
           precision = 15
-        }      
+        }
       end
     let to_table
         ?(filter = TableFilter.default) ?(threads = 1) ?(elements_per_step = 40000) ?(verbose = false) db fname =
@@ -1021,7 +1027,7 @@ type to_do_t =
   | Table_precision of int
   | To_table of string
   | To_file of string
-  
+
 module Defaults =
   struct
     let filter = KMerDB.TableFilter.default
@@ -1244,9 +1250,9 @@ let _ =
   (* These are the three registers available to the program *)
   let current = KMerDB.make_empty () |> ref and selected = ref StringSet.empty
   and filter = ref KMerDB.TableFilter.default in
-  
+
   (* The addition of an exception handler would be nice *)
-  
+
   List.iter
     (function
       | Empty ->

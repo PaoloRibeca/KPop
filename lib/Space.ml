@@ -33,6 +33,7 @@ module Distance:
     type t (* We hide the type to implement constraints *)
     exception Invalid_dimension of int
     val compute_component: t -> Float.Array.t -> int -> float -> float
+    val compute_components: t -> Float.Array.t -> Float.Array.t -> Float.Array.t -> float
     exception Incompatible_lengths of int * int * int
     (* What happens when the vectors have incompatible lengths *)
     type mode_t =
@@ -194,7 +195,7 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
       | Infinity
     let mode = ref Fail
     let set_mode new_mode = mode := new_mode
-    let compute f m a b =
+    let _compute_ ~compute_components f m a b =
       let length_a = Float.Array.length a and length_m = Float.Array.length m and length_b = Float.Array.length b in
       if length_a <> length_m || length_m <> length_b then begin
         match !mode with
@@ -209,7 +210,10 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
               let diff = el_a -. Float.Array.get b i in
               acc := !acc +. (diff *. diff *. Float.Array.get m i))
             a;
-          sqrt !acc
+          if compute_components then
+            !acc
+          else
+            sqrt !acc
         | Minkowski power ->
           let acc = ref 0. in
           Float.Array.iteri
@@ -217,7 +221,12 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
               let diff = el_a -. Float.Array.get b i |> abs_float in
               acc := !acc +. ((diff ** power) *. Float.Array.get m i))
             a;
-          !acc ** (1. /. power)
+          if compute_components then
+            !acc
+          else
+            !acc ** (1. /. power)
+    let compute = _compute_ ~compute_components:false
+    let compute_components = _compute_ ~compute_components:true
     exception Invalid_dimension of int
     let compute_component f m dim diff =
       let length_m = Float.Array.length m in

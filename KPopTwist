@@ -5,7 +5,7 @@ set -e
 
 OLD_IFS="$IFS"
 IFS=$'\x1'
-read -r PREFIX SAMPLING_FRACTION THREADS VERBOSE <<< "$(kPopTwist "$@")"
+read -r PREFIX TRANSFORM THRESHOLD POWER SAMPLING_FRACTION THREADS VERBOSE <<< "$(kPopTwist "$@")"
 IFS="$OLD_IFS"
 
 function conditional_echo {
@@ -14,12 +14,11 @@ function conditional_echo {
   fi
 }
 
-TMPDIR=$(mktemp -d -p . KPopTwist-XXXXXXXXXX)
-
 # We generate and split the plain text table, so that R can import it
 conditional_echo "$(date +"%c"): [1/13] Exporting table..."
-KPopCountDB -i "$PREFIX" -t "$PREFIX" > /dev/null 2>&1
+KPopCountDB -i "$PREFIX" --table-transform "$TRANSFORM" --table-threshold "$THRESHOLD" --table-power "$POWER" -t "$PREFIX" > /dev/null 2>&1
 conditional_echo "$(date +"%c"): [2/13] Splitting table..."
+TMPDIR=$(mktemp -d -p . KPopTwist-XXXXXXXXXX)
 head -1 "${PREFIX}.KPopCounter.txt" | awk -F '\t' '{printf $2; for (i=3;i<=NF;++i) printf "\t"$i; printf "\n"}' > "${TMPDIR}/TABLE.txt"
 tail -n +2 "${PREFIX}.KPopCounter.txt" | Parallel -- awk -F '\t' '{printf $2; for (i=3;i<=NF;++i) printf "\t"$i; printf "\n"}' >> "${TMPDIR}/TABLE.txt" &
 tail -n +2 "${PREFIX}.KPopCounter.txt" | Parallel -- awk -F '\t' '{print $1}' > "${TMPDIR}/NAMES.txt" &

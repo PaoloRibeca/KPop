@@ -3,6 +3,10 @@ open BiOCamLib
 module Defaults =
   struct
     let input = ""
+    (* The following three are KPopCountDB.TableFilter.default *)
+    let transformation = "normalize"
+    let threshold = 1
+    let power = 1.
     let sampling = 1.
     (*let precision = 15*)
     let threads = Tools.Parallel.get_nproc ()
@@ -12,12 +16,15 @@ module Defaults =
 module Parameters =
   struct
     let input = ref Defaults.input
+    let transformation = ref Defaults.transformation
+    let threshold = ref Defaults.threshold
+    let power = ref Defaults.power
     let sampling = ref Defaults.sampling
     let threads = ref Defaults.threads
     let verbose = ref Defaults.verbose
   end
 
-let version = "0.11"
+let version = "0.14"
 
 let header =
   Printf.sprintf begin
@@ -38,6 +45,24 @@ let _ =
       [ "fraction of the rows to be considered and resampled before twisting" ],
       TA.Default (fun () -> string_of_float Defaults.sampling),
       (fun _ -> Parameters.sampling := TA.get_parameter_float_non_neg ());
+    [ "--threshold" ],
+      Some "<non_negative_integer>",
+      [ "set to zero all counts that are less than this threshold";
+        "before transforming them" ],
+      TA.Default (fun () -> string_of_int Defaults.threshold),
+      (fun _ -> Parameters.threshold := TA.get_parameter_int_non_neg ());
+    [ "--power" ],
+      Some "<non_negative_float>",
+      [ "raise counts to this power before transforming them.";
+        "A power of 0 when the 'pseudocount' method is used";
+        "performs a logarithmic transformation" ],
+      TA.Default (fun () -> string_of_float Defaults.power),
+      (fun _ -> Parameters.power := TA.get_parameter_float_non_neg ());
+    [ "--transform"; "--transformation" ],
+      Some "'none'|'normalize'|'pseudocount'|'clr'",
+      [ "transformation to apply to table elements" ],
+      TA.Default (fun () -> Defaults.transformation),
+      (fun _ -> Parameters.transformation := TA.get_parameter ());
     [], None, [ "Input/Output:" ], TA.Optional, (fun _ -> ());
     [ "-i"; "--input" ],
       Some "<input_table_prefix>",
@@ -83,6 +108,7 @@ let _ =
     TA.header ();
     raise e
   end;
-  Printf.printf "%s\001%.12g\001%d\001%b\n%!"
-    !Parameters.input !Parameters.sampling !Parameters.threads !Parameters.verbose
+  Printf.printf "%s\001%s\001%d\001%.12g\001%.12g\001%d\001%b\n%!"
+    !Parameters.input !Parameters.transformation !Parameters.threshold !Parameters.power
+    !Parameters.sampling !Parameters.threads !Parameters.verbose
 

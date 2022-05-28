@@ -523,6 +523,30 @@ include (
       { idx_to_col_names = m2.idx_to_row_names;
         idx_to_row_names = m1.idx_to_row_names;
         storage = storage }
+    module NearestNeighbor =
+      struct
+        module Preconditioner =
+          struct
+            type t
+
+          end
+        type tt = t
+        module StringMap = Tools.StringMap
+        type t = {
+          vectors: Float.Array.t StringMap.t;
+
+
+        }
+        let make_rowwise dist metr precond rowwise =
+
+          ()
+
+        let find_and_replace ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) nn f =
+
+
+          ()
+
+      end
   end: sig
     type t = {
       (* We number rows and columns starting from 0 *)
@@ -560,6 +584,21 @@ include (
     (* Compute distances between the rows of two matrices - more general version of the previous one *)
     val get_distance_rowwise:
       ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Space.Distance.t -> Float.Array.t -> t -> t -> t
+    module NearestNeighbor:
+      sig
+        type tt = t
+        module Preconditioner:
+          sig
+            type t
+
+          end
+        type t
+        val make_rowwise: Space.Distance.t -> Float.Array.t -> Preconditioner.t -> tt -> t
+        val find_and_replace:
+          ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
+          t -> ((string * Float.Array.t * string * Float.Array.t * float) option -> (string * Float.Array.t) option) ->
+          unit
+      end
   end
 )
 

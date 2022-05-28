@@ -204,7 +204,8 @@ module [@warning "-32"] KPopMatrix:
             if i < eff_len then
               Printf.bprintf buf "\t\"%s\"\t%.15g\t%.15g"
                 m.matrix.idx_to_col_names.(col_idx) dist ((dist -. mean) /. stddev))
-          !distr in
+          !distr;
+        Printf.bprintf buf "\n" in
       let n_rows = Array.length m.matrix.idx_to_row_names and processed_rows = ref 0 and buf = Buffer.create 1048576
       and fname = make_filename_summary prefix in
       let output = open_out fname in
@@ -226,7 +227,7 @@ module [@warning "-32"] KPopMatrix:
           done;
           hi_row - lo_row + 1, Buffer.contents buf)
         (fun (n_processed, block) ->
-          Printf.fprintf output "%s\n" block;
+          Printf.fprintf output "%s" block;
           let old_processed_rows = !processed_rows in
           processed_rows := !processed_rows + n_processed;
           if verbose && !processed_rows / 10000 > old_processed_rows / 10000 then
@@ -397,10 +398,11 @@ module [@warning "-32"] KPopTwister:
               close_in !file;
               labels := snd !labels, "";
               incr num_spectra;
-              Printf.eprintf "\r[%d/%d] File '%s': Read %d %s on %d %s.\n%!"
-                (!file_idx + 1) n fnames.(!file_idx)
-                !num_spectra (Tools.String.pluralize_int ~plural:"spectra" "spectrum" !num_spectra)
-                !line_num (Tools.String.pluralize_int "line" !line_num);
+              if verbose then
+                Printf.eprintf "\r[%d/%d] File '%s': Read %d %s on %d %s%s%!"
+                  (!file_idx + 1) n fnames.(!file_idx)
+                  !num_spectra (Tools.String.pluralize_int ~plural:"spectra" "spectrum" !num_spectra)
+                  !line_num (Tools.String.pluralize_int "line" !line_num) (if !file_idx + 1 = n then ".\n" else "");
               incr file_idx;
               if !file_idx < n then begin
                 file := open_in fnames.(!file_idx);
