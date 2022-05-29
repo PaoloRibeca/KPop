@@ -418,6 +418,34 @@ KPopCount -l ERR275184 -s ERR275184.extendedFrags.fastq -p ERR275184.notCombined
 
 ##### 4.1.2.2. Data analysis
 
+```
+$ ls Counts-Lineages/*.k12.txt | tawk 'BEGIN{while (getline < "LIST-Mycobacteria-final.txt") t[$1]=$2} {split($0,s,"[/.]"); if (s[2] in t) {type=t[s[2]]; ++counts[type]; what=(counts[type]%2)==1?"Train":"Test"; print $0; system("mkdir -p "what"/"type"; cp "$0" "what"/"type"/")}}'
+```
+
+```
+$ ls -d Train/*/ | awk '{print substr(gensub("Train/","",1),1,length($0)-7)}' | Parallel -l 1 -t 4 -- awk '{CLASS=$0; system("cat Train/"CLASS"/*.txt | KPopCountDB -f /dev/stdin -r \"~.\" -a "CLASS" -l "CLASS" -n -d -v --table-transform none -t "CLASS)}'
+```
+
+```
+$ cat M_*.KPopCounter.txt | KPopCountDB -f /dev/stdin -o Classes -v
+```
+
+```
+$ KPopTwist -i Classes -v
+```
+
+```
+$ ls -d Test/M_*/ | Parallel -l 1 -t 4 -- awk '{system("cat "$0"*.k12.txt | KPopTwistDB -i T Classes -k /dev/stdin -o t "substr($0,1,length($0)-1)" -v")}'
+```
+
+```
+$ KPopTwistDB $(ls Test/*.KPopTwisted | awk '{split($0,s,"[.]"); printf " -a t "s[1]}') -o t Test -d Classes -o d Test-vs-Classes -s Test-vs-Classes -v
+```
+
+```
+$ ls Test/*/*.k12.txt | tawk '{split($0,s,"[/.]"); t["\""s[3]"\""]="\""s[2]"\""} END{while (getline < "Test-vs-Classes.KPopSummary.txt") {printf $1"\t"t[$1]; for (i=2;i<=NF;++i) printf "\t"$i; printf "\n"}}' > RESULTS.txt
+```
+
 #### 4.1.3. Classifier for COVID-19 sequences (Hyena)
 
 This is a rather more complex example, that showcases many of the good qualities of `KPop` (mainly its being high-throughput and accurate). It's also not for the faint of heart, in that it requires large amounts of disk space and computing time (at the time of this writing, the file containing all COVID-19 sequences made available on GISAID has an uncompressed size of ~303 GB, and counting).
