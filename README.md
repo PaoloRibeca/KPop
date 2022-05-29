@@ -153,24 +153,27 @@ $ KPopTwist -h
 ```
 in your terminal. You will see a header containing information about the version:
 ```
-This is the KPopTwist program (version 0.11)
+This is the KPopTwist program (version 0.14)
  (c) 2022 Paolo Ribeca, <paolo.ribeca@gmail.com>
 ```
-followed by detailed information. The general form(s) the command can be used is:
+Usage:
 ```
-KPopTwist -i|--input <input_table_prefix> [OPTIONS]
+kPopTwist -i|--input <input_table_prefix> [OPTIONS]
 ```
 
 Algorithmic parameters:
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
 | `-f`<br>`-F`<br>`-s`<br>`-S`<br>`--fraction`<br>`--sampling`<br>`--sampling-fraction` | _&lt;non\_negative\_float&gt;_ |  fraction of the rows to be considered and resampled before twisting | <ins>default=<mark>_1\._</mark></ins> |
+| `--threshold` | _&lt;non\_negative\_integer&gt;_ |  set to zero all counts that are less than this threshold before transforming them | <ins>default=<mark>_1_</mark></ins> |
+| `--power` | _&lt;non\_negative\_float&gt;_ |  raise counts to this power before transforming them\.<br>A power of 0 when the 'pseudocount' method is used performs a logarithmic transformation | <ins>default=<mark>_1\._</mark></ins> |
+| `--transform`<br>`--transformation` | _'none'&#124;'normalize'&#124;'pseudocount'&#124;'clr'_ |  transformation to apply to table elements | <ins>default=<mark>_normalize_</mark></ins> |
 
 Input/Output:
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
 | `-i`<br>`--input` | _&lt;input\_table\_prefix&gt;_ |  load the specified k\-mer database in the register and twist it\.<br>File extension is automatically determined  \(will be \.KPopCounter\)\.<br>The prefix is then re\-used for output  \(and the output file will be given prefix \.KPopTwisted\) | *(mandatory)* |
-| `-T`<br>`--threads` | _&lt;computing\_threads&gt;_ |  number of concurrent computing threads to be spawned  \(default automatically detected from your configuration\) | <ins>default=<mark>_nproc_</mark></ins> |
+| `-T`<br>`--threads` | _&lt;computing\_threads&gt;_ |  number of concurrent computing threads to be spawned  \(default automatically detected from your configuration\) | <ins>default=<mark>_32_</mark></ins> |
 | `-v`<br>`--verbose` |  |  set verbose execution | <ins>default=<mark>_false_</mark></ins> |
 | `-h`<br>`--help` |  |  print syntax and exit |  |
 
