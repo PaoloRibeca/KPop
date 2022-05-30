@@ -418,48 +418,55 @@ KPopCount -l ERR275184 -s ERR275184.extendedFrags.fastq -p ERR275184.notCombined
 
 ##### 4.1.2.2. Data analysis
 
-```
+```bash
 $ ls Counts-Lineages/*.k12.txt | tawk 'BEGIN{while (getline < "LIST-Mycobacteria-final.txt") t[$1]=$2} {split($0,s,"[/.]"); if (s[2] in t) {type=t[s[2]]; ++counts[type]; what=(counts[type]%2)==1?"Train":"Test"; print $0; system("mkdir -p "what"/"type"; cp "$0" "what"/"type"/")}}'
 ```
 
-```
+```bash
 $ ls -d Train/*/ | awk '{print substr(gensub("Train/","",1),1,length($0)-7)}' | Parallel -l 1 -t 4 -- awk '{CLASS=$0; system("cat Train/"CLASS"/*.txt | KPopCountDB -f /dev/stdin -r \"~.\" -a "CLASS" -l "CLASS" -n -d -v --table-transform none -t "CLASS)}'
 ```
 
-```
+```bash
 $ cat M_*.KPopCounter.txt | KPopCountDB -f /dev/stdin -o Classes -v
 ```
 
-```
+```bash
 $ KPopTwist -i Classes -v
 ```
 
-```
+```bash
 $ ls -d Test/M_*/ | Parallel -l 1 -t 4 -- awk '{system("cat "$0"*.k12.txt | awk -F \047\\t\047 \047{if ($1==\"\") print $0\"\\001"substr($0,6,length($0)-6)"\"; else print}\047 | KPopTwistDB -i T Classes -k /dev/stdin -o t "substr($0,1,length($0)-1)" -v")}'
 ```
+Note that we annotate the name of each test sequence with its class, by adding to it a non-printable character `\001` followed by the class (`KPop` is fine with non-printable characters in labels, provided that they are not `\000`). We'll do the same below for the training sequences below, so as to be able to count the majority class when we use a *k*-NN approach.
 
 ###### Two-class workflow
 
-```
+```bash
 $ KPopTwistDB $(ls Test/*.KPopTwisted | awk '{split($0,s,"[.]"); printf " -a t "s[1]}') -o t Test -d Classes -o d Test-vs-Classes -s Test-vs-Classes -v
 ```
 
-```
-$ ls Test/*/*.k12.txt | tawk '{split($0,s,"[/.]"); t["\""s[3]"\""]="\""s[2]"\""} END{while (getline < "Test-vs-Classes.KPopSummary.txt") {printf $1"\t"t[$1]; for (i=2;i<=NF;++i) printf "\t"$i; printf "\n"}}' > RESULTS.txt
+```bash
+$ cat Test-vs-Classes.KPopSummary.txt | awk '{print gensub("\001","\"\t\"","g")}' > RESULTS-2C.txt
 ```
 
 ###### *k*-NN approach
 
-```
+In this case, we implement the classifier by using a *k*-NN approach, i.e. by performing a majority call among the *k* nearest neighbours found for each test sequence - the result is the class which is most represented in the *k* closest data points belonging to the training set. In order to be able to do so, we need to separately compute the twisted spectrum of each training sequence &mdash; we also collect them into a DB named `Train`:
+
+```bash
 $ ls -d Train/M_*/ | Parallel -l 1 -t 4 -- awk '{system("cat "$0"*.k12.txt | awk -F \047\\t\047 \047{if ($1==\"\") print $0\"\\001"substr($0,7,length($0)-7)"\"; else print}\047 | KPopTwistDB -i T Classes -k /dev/stdin -o t "substr($0,1,length($0)-1)" -v")}'
-```
-```
 $ KPopTwistDB $(ls Train/*.KPopTwisted | awk '{split($0,s,"[.]"); printf " -a t "s[1]}') -o t Train
+```
+
+```bash
 $ KPopTwistDB $(ls Test/*.KPopTwisted | awk '{split($0,s,"[.]"); printf " -a t "s[1]}') -o t Test -d Train -o d Test-vs-Train --keep-at-most 5 -s Test-vs-Train -v
 ```
+This produces the usual digest of the distance matrix containing, in this case, the 5 training sequences that are closest to the test sequence (we adopt a 5-NN classification approach in this example, but the number of neighbours could be different). However, we still have to parse the digest in order to compute how many of the nearest neighbours belong to the most frequent class, which translates into a slightly more complex script:
+
+```bash
+$ cat Test-vs-Train.KPopSummary.txt | awk '{print gensub("\001","\"\t\"","g")}' | awk '{delete c; delete o; n=0; for (i=8;i<=NF;i+=4) {++n; if (!($i in c)) o[length(c)+1]=$i; ++c[$i]} max=0; max_class=0; l=length(o); for (i=1;i<=l;++i) {if (c[o[i]]>max) {max=c[o[i]]; max_class=o[i]}} print $0"\t"max_class"\t"(max/n)}' > RESULTS-kNN.txt
 ```
-$ cat Test-vs-Train.KPopSummary.txt | awk '{print gensub("\001","\"\t\"","g")}' | awk '{delete c; delete o; n=0; for (i=8;i<=NF;i+=4) {++n; if (!($i in c)) o[length(c)+1]=$i; ++c[$i]} max=0; max_class=0; l=length(o); for (i=1;i<=l;++i) {if (c[o[i]]>max) {max=c[o[i]]; max_class=o[i]}} print $0"\t"max_class"\t"(max/n)}' > RESULTS.txt
-```
+Notably, we solve ties by selecting the class that appears first, i.e. which has a sequence that is closer to the test sequence.
 
 #### 4.1.3. Classifier for COVID-19 sequences (Hyena)
 
