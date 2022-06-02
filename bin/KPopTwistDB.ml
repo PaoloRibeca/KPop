@@ -231,11 +231,12 @@ module [@warning "-32"] KPopMatrix:
           let old_processed_rows = !processed_rows in
           processed_rows := !processed_rows + n_processed;
           if verbose && !processed_rows / 10000 > old_processed_rows / 10000 then
-            Printf.eprintf "\rWriting distance digest to file '%s': done %d/%d lines%!"
-              fname !processed_rows n_rows)
+            Printf.eprintf "\r(%s): Writing distance digest to file '%s': done %d/%d lines%!"
+              __FUNCTION__ fname !processed_rows n_rows)
         threads;
       if verbose then
-        Printf.eprintf "\rWriting distance digest to file '%s': done %d/%d lines.\n%!" fname n_rows n_rows;
+        Printf.eprintf "\r(%s): Writing distance digest to file '%s': done %d/%d lines.\n%!"
+          __FUNCTION__ fname n_rows n_rows;
       close_out output
     (* *)
     let archive_version = "2022-04-03"
