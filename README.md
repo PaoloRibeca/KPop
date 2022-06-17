@@ -3,7 +3,7 @@
 
 
 
-`KPop` is implemented for the most part in [OCaml](https://ocaml.org), an industry-strength programming language that offers a number of advantages &mdash; amazing concision and symbolic power, static typing, incredible robustness and superior compiled speed. Due mostly to historical, prototyping reasons, a small part of `KPoP` is still in R, although we hope to evntually migrate everything to OCaml. All programs, both OCaml and R, are parallelised and will automatically use as many CPUs as are available on your machine, in order to speed up the wallclock execution time of your tasks as much as possible.
+`KPop` is implemented for the most part in [OCaml](https://ocaml.org), an industry-strength programming language that offers a number of advantages &mdash; amazing concision and symbolic power, static typing, incredible robustness and superior compiled speed. Due mostly to historical, prototyping reasons, a small part of `KPoP` is still in R, although we hope to eventually migrate everything to OCaml. All programs, both OCaml and R, are parallelised and will automatically use as many CPUs as are available on your machine, in order to speed up the wallclock execution time of your tasks as much as possible.
 
 And finally, a note on computational resources. Depending on the problem at hand, `KPop` analysis can require a relatively large amount of them, memory in particular. That is a feature rather than a bug, i.e., a conscious design choice &mdash; it would be impossible to explore and leverage the power of full *k*-mer spectra otherwise. We recommend the use of a robustly sized HPC node (at least 16 CPU cores and 256 GB of RAM) as a starting point for exploration of datasets with millions of sequences &mdash; bacterial datasets with a few thousand sequences will require less resources. Not everything is expensive &mdash; for instance, similar to what happens with other big-data frameworks, the "training" phase needed to create `KPop`-based classifiers will typically be resource-intensive, but in most cases the classifiers can then be run on commodity machines.
 
@@ -27,9 +27,11 @@ And finally, a note on computational resources. Depending on the problem at hand
 
 ## 1. Installation
 
-There are several ways of installing the software on your machine:
-
 > :warning: Note that the only operating system we support is Linux. :warning:
+>
+> Both OCaml and R are highly portable and you might be able to manually compile/install everything successfully on other platforms (for instance, Mac) but you will have to do it yourself. 
+
+There are several possible ways of installing the software on your machine: through `conda`; by downloading pre-compiled binaries (Linux x86_64 only); or manually.
 
 ### Conda channel
 
@@ -49,6 +51,12 @@ $ . BUILD
 ```
 
 That should generate all the executables you'll need (as of this writing, `Parallel`, `KPopCount`, `KPopCounterDB`, `kPopTwist`, `KPopTwist`, `KPopTwistDB`). Copy them to some favourite location in your PATH, for instance `~/.local/bin`.
+
+For the time being, due to the presence of some legacy code, you will also need to install some R packages (and possibly R itself) by using your favourite R package manager. Those packages are:
+```
+data.table
+ca
+```
 
 ## 2. Overview
 
