@@ -2,7 +2,7 @@ open BiOCamLib
 
 module KMerCounter (KMH: KMer.KMerHash with type t = int):
   sig
-    val compute: ?verbose:bool -> KMer.ReadStore.t -> int -> string -> string -> unit
+    val compute: ?verbose:bool -> KMer.ReadFiles.t -> int -> string -> string -> unit
   end
 = struct
     let compute ?(verbose = false) store max_results_size label fname =
@@ -15,7 +15,7 @@ module KMerCounter (KMH: KMer.KMerHash with type t = int):
       Printf.fprintf output "\t%s\n" label;
       let output_format = Scanf.format_from_string (Printf.sprintf "%%0%dx\t%%d\n" ((KMH.k + 1) / 2)) "%d%d" in
       let reads_cntr = ref 0 and res = KMer.IntHashtbl.create max_results_size in
-      KMer.ReadStore.iter
+      KMer.ReadFiles.iter
         (fun _ segm_id read ->
           KMH.iter
             (fun hash occs ->
@@ -94,7 +94,7 @@ module Parameters =
     let verbose = ref Defaults.verbose
   end
 
-let version = "0.4"
+let version = "0.5"
 
 let header =
   Printf.sprintf begin
@@ -104,7 +104,6 @@ let header =
 
 let _ =
   let module TA = Tools.Argv in
-  let module RS = KMer.ReadStore in
   TA.set_header header;
   TA.set_synopsis "-l|--label <output_vector_label> [OPTIONS]";
   TA.parse [
@@ -132,12 +131,12 @@ let _ =
       Some "<fasta_file_name>",
       [ "FASTA input file containing sequences" ],
       TA.Optional,
-      (fun _ -> RS.FASTA (TA.get_parameter ()) |> Tools.List.accum Parameters.inputs);
+      (fun _ -> KMer.ReadFiles.FASTA (TA.get_parameter ()) |> Tools.List.accum Parameters.inputs);
     [ "-s"; "-S"; "--single-end" ],
       Some "<fastq_file_name>",
       [ "FASTQ input file containing single-end sequencing reads" ],
       TA.Optional,
-      (fun _ -> RS.SingleEndFASTQ (TA.get_parameter ()) |> Tools.List.accum Parameters.inputs);
+      (fun _ -> KMer.ReadFiles.SingleEndFASTQ (TA.get_parameter ()) |> Tools.List.accum Parameters.inputs);
     [ "-p"; "-P"; "--paired-end" ],
       Some "<fastq_file_name1> <fastq_file_name2>",
       [ "FASTQ input files containing paired-end sequencing reads" ],
@@ -145,7 +144,7 @@ let _ =
       (fun _ ->
         let name1 = TA.get_parameter () in
         let name2 = TA.get_parameter () in
-        RS.PairedEndFASTQ (name1, name2) |> Tools.List.accum Parameters.inputs);
+        KMer.ReadFiles.PairedEndFASTQ (name1, name2) |> Tools.List.accum Parameters.inputs);
     [ "-l"; "--label" ],
       Some "<output_vector_label>",
       [ "label of the k-mer vector in the output file" ],
@@ -182,9 +181,9 @@ let _ =
   let module KMCP = KMerCounter (KMer.ProteinEncodingHash (struct let value = !Parameters.k end)) in
   Parameters.inputs := List.rev !Parameters.inputs;
   if !Parameters.inputs <> [] then begin
-    let store = ref RS.empty in
+    let store = ref KMer.ReadFiles.empty in
     List.iter
-      (fun input -> store := RS.add_from_files ~verbose:!Parameters.verbose !store input)
+      (fun input -> store := KMer.ReadFiles.add_from_files !store input)
       !Parameters.inputs;
     begin match !Parameters.content with
     | DNA -> KMCD.compute

@@ -1,22 +1,22 @@
 (lang dune 3.0)
 
-(name BiOCamLib)
+(name KPop)
 
 (generate_opam_files true)
 
 (source
- (github username/reponame))
+ (github PaoloRibeca/KPop))
 
-(authors "Author Name")
+(authors "Paolo Ribeca")
 
-(maintainers "Maintainer Name")
+(maintainers "Paolo Ribeca")
 
 (license LICENSE)
 
 (documentation https://url/to/documentation)
 
 (package
- (name BiOCamLib)
+ (name KPop)
  (synopsis "A short synopsis")
  (description "A longer description")
  (depends ocaml dune)

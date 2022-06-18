@@ -1,3 +1,3 @@
 (library
- (public_name BiOCamLib)
- (name BiOCamLib))
+ (public_name KPop)
+ (name KPop))
