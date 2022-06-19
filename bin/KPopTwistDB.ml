@@ -14,6 +14,7 @@
 *)
 
 open BiOCamLib
+open KPop
 
 module [@warning "-32"] KPopMatrix:
   sig

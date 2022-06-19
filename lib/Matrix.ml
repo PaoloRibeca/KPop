@@ -13,6 +13,8 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 *)
 
+open BiOCamLib
+
 module Misc =
   struct
     let _resize_array_ length make blit a idx =
@@ -525,6 +527,61 @@ include (
         storage = storage }
     module NearestNeighbor =
       struct
+        (* These are column statistics *)
+        module Statistics =
+          struct
+            type t = {
+              min: float;
+              max: float;
+              sum: float
+            }
+            let empty = {
+              min = 0.;
+              max = 0.;
+              sum = 0.
+            }
+            let [@warning "-32"] compute ?(threads = 1) ?(verbose = false) m =
+              (* Column n *)
+              let compute_one n =
+                let min = ref 0. and max = ref 0. and sum = ref 0.
+                and red_len = Array.length m.idx_to_row_names - 1 in
+                for i = 0 to red_len do
+                  let v = Float.Array.get m.storage.(i) n in
+                  min := Stdlib.min !min v;
+                  max := Stdlib.max !max v;
+                  sum := !sum +. v
+                done;
+                { min = !min;
+                  max = !max;
+                  sum = !sum } in
+              let n = Array.length m.idx_to_col_names in
+              let step = n / threads / 5 |> max 1 and processed = ref 0 and res = Array.make n empty in
+              Tools.Parallel.process_stream_chunkwise
+                (fun () ->
+                  if verbose then
+                    Printf.eprintf "\rComputing column statistics [%d/%d]%!" !processed n;
+                  let to_do = n - !processed in
+                  if to_do > 0 then begin
+                    let to_do = min to_do step in
+                    let res = !processed, to_do in
+                    processed := !processed + to_do;
+                    res
+                  end else
+                    raise End_of_file)
+                (fun (processed, to_do) ->
+                  let res = ref [] and red_to_do = to_do - 1 in
+                  for i = 0 to red_to_do do
+                    processed + i |> compute_one |> Tools.List.accum res
+                  done;
+                  processed, List.rev !res)
+                (fun (base, stats) ->
+                  List.iteri
+                    (fun i s ->
+                      res.(base + i) <- s)
+                    stats)
+                threads;
+              res
+          end
         module Preconditioner =
           struct
             type t
@@ -537,11 +594,14 @@ include (
 
 
         }
-        let make_rowwise dist metr precond rowwise =
+        let [@warning "-27"] make_rowwise dist metr precond rowwise =
+          (* Input has sample names as rows, dimensions as columns.
+             Output is one specific dimension selected according to the preconditioner,
+              and an interator built upon it *)
 
-          ()
+          { vectors = StringMap.empty }
 
-        let find_and_replace ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) nn f =
+        let [@warning "-27"] find_and_replace ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) nn f =
 
 
           ()

@@ -13,6 +13,8 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 *)
 
+open BiOCamLib
+
 (* A number of distance functions.
    They all have signature: float array -> float array -> float array -> float *)
 module Distance:
