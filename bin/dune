@@ -1,8 +1,13 @@
+(env
+  (dev
+    (ocamlopt_flags (:standard -O3 -ccopt -O3)))
+  (release
+    (ocamlopt_flags (:standard -O3 -ccopt -O3 -ccopt -static))))
+
 (executables
  (public_names KPopCount KPopCountDB kPopTwist KPopTwistDB)
  (names KPopCount KPopCountDB kPopTwist KPopTwistDB)
- (libraries str unix BiOCamLib KPop)
- (ocamlopt_flags (:standard -O3 -ccopt -O3 -ccopt -static)))
+ (libraries str unix BiOCamLib KPop))
 
 (install
  (section bin)

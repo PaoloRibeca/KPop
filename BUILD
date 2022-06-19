@@ -1,13 +1,22 @@
 #!/bin/sh
 
-# You might need to change this first line depending on your installation
-rm -f BiOCamLib
-ln -s ../BiOCamLib
+#####################################################################
+# You might need to change this line depending on your installation #
+BIOCAMLIB_PATH=../BiOCamLib
+#####################################################################
 
-dune build bin/KPopCount.exe
-dune build bin/KPopCountDB.exe
-dune build bin/kPopTwist.exe
-dune build bin/KPopTwistDB.exe
+rm -f BiOCamLib
+ln -s "$BIOCAMLIB_PATH" BiOCamLib
+
+PROFILE="$1"
+if [ -z "$PROFILE" ]; then
+  PROFILE="dev"
+fi
+
+dune build --profile="$PROFILE" bin/KPopCount.exe
+dune build --profile="$PROFILE" bin/KPopCountDB.exe
+dune build --profile="$PROFILE" bin/kPopTwist.exe
+dune build --profile="$PROFILE" bin/KPopTwistDB.exe
 
 chmod 755 _build/default/bin/KPopCount.exe _build/default/bin/KPopCountDB.exe _build/default/bin/kPopTwist.exe _build/default/bin/KPopTwistDB.exe
 
