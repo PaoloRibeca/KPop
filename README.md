@@ -16,7 +16,6 @@ And finally, a note on computational resources. Depending on the problem at hand
 &emsp; [3.2. `KPopCountDB`](#32-kpopcountdb)<br>
 &emsp; [3.3. `KPopTwist`](#33-kpoptwist)<br>
 &emsp; [3.4. `KPopTwistDB`](#34-kpoptwistdb)<br>
-&emsp; [3.5. `Parallel`](#35-parallel)<br>
 [4. Examples](#4-examples)<br>
 &emsp; [4.1. Sequence classification](#41-sequence-classification)<br>
 &emsp; &emsp; [4.1.1. Classifier for simulated COVID-19 sequencing reads](#411-classifier-for-simulated-covid-19-sequencing-reads)<br>
@@ -35,22 +34,26 @@ There are several possible ways of installing the software on your machine: thro
 
 ### Conda channel
 
+> :construction: Coming soon! :construction:
+
 ### Pre-compiled binaries 
 
-### Manual compilation
+### Manual install
 
-Alternatively, you can install `KPop` manually by compiling its sources. You will need an up-to-date distribution of the OCaml compiler and the [Dune package manager](https://github.com/ocaml/dune) for that. Both can be installed through [OPAM](https://opam.ocaml.org/), the official OCaml distribution system. Once you have a working OPAM distribution you will also have a working OCaml compiler, and Dune can be installed with the command
+Alternatively, you can install `KPop` manually by cloning and compiling its sources. You will need an up-to-date distribution of the OCaml compiler and the [Dune package manager](https://github.com/ocaml/dune) for that. Both can be installed through [OPAM](https://opam.ocaml.org/), the official OCaml distribution system. Once you have a working OPAM distribution you will also have a working OCaml compiler, and Dune can be installed with the command
 ```
 $ opam install dune
 ```
 if it is not already present. Make sure that you install OCaml version 4.12 or later.
 
+You will also need a copy of the sources for the [BiOCamLib library](https://github.com/PaoloRibeca/BiOCamLib). We'll assume that you have cloned the repository in the directory `../BiOCamLib` with respect to the `KPop` sources; you'll have to modify the file `BUILD` in the `KPop` directory if that is not the case.
+
 Then go to the directory into which you have downloaded the latest `KPop` sources, and type
 ```
-$ . BUILD
+$ ./BUILD
 ```
 
-That should generate all the executables you'll need (as of this writing, `Parallel`, `KPopCount`, `KPopCounterDB`, `kPopTwist`, `KPopTwist`, `KPopTwistDB`). Copy them to some favourite location in your PATH, for instance `~/.local/bin`.
+That should generate all the executables you'll need (as of this writing, `KPopCount`, `KPopCounterDB`, `kPopTwist`, `KPopTwist`, `KPopTwistDB`). Copy them to some favourite location in your PATH, for instance `~/.local/bin`.
 
 For the time being, due to the presence of some legacy code, you will also need to install some R packages (and possibly R itself) by using your favourite R package manager. Those packages are:
 ```
@@ -224,42 +227,6 @@ Miscellaneous \(executed immediately\):
 |-|-|-|-|
 | `-T`<br>`--threads` | _&lt;computing\_threads&gt;_ |  number of concurrent computing threads to be spawned  \(default automatically detected from your configuration\) | <ins>default=<mark>_nproc_</mark></ins> |
 | `-v`<br>`--verbose` |  |  set verbose execution | <ins>default=<mark>_false_</mark></ins> |
-| `-h`<br>`--help` |  |  print syntax and exit |  |
-
-### 3.5. `Parallel`
-
-This is the list of command line options available for the program `Parallel`. You can visualise the list by typing
-```bash
-$ Parallel -h
-```
-in your terminal. You will see a header containing information about the version:
-```
-This is the Parallel program (version 0.3)
- (c) 2019-2022 Paolo Ribeca, <paolo.ribeca@gmail.com>
-```
-followed by detailed information. The general form(s) the command can be used is:
-```
-Parallel [OPTIONS] -- [COMMAND TO PARALLELIZE AND ITS OPTIONS]
-```
-
-Command to parallelize
-| Option | Argument(s) | Effect | Note(s) |
-|-|-|-|-|
-| `--` |  |  consider all the subsequent parameters as the command to be executed in parallel\.<br>At least one command must be specified | *(mandatory)* |
-
-Input/Output
-| Option | Argument(s) | Effect | Note(s) |
-|-|-|-|-|
-| `-l`<br>`--lines-per-block` | _&lt;positive\_integer&gt;_ |  number of lines to be processed per block | <ins>default=<mark>_10000_</mark></ins> |
-| `-i`<br>`--input` | _&lt;input\_file&gt;_ |  name of input file | <ins>default=<mark>_stdin_</mark></ins> |
-| `-o`<br>`--output` | _&lt;output\_file&gt;_ |  name of output file | <ins>default=<mark>_stdout_</mark></ins> |
-
-Miscellaneous
-| Option | Argument(s) | Effect | Note(s) |
-|-|-|-|-|
-| `-t`<br>`--threads` | _&lt;positive\_integer&gt;_ |  number of concurrent computing threads to be spawned  \(default automatically detected from your configuration\) | <ins>default=<mark>_nproc_</mark></ins> |
-| `-v`<br>`--verbose` |  |  set verbose execution | <ins>default=<mark>_false_</mark></ins> |
-| `-d`<br>`--debug` |  |  output debugging information | <ins>default=<mark>_false_</mark></ins> |
 | `-h`<br>`--help` |  |  print syntax and exit |  |
 
 ## 4. Examples
@@ -758,4 +725,4 @@ That generates a database containing
 
 ### 4.3. Pseudo-phylogenetic trees
 
-
+> :construction: Coming soon! :construction:
