@@ -40,13 +40,13 @@ There are several possible ways of installing the software on your machine: thro
 
 ### Manual install
 
-Alternatively, you can install `KPop` manually by cloning and compiling its sources. You will need an up-to-date distribution of the OCaml compiler and the [Dune package manager](https://github.com/ocaml/dune) for that. Both can be installed through [OPAM](https://opam.ocaml.org/), the official OCaml distribution system. Once you have a working OPAM distribution you will also have a working OCaml compiler, and Dune can be installed with the command
+Alternatively, you can install `KPop` manually by cloning and compiling its sources. You'll need an up-to-date distribution of the OCaml compiler and the [Dune package manager](https://github.com/ocaml/dune) for that. Both can be installed through [OPAM](https://opam.ocaml.org/), the official OCaml distribution system. Once you have a working OPAM distribution you'll also have a working OCaml compiler, and Dune can be installed with the command
 ```
 $ opam install dune
 ```
 if it is not already present. Make sure that you install OCaml version 4.12 or later.
 
-You will also need a copy of the sources for the [BiOCamLib library](https://github.com/PaoloRibeca/BiOCamLib). We'll assume that you have cloned the repository in the directory `../BiOCamLib` with respect to the `KPop` sources; you'll have to modify the file `BUILD` in the `KPop` directory if that is not the case.
+You'll also need a copy of the sources for the [BiOCamLib library](https://github.com/PaoloRibeca/BiOCamLib). We'll assume that you have cloned the repository in the directory `../BiOCamLib` with respect to the `KPop` sources; you'll have to modify the file `BUILD` in the `KPop` directory if that is not the case.
 
 Then go to the directory into which you have downloaded the latest `KPop` sources, and type
 ```
@@ -55,7 +55,7 @@ $ ./BUILD
 
 That should generate all the executables you'll need (as of this writing, `KPopCount`, `KPopCounterDB`, `kPopTwist`, `KPopTwist`, `KPopTwistDB`). Copy them to some favourite location in your PATH, for instance `~/.local/bin`.
 
-For the time being, due to the presence of some legacy code, you will also need to install some R packages (and possibly R itself) by using your favourite R package manager. Those packages are:
+For the time being, due to the presence of some legacy code, you'll also need to install some R packages (and possibly R itself) by using your favourite R package manager. Those packages are:
 ```
 data.table
 ca
