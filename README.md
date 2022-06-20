@@ -10,7 +10,10 @@ And finally, a note on computational resources. Depending on the problem at hand
 ## Table of contents
 
 [1. Installation](#1-installation)<br>
-[2. Overview](#2-overview)<br>
+&emsp; [1.1. Conda channel](#11-conda-channel)<br>
+&emsp; [1.2. Pre-compiled binaries](#12-pre-compiled-binaries)<br>
+&emsp; [1.3. Manual install](#13-manual-install)<br>
+[2. Overview of commands](#2-overview-of-commands)<br>
 [3. Command line syntax](#3-command-line-syntax)<br>
 &emsp; [3.1. `KPopCount`](#31-kpopcount)<br>
 &emsp; [3.2. `KPopCountDB`](#32-kpopcountdb)<br>
@@ -32,13 +35,13 @@ And finally, a note on computational resources. Depending on the problem at hand
 
 There are several possible ways of installing the software on your machine: through `conda`; by downloading pre-compiled binaries (Linux x86_64 only); or manually.
 
-### Conda channel
+### 1.1. Conda channel
 
 > :construction: Coming soon! :construction:
 
-### Pre-compiled binaries 
+### 1.2. Pre-compiled binaries 
 
-### Manual install
+### 1.3. Manual install
 
 Alternatively, you can install `KPop` manually by cloning and compiling its sources. You'll need an up-to-date distribution of the OCaml compiler and the [Dune package manager](https://github.com/ocaml/dune) for that. Both can be installed through [OPAM](https://opam.ocaml.org/), the official OCaml distribution system. Once you have a working OPAM distribution you'll also have a working OCaml compiler, and Dune can be installed with the command
 ```
@@ -61,7 +64,7 @@ data.table
 ca
 ```
 
-## 2. Overview
+## 2. Overview of commands
 
 `KPop` comes as a number of different programs, each one
 
