@@ -590,7 +590,7 @@ module Parameters =
     let verbose = ref Defaults.verbose
   end
 
-let version = "0.15"
+let version = "0.16"
 
 let header =
   Printf.sprintf begin
@@ -600,12 +600,10 @@ let header =
 
 let _ =
   let module TA = Tools.Argv in
-  let module TS = Tools.Split in
-  let module TL = Tools.List in
   TA.set_header header;
   TA.set_synopsis "[ACTIONS]";
   TA.parse [
-    [], None, [ "Actions (executed delayed and in order of specification):" ], TA.Optional, (fun _ -> ());
+    TA.make_separator "Actions (executed delayed and in order of specification)";
     [ "-e"; "--empty" ],
       Some "T|t|d",
       [ "load an empty twisted database into the specified register";
@@ -616,7 +614,7 @@ let _ =
         | Metrics ->
           TA.parse_error "You cannot load content into the metrics register"
         | Twister | Twisted | Distances as register_type ->
-          Empty register_type |> TL.accum Parameters.program);
+          Empty register_type |> Tools.List.accum Parameters.program);
     [ "-i"; "--input" ],
       Some "T|t|d <binary_file_prefix>",
       [ "load the specified binary database into the specified register";
@@ -629,7 +627,7 @@ let _ =
         | Metrics ->
           TA.parse_error "You cannot load content into the metrics register"
         | Twister | Twisted | Distances as register_type ->
-          Binary_to_register (register_type, TA.get_parameter ()) |> TL.accum Parameters.program);
+          Binary_to_register (register_type, TA.get_parameter ()) |> Tools.List.accum Parameters.program);
     [ "-I"; "--Input" ],
       Some "T|t|d <table_file_prefix>",
       [ "load the specified tabular database(s) into the specified register";
@@ -643,7 +641,7 @@ let _ =
         | Metrics ->
           TA.parse_error "You cannot load content into the metrics register"
         | Twister | Twisted | Distances as register_type ->
-          Tables_to_register (register_type, TA.get_parameter ()) |> TL.accum Parameters.program);
+          Tables_to_register (register_type, TA.get_parameter ()) |> Tools.List.accum Parameters.program);
     [ "-a"; "--add" ],
       Some "t|d <binary_file_prefix>",
       [ "add the contents of the specified binary database to the specified register";
@@ -656,7 +654,7 @@ let _ =
         | Twister | Metrics ->
           TA.parse_error "You cannot add content to the twister or metrics registers"
         | Twisted | Distances as register_type ->
-          Add_binary_to_register (register_type, TA.get_parameter ()) |> TL.accum Parameters.program);
+          Add_binary_to_register (register_type, TA.get_parameter ()) |> Tools.List.accum Parameters.program);
     [ "-A"; "--Add" ],
       Some "t|d <table_file_prefix>",
       [ "add the contents of the specified tabular database to the specified register";
@@ -669,7 +667,7 @@ let _ =
         | Twister | Metrics ->
           TA.parse_error "You cannot add content to the twister or metrics registers"
         | Twisted | Distances as register_type ->
-          Add_tables_to_register (register_type, TA.get_parameter ()) |> TL.accum Parameters.program);
+          Add_tables_to_register (register_type, TA.get_parameter ()) |> Tools.List.accum Parameters.program);
     [ "-k"; "-K"; "--kmers"; "--add-kmers"; "--add-kmer-files" ],
       Some "<k-mer_table_file_name>[','...','<k-mer_table_file_name>]",
       [ "twist k-mers from the specified files through the transformation";
@@ -677,13 +675,14 @@ let _ =
         "to the database present in the twisted register" ],
       TA.Optional,
       (fun _ ->
-        Add_kmer_files_to_twisted (TA.get_parameter () |> TS.on_char_as_list ',') |> TL.accum Parameters.program);
+        Add_kmer_files_to_twisted
+          (TA.get_parameter () |> Tools.Split.on_char_as_list ',') |> Tools.List.accum Parameters.program);
     [ "--distance"; "--distance-function"; "--set-distance"; "--set-distance-function" ],
       Some "'euclidean'|'minkowski(<non_negative_float>)'",
       [ "set the function to be used when computing distances.";
         "The parameter for Minkowski is the power" ],
       TA.Default (fun () -> Space.Distance.to_string Defaults.distance),
-      (fun _ -> Set_distance (TA.get_parameter () |> Space.Distance.of_string) |> TL.accum Parameters.program);
+      (fun _ -> Set_distance (TA.get_parameter () |> Space.Distance.of_string) |> Tools.List.accum Parameters.program);
     [ "-m"; "--metric"; "--metric-function"; "--set-metric"; "--set-metric-function" ],
       Some "'flat'|'power('<non_negative_float>')'|'sigmoid('SIGMOID_PARAMETERS')'",
       [ "where SIGMOID_PARAMETERS :=";
@@ -693,7 +692,8 @@ let _ =
         "Parameters are:";
         " power; thresholding multiplier; left and right sigmoid tightnesses." ],
       TA.Default (fun () -> Space.Distance.Metric.to_string Defaults.metric),
-      (fun _ -> Set_metric (TA.get_parameter () |> Space.Distance.Metric.of_string) |> TL.accum Parameters.program);
+      (fun _ ->
+        Set_metric (TA.get_parameter () |> Space.Distance.Metric.of_string) |> Tools.List.accum Parameters.program);
     [ "-d"; "--distances"; "--compute-distances"; "--compute-distances-twisted" ],
       Some "<twisted_binary_file_prefix>",
       [ "compute distances between all the vectors present in the twisted register";
@@ -701,7 +701,7 @@ let _ =
         " (which must have extension .KPopTwisted).";
         "The result will be placed in the distance register" ],
       TA.Optional,
-      (fun _ -> Distances_from_twisted_binary (TA.get_parameter ()) |> TL.accum Parameters.program);
+      (fun _ -> Distances_from_twisted_binary (TA.get_parameter ()) |> Tools.List.accum Parameters.program);
     [ "-o"; "--output" ],
       Some "T|t|d <binary_file_prefix>",
       [ "dump the database present in the specified register";
@@ -714,12 +714,12 @@ let _ =
         | Metrics ->
           TA.parse_error "You cannot output binary content from the metrics registers"
         | Twister | Twisted | Distances as register_type ->
-          Register_to_binary (register_type, TA.get_parameter ()) |> TL.accum Parameters.program);
+          Register_to_binary (register_type, TA.get_parameter ()) |> Tools.List.accum Parameters.program);
     [ "--precision"; "--set-precision"; "--set-table-precision" ],
       Some "<positive_integer>",
       [ "set the number of precision digits to be used when outputting numbers" ],
       TA.Default (fun () -> string_of_int Defaults.precision),
-      (fun _ -> Set_precision (TA.get_parameter_int_pos ()) |> TL.accum Parameters.program);
+      (fun _ -> Set_precision (TA.get_parameter_int_pos ()) |> Tools.List.accum Parameters.program);
     [ "-O"; "--Output" ],
       Some "T|t|d|m <table_file_prefix>",
       [ "dump the database present in the specified register";
@@ -730,14 +730,14 @@ let _ =
       TA.Optional,
       (fun _ ->
         let register_type = TA.get_parameter () |> RegisterType.of_string in
-        Register_to_tables (register_type, TA.get_parameter ()) |> TL.accum Parameters.program);
+        Register_to_tables (register_type, TA.get_parameter ()) |> Tools.List.accum Parameters.program);
     [ "--keep-at-most"; "--set-keep-at-most"; "--summary-keep-at-most" ],
       Some "<positive_integer>|all",
       [ "set the maximum number of closest target sequences";
         "to be kept when summarizing distances" ],
       TA.Default
         (fun () -> KeepAtMost.to_string Defaults.keep_at_most),
-      (fun _ -> Set_keep_at_most (TA.get_parameter () |> KeepAtMost.of_string) |> TL.accum Parameters.program);
+      (fun _ -> Set_keep_at_most (TA.get_parameter () |> KeepAtMost.of_string) |> Tools.List.accum Parameters.program);
     [ "-s"; "--summarize-distances" ],
       Some "<summary_file_prefix>",
       [ "summarize the distances present in the distance register";
@@ -745,8 +745,8 @@ let _ =
         "File extension will be automatically determined";
         " (will be .KPopSummary.txt)" ],
       TA.Optional,
-      (fun _ -> Distances_summary (TA.get_parameter ()) |> TL.accum Parameters.program);
-    [], None, [ "Miscellaneous (executed immediately):" ], TA.Optional, (fun _ -> ());
+      (fun _ -> Distances_summary (TA.get_parameter ()) |> Tools.List.accum Parameters.program);
+    TA.make_separator "Miscellaneous (executed immediately)";
     [ "-T"; "--threads" ],
       Some "<computing_threads>",
       [ "number of concurrent computing threads to be spawned";

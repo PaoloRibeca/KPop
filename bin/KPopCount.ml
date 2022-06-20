@@ -107,7 +107,7 @@ let _ =
   TA.set_header header;
   TA.set_synopsis "-l|--label <output_vector_label> [OPTIONS]";
   TA.parse [
-    [], None, [ "Algorithmic parameters:" ], TA.Optional, (fun _ -> ());
+    TA.make_separator "Algorithmic parameters";
     [ "-k"; "-K"; "--k-mer-size"; "--k-mer-length" ],
       Some "<k_mer_length>",
       [ "k-mer length"; "(must be positive, and <= 30 for DNA or <= 12 for protein)" ],
@@ -121,7 +121,7 @@ let _ =
         "repeated signatures in the output" ],
       TA.Default (fun () -> string_of_int !Parameters.max_results_size),
       (fun _ -> Parameters.max_results_size := TA.get_parameter_int_pos ());
-    [], None, [ "Input/Output:" ], TA.Optional, (fun _ -> ());
+    TA.make_separator "Input/Output";
     [ "-c"; "-C"; "--content"; "--mode" ],
       Some "'DNA'|'protein'",
       [ "how file contents should be interpreted" ],
@@ -155,7 +155,7 @@ let _ =
       [ "name of generated output file" ],
       TA.Default (fun () -> if !Parameters.output = "" then "<stdout>" else !Parameters.output),
       (fun _ -> Parameters.output := TA.get_parameter() );
-    [], None, [ "Miscellaneous:" ], TA.Optional, (fun _ -> ());
+    TA.make_separator "Miscellaneous";
 (*
     [ "-t"; "-T"; "--threads" ],
       Some "<computing_threads>",

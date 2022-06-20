@@ -1044,7 +1044,7 @@ module Parameters =
     let verbose = ref Defaults.verbose
   end
 
-let version = "0.27"
+let version = "0.28"
 
 let header =
   Printf.sprintf begin
@@ -1054,38 +1054,37 @@ let header =
 
 let _ =
   let module TA = Tools.Argv in
-  let module TS = Tools.Split in
-  let module TL = Tools.List in
   TA.set_header header;
   TA.set_synopsis "[ACTIONS]";
   TA.parse [
-    [], None, [ "Actions (executed delayed and in order of specification):" ], TA.Optional, (fun _ -> ());
+    TA.make_separator "Actions (executed delayed and in order of specification)";
     [ "-e"; "-E"; "--empty" ],
       None,
       [ "put an empty database into the register" ],
       TA.Optional,
-      (fun _ -> Empty |> TL.accum Parameters.program);
+      (fun _ -> Empty |> Tools.List.accum Parameters.program);
     [ "-i"; "-I"; "--input" ],
       Some "<binary_file_prefix>",
       [ "load to the register the database present in the specified file";
         " (which must have extension .KPopCounter)" ],
       TA.Optional,
-      (fun _ -> Of_file (TA.get_parameter () |> KMerDB.make_filename_binary) |> TL.accum Parameters.program);
+      (fun _ -> Of_file (TA.get_parameter () |> KMerDB.make_filename_binary) |> Tools.List.accum Parameters.program);
     [ "-m"; "-M"; "--metadata"; "--add-metadata" ],
       Some "<metadata_table_file_name>",
       [ "add to the database present in the register metadata from the specified file" ],
       TA.Optional,
-      (fun _ -> Add_meta (TA.get_parameter ()) |> TL.accum Parameters.program);
+      (fun _ -> Add_meta (TA.get_parameter ()) |> Tools.List.accum Parameters.program);
     [ "-f"; "-F"; "--files"; "--add-files" ],
       Some "<k-mer_table_file_name>[','...','<k-mer_table_file_name>]",
       [ "add to the database present in the register k-mers from the specified files" ],
       TA.Optional,
-      (fun _ -> Add_files (TA.get_parameter () |> TS.on_char_as_list ',') |> TL.accum Parameters.program);
+      (fun _ ->
+        Add_files (TA.get_parameter () |> Tools.Split.on_char_as_list ',') |> Tools.List.accum Parameters.program);
     [ "--summary" ],
       None,
       [ "print a summary of the database present in the register" ],
       TA.Optional,
-      (fun _ -> Summary |> TL.accum Parameters.program);
+      (fun _ -> Summary |> Tools.List.accum Parameters.program);
     [ "-l"; "-L"; "--labels"; "--selection-from-labels" ],
       Some "<vector_label>[','...','<vector_label>]",
       [ "put into the selection register the specified labels" ],
@@ -1093,8 +1092,8 @@ let _ =
       (fun _ ->
         let labels = TA.get_parameter () in
         if labels <> "" then
-        Selected_from_labels (labels |> TS.on_char_as_list ',' |> StringSet.of_list)
-          |> TL.accum Parameters.program);
+        Selected_from_labels (labels |> Tools.Split.on_char_as_list ',' |> StringSet.of_list)
+          |> Tools.List.accum Parameters.program);
     [ "-r"; "-R"; "--regexps"; "--selection-from-regexps" ],
       Some "<metadata_field>'~'<regexp>[','...','<metadata_field>'~'<regexp>]",
       [ "put into the selection register the labels of the vectors";
@@ -1105,7 +1104,7 @@ let _ =
         Selected_from_regexps begin
           List.map
             (fun l ->
-              let res = TS.on_char_as_list '~' l in
+              let res = Tools.Split.on_char_as_list '~' l in
               if List.length res <> 2 then begin
                 TA.usage ();
                 List.length res |>
@@ -1113,58 +1112,58 @@ let _ =
                   TA.parse_error (* parse_error exits the program *)
               end;
               List.nth res 0, List.nth res 1 |> Str.regexp)
-            (TA.get_parameter () |> TS.on_char_as_list ',')
-        end |> TL.accum Parameters.program);
+            (TA.get_parameter () |> Tools.Split.on_char_as_list ',')
+        end |> Tools.List.accum Parameters.program);
     [ "-a"; "-A"; "--add-sum-selection"; "--selection-add-sum" ],
       Some "<new_vector_label>",
       [ "add to the database present in the register (or replace if the new label exists)";
         "a linear combination of the vectors whose labels are in the selection register" ],
       TA.Optional,
-      (fun _ -> Add_sum_selected (TA.get_parameter ()) |> TL.accum Parameters.program);
+      (fun _ -> Add_sum_selected (TA.get_parameter ()) |> Tools.List.accum Parameters.program);
     [ "-d"; "-D"; "--delete"; "--selection-remove" ],
       None,
       [ "remove from the table the vectors whose labels are in the selection register" ],
       TA.Optional,
-      (fun _ -> Remove_selected |> TL.accum Parameters.program);
+      (fun _ -> Remove_selected |> Tools.List.accum Parameters.program);
     [ "-n"; "-N"; "--selection-negate" ],
       None,
       [ "negate the labels that are present in the selection register" ],
       TA.Optional,
-      (fun _ -> Selected_negate |> TL.accum Parameters.program);
+      (fun _ -> Selected_negate |> Tools.List.accum Parameters.program);
     [ "-p"; "-P"; "--selection-print" ],
       None,
       [ "print the labels that are present in the selection register" ],
       TA.Optional,
-      (fun _ -> Selected_print |> TL.accum Parameters.program);
+      (fun _ -> Selected_print |> Tools.List.accum Parameters.program);
     [ "-c"; "-C"; "--selection-clear" ],
       None,
       [ "purges the selection register" ],
       TA.Optional,
-      (fun _ -> Selected_clear |> TL.accum Parameters.program);
+      (fun _ -> Selected_clear |> Tools.List.accum Parameters.program);
     [ "-s"; "-S"; "--selection-to-table-filter" ],
       None,
       [ "filters out vectors whose labels are present in the selection register";
         "when writing the database as a tab-separated file" ],
       TA.Optional,
-      (fun _ -> Selected_to_filter |> TL.accum Parameters.program);
+      (fun _ -> Selected_to_filter |> Tools.List.accum Parameters.program);
     [ "--table-emit-row-names" ],
       Some "'true'|'false'",
       [ "whether to emit row names for the database present in the register";
         "when writing it as a tab-separated file" ],
       TA.Default (fun () -> string_of_bool Defaults.filter.print_row_names),
-      (fun _ -> Table_emit_row_names (TA.get_parameter_boolean ()) |> TL.accum Parameters.program);
+      (fun _ -> Table_emit_row_names (TA.get_parameter_boolean ()) |> Tools.List.accum Parameters.program);
     [ "--table-emit-col-names" ],
       Some "'true'|'false'",
       [ "whether to emit column names for the database present in the register";
         "when writing it as a tab-separated file" ],
       TA.Default (fun () -> string_of_bool Defaults.filter.print_col_names),
-      (fun _ -> Table_emit_col_names (TA.get_parameter_boolean ()) |> TL.accum Parameters.program);
+      (fun _ -> Table_emit_col_names (TA.get_parameter_boolean ()) |> Tools.List.accum Parameters.program);
     [ "--table-emit-metadata" ],
       Some "'true'|'false'",
       [ "whether to emit metadata for the database present in the register";
         "when writing it as a tab-separated file" ],
       TA.Default (fun () -> string_of_bool Defaults.filter.print_metadata),
-      (fun _ -> Table_emit_metadata (TA.get_parameter_boolean ()) |> TL.accum Parameters.program);
+      (fun _ -> Table_emit_metadata (TA.get_parameter_boolean ()) |> Tools.List.accum Parameters.program);
     [ "--table-transpose" ],
       Some "'true'|'false'",
       [ "whether to transpose the database present in the register";
@@ -1172,7 +1171,7 @@ let _ =
         " (if 'true' : rows are vector names, columns are (metadata and) k-mer names;";
         "  if 'false': rows are (metadata and) k-mer names, columns are vector names)" ],
       TA.Default (fun () -> string_of_bool Defaults.filter.transpose),
-      (fun _ -> Table_transpose (TA.get_parameter_boolean ()) |> TL.accum Parameters.program);
+      (fun _ -> Table_transpose (TA.get_parameter_boolean ()) |> Tools.List.accum Parameters.program);
     [ "--table-threshold" ],
       Some "<non_negative_integer>",
       [ "set to zero all counts that are less than this threshold";
@@ -1180,7 +1179,7 @@ let _ =
       TA.Default (fun () -> (Transformation.to_parameters Defaults.filter.transform).threshold |> string_of_int),
       (fun _ ->
          Table_transform { !Parameters.transform with threshold = TA.get_parameter_int_non_neg () }
-           |> TL.accum Parameters.program);
+           |> Tools.List.accum Parameters.program);
     [ "--table-power" ],
       Some "<non_negative_float>",
       [ "raise counts to this power before transforming and outputting them.";
@@ -1189,38 +1188,39 @@ let _ =
       TA.Default (fun () -> (Transformation.to_parameters Defaults.filter.transform).power |> string_of_float),
       (fun _ ->
          Table_transform { !Parameters.transform with power = TA.get_parameter_float_non_neg () }
-           |> TL.accum Parameters.program);
+           |> Tools.List.accum Parameters.program);
     [ "--table-transform"; "--table-transformation" ],
       Some "'none'|'normalize'|'pseudocount'|'clr'",
       [ "transformation to apply to table elements before outputting them" ],
       TA.Default (fun () -> (Transformation.to_parameters Defaults.filter.transform).which),
       (fun _ ->
-         Table_transform { !Parameters.transform with which = TA.get_parameter () } |> TL.accum Parameters.program);
+         Table_transform { !Parameters.transform with which = TA.get_parameter () }
+           |> Tools.List.accum Parameters.program);
     [ "--table-emit-zero-rows" ],
       Some "'true'|'false'",
       [ "whether to emit rows whose elements are all zero";
         "when writing the database as a tab-separated file" ],
       TA.Default (fun () -> string_of_bool Defaults.filter.print_zero_rows),
-      (fun _ -> Table_emit_zero_rows (TA.get_parameter_boolean ()) |> TL.accum Parameters.program);
+      (fun _ -> Table_emit_zero_rows (TA.get_parameter_boolean ()) |> Tools.List.accum Parameters.program);
     [ "--table-set-precision" ],
       Some "<positive_integer>",
       [ "set the number of precision digits to be used when outputting counts" ],
       TA.Default (fun () -> string_of_int Defaults.filter.precision),
-      (fun _ -> Table_precision (TA.get_parameter_int_pos ()) |> TL.accum Parameters.program);
+      (fun _ -> Table_precision (TA.get_parameter_int_pos ()) |> Tools.List.accum Parameters.program);
     [ "-t"; "--table" ],
       Some "<file_prefix>",
       [ "write the database present in the register as a tab-separated file";
         " (rows are k-mer names, columns are vector names;";
         "  the file will be given extension .KPopCounter.txt)" ],
       TA.Optional,
-      (fun _ -> To_table (TA.get_parameter () |> KMerDB.make_filename_table) |> TL.accum Parameters.program);
+      (fun _ -> To_table (TA.get_parameter () |> KMerDB.make_filename_table) |> Tools.List.accum Parameters.program);
     [ "-o"; "-O"; "--output" ],
       Some "<binary_file_prefix>",
       [ "dump the database present in the register to the specified file";
         " (which will be given extension .KPopCounter)" ],
       TA.Optional,
-      (fun _ -> To_file (TA.get_parameter () |> KMerDB.make_filename_binary) |> TL.accum Parameters.program);
-    [], None, [ "Miscellaneous (executed immediately):" ], TA.Optional, (fun _ -> ());
+      (fun _ -> To_file (TA.get_parameter () |> KMerDB.make_filename_binary) |> Tools.List.accum Parameters.program);
+    TA.make_separator "Miscellaneous (executed immediately)";
     [ "-T"; "--threads" ],
       Some "<computing_threads>",
       [ "number of concurrent computing threads to be spawned";

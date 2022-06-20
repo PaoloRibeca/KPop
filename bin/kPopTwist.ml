@@ -34,12 +34,10 @@ let header =
 
 let _ =
   let module TA = Tools.Argv in
-  let module TS = Tools.Split in
-  let module TL = Tools.List in
   TA.set_header header;
   TA.set_synopsis "-i|--input <input_table_prefix> [OPTIONS]";
   TA.parse [
-    [], None, [ "Algorithmic parameters:" ], TA.Optional, (fun _ -> ());
+    TA.make_separator "Algorithmic parameters";
     [ "-f"; "-F"; "-s"; "-S"; "--fraction"; "--sampling"; "--sampling-fraction" ],
       Some "<non_negative_float>",
       [ "fraction of the rows to be considered and resampled before twisting" ],
@@ -63,7 +61,7 @@ let _ =
       [ "transformation to apply to table elements" ],
       TA.Default (fun () -> Defaults.transformation),
       (fun _ -> Parameters.transformation := TA.get_parameter ());
-    [], None, [ "Input/Output:" ], TA.Optional, (fun _ -> ());
+    TA.make_separator "Input/Output";
     [ "-i"; "--input" ],
       Some "<input_table_prefix>",
       [ "load the specified k-mer database in the register and twist it.";
@@ -73,6 +71,7 @@ let _ =
         " (and the output file will be given prefix .KPopTwisted)" ],
       TA.Mandatory,
       (fun _ -> Parameters.input := TA.get_parameter ());
+    TA.make_separator "Miscellaneous";
     [ "-T"; "--threads" ],
       Some "<computing_threads>",
       [ "number of concurrent computing threads to be spawned";
