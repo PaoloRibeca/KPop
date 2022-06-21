@@ -29,11 +29,11 @@ And finally, a note on computational resources. Depending on the problem at hand
 
 ## 1. Installation
 
-> :warning: Note that the only operating system we support is Linux. :warning:
+> :warning: Note that the only operating systems we support are Linux and MacOS. :warning:
 >
-> Both OCaml and R are highly portable and you might be able to manually compile/install everything successfully on other platforms (for instance, Mac) but you will have to do it yourself. 
+> Both OCaml and R are highly portable and you might be able to manually compile/install everything successfully on other platforms (for instance, Windows) but you will have to do it yourself. 
 
-There are several possible ways of installing the software on your machine: through `conda`; by downloading pre-compiled binaries (Linux x86_64 only); or manually.
+There are several possible ways of installing the software on your machine: through `conda`; by downloading pre-compiled binaries (Linux and MacOS x86_64 only); or manually.
 
 ### 1.1. Conda channel
 
