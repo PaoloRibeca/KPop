@@ -1,7 +1,7 @@
 
 # `KPop`: Unleash the full power of your *k*-mers!
 
-`KPop` is an assembly-free and scalable method for the comparative analysis of microbial genomes. It is based on full *k*-mer spectra and dataset-specific transformations, and allows for the accurate comparison of hundreds of thousands of assembled or unassembled microbial genomes in a matter of hours.
+`KPop` is an assembly-free and scalable method for the comparative analysis of microbial genomes. It is based on full *k*-mer spectra and dataset-specific transformations, and allows for the accurate comparison of hundreds of thousands of assembled or unassembled microbial genomes in a matter of hours. More details can be found in our [bioRxiv preprint](https://bioRxiv.org).
 
 `KPop` is implemented for the most part in [OCaml](https://ocaml.org), an industry-strength programming language that offers a number of advantages &mdash; amazing concision and symbolic power, static typing, incredible robustness and superior compiled speed. Due mostly to historical, prototyping reasons, a small part of `KPoP` is still in R, although we hope to eventually migrate everything to OCaml. All programs, both OCaml and R, are parallelised and will automatically use as many CPUs as are available on your machine, in order to speed up the wallclock execution time of your tasks as much as possible.
 
