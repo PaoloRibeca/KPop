@@ -297,7 +297,7 @@ A similar structure will have been put in place for test data under the `./Test`
 
 ##### 4.1.1.2. Data analysis
 
-In order to analyse sequences in parallel fashion and decrease waiting times, we first prepare a short `bash` script named `process_one_class`, as follows:
+In order to analyse sequences in parallel fashion and decrease waiting times, we first prepare a short `bash` script named `process_classes`, as follows:
 ```bash
 #!/usr/bin/env bash
 
@@ -309,18 +309,20 @@ while read DIR; do
     KPopCountDB -f /dev/stdin -r "~." -a "$CLASS" -p -l "$CLASS" -n -p -d --summary --table-transform none -t /dev/stdout 2> /dev/null
 done
 ```
-The script takes as input a list of directories, each one on a single line
+
+The script takes as input a list of directories. For each directory, the script generates the 10-mer spectra for all the files contained in that directory, combines the spectra into an in-memory `KPopCount` database, generates their linear combination, discards the database, and writes the combination to standard output.
+
 So, for instance,
 ```bash
-$ echo Train/058 | ./process_one_class
+$ echo Train/058 | ./process_classes
 ```
-would process all files present in directory `./Train/058`, generate the 10-mer spectra for each of them, combine them into an in-memory `KPopCount` database, generate their linear combination, discard the database, and output the combination to standard output. 
+would process all files present in directory `./Train/058`.
 
 Note that the script is implicitly parallelised, in that each of the programs used will check for the number of available processors, and start an adequate number of computing threads to take full advantage of them.
 
 At this point, in order to perform the "training" phase, we need to issue the two commands
 ```bash
-$ ls -d Train/*/ | Parallel --lines-per-block 1 -- ./process_one_class | KPopCountDB -f /dev/stdin -o Classes
+$ ls -d Train/*/ | Parallel --lines-per-block 1 -- ./process_classes | KPopCountDB -f /dev/stdin -o Classes
 $ KPopTwist -i Classes
 ```
 The first command will generate 
@@ -329,7 +331,7 @@ The second command will twist
 
 
 
-At this point, the command
+Once that has been done, the command
 ```bash
 ls Test/*/*_1.fastq | Parallel --lines-per-block 1 -- awk '{l=split($0,s,"/"); system("KPopCount -k 10 -l "gensub("_1.fastq$","",1,s[l])" -p "$0" "gensub("_1.fastq$","_2.fastq",1))}' | KPopTwistDB -i T Classes -k /dev/stdin -o t Test -v
 ```
