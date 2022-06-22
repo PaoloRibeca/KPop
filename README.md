@@ -3,9 +3,9 @@
 
 `KPop` is an assembly-free and scalable method for the comparative analysis of microbial genomes. It is based on full *k*-mer spectra and dataset-specific transformations, and allows for the accurate comparison of hundreds of thousands of assembled or unassembled microbial genomes in a matter of hours. More details can be found in our [bioRxiv preprint](https://bioRxiv.org).
 
-`KPop` is implemented for the most part in [OCaml](https://ocaml.org), an industry-strength programming language that offers a number of advantages &mdash; amazing concision and symbolic power, static typing, incredible robustness and superior compiled speed. Due mostly to historical, prototyping reasons, a small part of `KPoP` is still in R, although we hope to eventually migrate everything to OCaml. All programs, both OCaml and R, are parallelised and will automatically use as many CPUs as are available on your machine, in order to speed up the wallclock execution time of your tasks as much as possible.
+`KPop` is mostly implemented in [OCaml](https://ocaml.org), an industry-strength functional statically-typed programming language that offers remarkable concision, symbolic power, robustness, compiled speed, and portability. Due mostly to historical, prototyping reasons, a small part of `KPoP` is still in R, although we hope to eventually migrate everything to OCaml. All programs, both OCaml and R, are parallelised and will automatically use as many CPUs as are available on your machine, in order to reduce as much as possible the wallclock time taken by your tasks.
 
-And finally, a note on computational resources. Depending on the problem at hand, `KPop` analysis can require a relatively large amount of them, memory in particular. That is a feature rather than a bug, i.e., a conscious design choice &mdash; it would be impossible to explore and leverage the power of full *k*-mer spectra otherwise. We recommend the use of a robustly sized HPC node (at least 16 CPU cores and 256 GB of RAM) as a starting point for exploration of datasets with millions of sequences &mdash; bacterial datasets with a few thousand sequences will require less resources. Not everything is expensive &mdash; for instance, similar to what happens with other big-data frameworks, the "training" phase needed to create `KPop`-based classifiers will typically be resource-intensive, but in most cases the classifiers can then be run on commodity machines.
+Depending on the problem at hand, `KPop` analysis can require a relatively large amount of resources, memory in particular. That is a conscious design choice &mdash; it would be impossible to explore and leverage the power of full *k*-mer spectra otherwise. If you would like to explore datasets with millions of sequences, we recommend that you do so on a robustly sized HPC node. However, not everything is expensive &mdash; for instance, and similar to what happens with other big-data frameworks, while the "training" phase needed to create `KPop`-based classifiers is typically resource-intensive, in most cases the classifiers themselves can then be run on lower-end machines.
 
 ## Table of contents
 
@@ -39,7 +39,9 @@ There are several possible ways of installing the software on your machine: thro
 
 > :construction: Coming soon! :construction:
 
-### 1.2. Pre-compiled binaries 
+### 1.2. Pre-compiled binaries
+
+You can download pre-compiled binaries from our releases.
 
 ### 1.3. Manual install
 
