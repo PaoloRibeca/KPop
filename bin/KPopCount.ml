@@ -1,11 +1,26 @@
+(*
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*)
+
 open BiOCamLib
 
 module KMerCounter (KMH: KMer.KMerHash with type t = int):
   sig
-    val compute: ?verbose:bool -> KMer.ReadFiles.t -> int -> string -> string -> unit
+    val compute: ?verbose:bool -> linter:(string -> string) -> KMer.ReadFiles.t -> int -> string -> string -> unit
   end
 = struct
-    let compute ?(verbose = false) store max_results_size label fname =
+    let compute ?(verbose = false) ~linter store max_results_size label fname =
       let output =
         if fname = "" then
           stdout
@@ -15,7 +30,7 @@ module KMerCounter (KMH: KMer.KMerHash with type t = int):
       Printf.fprintf output "\t%s\n" label;
       let output_format = Scanf.format_from_string (Printf.sprintf "%%0%dx\t%%d\n" ((KMH.k + 1) / 2)) "%d%d" in
       let reads_cntr = ref 0 and res = KMer.IntHashtbl.create max_results_size in
-      KMer.ReadFiles.iter
+      KMer.ReadFiles.iter ~linter ~verbose:false
         (fun _ segm_id read ->
           KMH.iter
             (fun hash occs ->
@@ -186,8 +201,8 @@ let _ =
       (fun input -> store := KMer.ReadFiles.add_from_files !store input)
       !Parameters.inputs;
     begin match !Parameters.content with
-    | DNA -> KMCD.compute
-    | Protein -> KMCP.compute
+    | DNA -> KMCD.compute ~linter:(Sequences.Lint.dnaize ~keep_dashes:false)
+    | Protein -> KMCP.compute ~linter:(Sequences.Lint.proteinize ~keep_dashes:false)
     end ~verbose:!Parameters.verbose !store !Parameters.max_results_size !Parameters.label !Parameters.output
   end
 
