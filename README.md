@@ -21,8 +21,8 @@ Depending on the problem at hand, `KPop` analysis can require a relatively large
 &emsp; [3.4. `KPopTwistDB`](#34-kpoptwistdb)<br>
 [4. Examples](#4-examples)<br>
 &emsp; [4.1. Sequence classification](#41-sequence-classification)<br>
-&emsp; &emsp; [4.1.1. Classifier for simulated COVID-19 sequencing reads](#411-classifier-for-simulated-covid-19-sequencing-reads)<br>
-&emsp; &emsp; [4.1.2. Classifier for deep-sequencing TB samples](#412-classifier-for-deep-sequencing-tb-samples)<br>
+&emsp; &emsp; [4.1.1. Classifier for simulated *M.tuberculosis* sequencing reads](#411-classifier-for-simulated-mtuberculosis-sequencing-reads)<br>
+&emsp; &emsp; [4.1.2. Classifier for deep-sequencing *M.tuberculosis* samples](#412-classifier-for-deep-sequencing-mtuberculosis-samples)<br>
 &emsp; &emsp; [4.1.3. Classifier for COVID-19 sequences (Hyena)](#413-classifier-for-covid-19-sequences-hyena)<br>
 &emsp; [4.2. Relatedness engine](#42-relatedness-engine)<br>
 &emsp; [4.3. Pseudo-phylogenetic trees](#43-pseudo-phylogenetic-trees)<br>
@@ -252,9 +252,9 @@ Shortly, one first generates a collection of spectra that describe the "classes"
 
 Note that the classifier should be generated according to the data type of the input, i.e., you should not use a classifier trained on genomic sequences to process NGS samples or vice-versa. Doing so might occasionally work if contaminations are low and the sequencing bias is reasonably flat along the sequence, but in order to get consistent results significant post-processing might be needed.
 
-#### 4.1.1. Classifier for simulated COVID-19 sequencing reads
+#### 4.1.1. Classifier for simulated *M.tuberculosis* sequencing reads
 
-As described in our [bioRxiv preprint](https://bioRxiv.org), we simulated 
+As described in our [bioRxiv preprint](https://bioRxiv.org), we simulated sequencing reads for 1,000 *M.tuberculosis* genomes. The data thus generated is large (~127 GB) and hence we are not making it available for download. However, the scripts used to (re-)generate it can be found in the directory [`test`](https://github.com/PaoloRibeca/KPop/tree/main/test) of this repository.
 
 ##### 4.1.1.1. Data preparation
 
@@ -293,7 +293,7 @@ will return
 05686_1.fastq  05698_2.fastq  05712_1.fastq  05724_2.fastq  05738_1.fastq  05750_2.fastq  05764_1.fastq  05776_2.fastq
 
 ```
-A similar structure will have been put in place for test data under the `./Test` directory, with files equally split under `./Train` and `./Test` for cross-validation purposes (but different choices would be possible).
+A similar structure will have been put in place for test data under the `./Test` directory, with files equally split under `./Train` and `./Test` for cross-validation purposes (but different choices would be possible). This conventional arrangement will be assumed for all the examples involving `KPop`-based classifiers.
 
 ##### 4.1.1.2. Data analysis
 
@@ -309,6 +309,7 @@ while read DIR; do
     KPopCountDB -f /dev/stdin -r "~." -a "$CLASS" -p -l "$CLASS" -n -p -d --summary --table-transform none -t /dev/stdout 2> /dev/null
 done
 ```
+The program `Parallel` can be obtained from the [BiOCamLib repository](https://github.com/PaoloRibeca/BiOCamLib). on which the implementation of `KPop` depends.
 
 The script takes as input a list of directories. For each directory, the script generates the 10-mer spectra for all the files contained in that directory, combines the spectra into an in-memory `KPopCount` database, generates their linear combination, discards the database, and writes the combination to standard output.
 
@@ -318,14 +319,14 @@ $ echo Train/058 | ./process_classes
 ```
 would process all files present in directory `./Train/058`.
 
-Note that the script is implicitly parallelised, in that each of the programs used will check for the number of available processors, and start an adequate number of computing threads to take full advantage of them.
+Note that the script is implicitly parallelised, in that both `Parallel` and `KPopCountDB` will automatically check for the number of available processors, and start an adequate number of computing threads to take full advantage of them. `KPopCount` is not by itself parallel, but multiple copies of it will be invoked through `Parallel`.
 
 At this point, in order to perform the "training" phase, we need to issue the two commands
 ```bash
 $ ls -d Train/*/ | Parallel --lines-per-block 1 -- ./process_classes | KPopCountDB -f /dev/stdin -o Classes
 $ KPopTwist -i Classes
 ```
-The first command will generate 
+The first command will generate one combined, representative spectrum for each class in the training set, and subsequently, thanks to `KPopCountDB`, combine the spectra for all the representatives into a database having prefix `Classes`.
 
 The second command will twist
 
@@ -376,7 +377,7 @@ In this case, for instance, sequence `00002` has distance in twisted space of ~4
 
 An automated 
 
-#### 4.1.2. Classifier for deep-sequencing TB samples
+#### 4.1.2. Classifier for deep-sequencing *M.tuberculosis* samples
 
 ##### 4.1.2.1. Data preparation
 
