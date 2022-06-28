@@ -19,6 +19,9 @@ dune build --profile="$PROFILE" bin/kPopTwist.exe
 dune build --profile="$PROFILE" bin/KPopTwistDB.exe
 
 chmod 755 _build/default/bin/KPopCount.exe _build/default/bin/KPopCountDB.exe _build/default/bin/kPopTwist.exe _build/default/bin/KPopTwistDB.exe
+if [ "$PROFILE" = "release" ]; then
+  strip _build/default/bin/KPopCount.exe _build/default/bin/KPopCountDB.exe _build/default/bin/kPopTwist.exe _build/default/bin/KPopTwistDB.exe
+fi
 
 rm -f KPopCount KPopCountDB kPopTwist KPopTwistDB
 ln -s _build/default/bin/KPopCount.exe KPopCount

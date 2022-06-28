@@ -146,12 +146,12 @@ let _ =
       Some "<fasta_file_name>",
       [ "FASTA input file containing sequences" ],
       TA.Optional,
-      (fun _ -> KMer.ReadFiles.FASTA (TA.get_parameter ()) |> Tools.List.accum Parameters.inputs);
+      (fun _ -> KMer.FileType.FASTA (TA.get_parameter ()) |> Tools.List.accum Parameters.inputs);
     [ "-s"; "-S"; "--single-end" ],
       Some "<fastq_file_name>",
       [ "FASTQ input file containing single-end sequencing reads" ],
       TA.Optional,
-      (fun _ -> KMer.ReadFiles.SingleEndFASTQ (TA.get_parameter ()) |> Tools.List.accum Parameters.inputs);
+      (fun _ -> SingleEndFASTQ (TA.get_parameter ()) |> Tools.List.accum Parameters.inputs);
     [ "-p"; "-P"; "--paired-end" ],
       Some "<fastq_file_name1> <fastq_file_name2>",
       [ "FASTQ input files containing paired-end sequencing reads" ],
@@ -159,7 +159,7 @@ let _ =
       (fun _ ->
         let name1 = TA.get_parameter () in
         let name2 = TA.get_parameter () in
-        KMer.ReadFiles.PairedEndFASTQ (name1, name2) |> Tools.List.accum Parameters.inputs);
+        PairedEndFASTQ (name1, name2) |> Tools.List.accum Parameters.inputs);
     [ "-l"; "--label" ],
       Some "<output_vector_label>",
       [ "label of the k-mer vector in the output file" ],
