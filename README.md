@@ -84,7 +84,7 @@ $ KPopCount -h
 ```
 in your terminal. You will see a header containing information about the version:
 ```
-This is the KPopCount program (version 0.4)
+This is the KPopCount program (version 0.5)
  (c) 2017-2022 Paolo Ribeca, <paolo.ribeca@gmail.com>
 ```
 followed by detailed information. The general form(s) the command can be used is:
@@ -92,13 +92,15 @@ followed by detailed information. The general form(s) the command can be used is
 KPopCount -l|--label <output_vector_label> [OPTIONS]
 ```
 
-Algorithmic parameters:
+**Algorithmic parameters**
+
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
 | `-k`<br>`-K`<br>`--k-mer-size`<br>`--k-mer-length` | _&lt;k\_mer\_length&gt;_ |  k\-mer length \(must be positive, and &lt;= 30 for DNA or &lt;= 12 for protein\) | <ins>default=<mark>_12_</mark></ins> |
 | `-m`<br>`-M`<br>`--max-results-size` | _&lt;positive\_integer&gt;_ |  maximum number of k\-mer signatures to be kept in memory at any given time\.<br>If more are present, the ones corresponding to the lowest cardinality will be removed from memory and printed out, and there will be repeated signatures in the output | <ins>default=<mark>_16777216_</mark></ins> |
 
-Input/Output:
+**Input/Output**
+
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
 | `-c`<br>`-C`<br>`--content`<br>`--mode` | _'DNA'&#124;'protein'_ |  how file contents should be interpreted | <ins>default=<mark>_DNA_</mark></ins> |
@@ -108,7 +110,8 @@ Input/Output:
 | `-l`<br>`--label` | _&lt;output\_vector\_label&gt;_ |  label of the k\-mer vector in the output file | *(mandatory)* |
 | `-o`<br>`--output` | _&lt;output\_file\_name&gt;_ |  name of generated output file | <ins>default=<mark>_&lt;stdout&gt;_</mark></ins> |
 
-Miscellaneous:
+**Miscellaneous**
+
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
 | `-v`<br>`--verbose` |  |  set verbose execution | <ins>default=<mark>_false_</mark></ins> |
@@ -122,7 +125,7 @@ $ KPopCountDB -h
 ```
 in your terminal. You will see a header containing information about the version:
 ```
-This is the KPopCountDB program (version 0.27)
+This is the KPopCountDB program (version 0.28)
  (c) 2020-2022 Paolo Ribeca, <paolo.ribeca@gmail.com>
 ```
 followed by detailed information. The general form(s) the command can be used is:
@@ -130,7 +133,9 @@ followed by detailed information. The general form(s) the command can be used is
 KPopCountDB [ACTIONS]
 ```
 
-Actions \(executed delayed and in order of specification\):
+**Actions**
+They are executed delayed and in order of specification.
+
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
 | `-e`<br>`-E`<br>`--empty` |  |  put an empty database into the register |  |
@@ -158,7 +163,9 @@ Actions \(executed delayed and in order of specification\):
 | `-t`<br>`--table` | _&lt;file\_prefix&gt;_ |  write the database present in the register as a tab\-separated file  \(rows are k\-mer names, columns are vector names;   the file will be given extension \.KPopCounter\.txt\) |  |
 | `-o`<br>`-O`<br>`--output` | _&lt;binary\_file\_prefix&gt;_ |  dump the database present in the register to the specified file  \(which will be given extension \.KPopCounter\) |  |
 
-Miscellaneous \(executed immediately\):
+**Miscellaneous options**
+They are set immediately.
+
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
 | `-T`<br>`--threads` | _&lt;computing\_threads&gt;_ |  number of concurrent computing threads to be spawned  \(default automatically detected from your configuration\) | <ins>default=<mark>_nproc_</mark></ins> |
@@ -181,7 +188,8 @@ Usage:
 kPopTwist -i|--input <input_table_prefix> [OPTIONS]
 ```
 
-Algorithmic parameters:
+**Algorithmic parameters**
+
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
 | `-f`<br>`-F`<br>`-s`<br>`-S`<br>`--fraction`<br>`--sampling`<br>`--sampling-fraction` | _&lt;non\_negative\_float&gt;_ |  fraction of the rows to be considered and resampled before twisting | <ins>default=<mark>_1\._</mark></ins> |
@@ -189,11 +197,17 @@ Algorithmic parameters:
 | `--power` | _&lt;non\_negative\_float&gt;_ |  raise counts to this power before transforming them\.<br>A power of 0 when the 'pseudocount' method is used performs a logarithmic transformation | <ins>default=<mark>_1\._</mark></ins> |
 | `--transform`<br>`--transformation` | _'none'&#124;'normalize'&#124;'pseudocount'&#124;'clr'_ |  transformation to apply to table elements | <ins>default=<mark>_normalize_</mark></ins> |
 
-Input/Output:
+**Input/Output**
+
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
 | `-i`<br>`--input` | _&lt;input\_table\_prefix&gt;_ |  load the specified k\-mer database in the register and twist it\.<br>File extension is automatically determined  \(will be \.KPopCounter\)\.<br>The prefix is then re\-used for output  \(and the output file will be given prefix \.KPopTwisted\) | *(mandatory)* |
-| `-T`<br>`--threads` | _&lt;computing\_threads&gt;_ |  number of concurrent computing threads to be spawned  \(default automatically detected from your configuration\) | <ins>default=<mark>_32_</mark></ins> |
+
+**Miscellaneous**
+
+| Option | Argument(s) | Effect | Note(s) |
+|-|-|-|-|
+| `-T`<br>`--threads` | _&lt;computing\_threads&gt;_ |  number of concurrent computing threads to be spawned  \(default automatically detected from your configuration\) | <ins>default=<mark>_nproc_</mark></ins> |
 | `-v`<br>`--verbose` |  |  set verbose execution | <ins>default=<mark>_false_</mark></ins> |
 | `-h`<br>`--help` |  |  print syntax and exit |  |
 
@@ -205,7 +219,7 @@ $ KPopTwistDB -h
 ```
 in your terminal. You will see a header containing information about the version:
 ```
-This is the KPopTwistDB program (version 0.15)
+This is the KPopTwistDB program (version 0.16)
  (c) 2022 Paolo Ribeca, <paolo.ribeca@gmail.com>
 ```
 followed by detailed information. The general form(s) the command can be used is:
@@ -213,7 +227,9 @@ followed by detailed information. The general form(s) the command can be used is
 KPopTwistDB [ACTIONS]
 ```
 
-Actions \(executed delayed and in order of specification\):
+**Actions**
+They are executed delayed and in order of specification.
+
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
 | `-e`<br>`--empty` | _T&#124;t&#124;d_ |  load an empty twisted database into the specified register  \(T=twister; t=twisted; d=distance\) |  |
@@ -231,7 +247,9 @@ Actions \(executed delayed and in order of specification\):
 | `--keep-at-most`<br>`--set-keep-at-most`<br>`--summary-keep-at-most` | _&lt;positive\_integer&gt;&#124;all_ |  set the maximum number of closest target sequences to be kept when summarizing distances | <ins>default=<mark>_2_</mark></ins> |
 | `-s`<br>`--summarize-distances` | _&lt;summary\_file\_prefix&gt;_ |  summarize the distances present in the distance register and write the result to the specified tabular file\.<br>File extension will be automatically determined  \(will be \.KPopSummary\.txt\) |  |
 
-Miscellaneous \(executed immediately\):
+**Miscellaneous options**
+They are set immediately.
+
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
 | `-T`<br>`--threads` | _&lt;computing\_threads&gt;_ |  number of concurrent computing threads to be spawned  \(default automatically detected from your configuration\) | <ins>default=<mark>_nproc_</mark></ins> |

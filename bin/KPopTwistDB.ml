@@ -603,7 +603,7 @@ let _ =
   TA.set_header header;
   TA.set_synopsis "[ACTIONS]";
   TA.parse [
-    TA.make_separator "Actions (executed delayed and in order of specification)";
+    TA.make_separator_multiline [ "Actions"; "They are executed delayed and in order of specification." ];
     [ "-e"; "--empty" ],
       Some "T|t|d",
       [ "load an empty twisted database into the specified register";
@@ -746,7 +746,7 @@ let _ =
         " (will be .KPopSummary.txt)" ],
       TA.Optional,
       (fun _ -> Distances_summary (TA.get_parameter ()) |> Tools.List.accum Parameters.program);
-    TA.make_separator "Miscellaneous (executed immediately)";
+    TA.make_separator_multiline [ "Miscellaneous options"; "They are set immediately." ];
     [ "-T"; "--threads" ],
       Some "<computing_threads>",
       [ "number of concurrent computing threads to be spawned";
