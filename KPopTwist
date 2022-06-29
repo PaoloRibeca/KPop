@@ -5,7 +5,7 @@ set -e
 
 OLD_IFS="$IFS"
 IFS=$'\x1'
-read -r PREFIX TRANSFORM THRESHOLD POWER SAMPLING_FRACTION THREADS VERBOSE <<< "$(kPopTwist "$@")"
+read -r PREFIX TRANSFORM THRESHOLD POWER SAMPLING_FRACTION THREADS VERBOSE <<< "$(KPopTwist_ "$@")"
 IFS="$OLD_IFS"
 
 function conditional_echo {

@@ -13,14 +13,14 @@
 
 (license LICENSE)
 
-(documentation https://url/to/documentation)
+(documentation https://github.com/PaoloRibeca/KPop#readme)
 
 (package
  (name KPop)
- (synopsis "A short synopsis")
- (description "A longer description")
+ (synopsis "Unleash the full power of your k-mers!")
+ (description "A set of tools to unleash the full power of your k-mers")
  (depends ocaml dune)
  (tags
-  (topics "to describe" your project)))
+  (topics k-mers bioinformatics statistics OCaml)))
 
 ; See the complete stanza docs at https://dune.readthedocs.io/en/stable/dune-files.html#dune-project

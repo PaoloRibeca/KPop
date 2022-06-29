@@ -280,38 +280,36 @@ In the following, we assume that the input files derived from the simulation hav
 
 So, we'll have two directories,
 ```
-./Train
-./Test
+Train/
+Test/
 ```
 and each directory will contain subdirectories, one for each sequence cluster:
 ```
-./Train/001
-./Train/002
+Train/1
+Train/2
 ...
-./Train/100
+Train/10
 ```
-For instance, directory `./Train/058` will contain input files for all the samples used as training data for sequence class `058`, and command
-```
-$ ls ./Train/058
+For instance, directory `Train/8` will contain input files for all the samples used as training data for sequence class `8`, and command
+```bash
+$ ls Train/8
 ```
 will return
 ```
-05674_1.fastq  05686_2.fastq  05700_1.fastq  05712_2.fastq  05726_1.fastq  05738_2.fastq  05752_1.fastq  05764_2.fastq
-05674_2.fastq  05688_1.fastq  05700_2.fastq  05714_1.fastq  05726_2.fastq  05740_1.fastq  05752_2.fastq  05766_1.fastq
-05676_1.fastq  05688_2.fastq  05702_1.fastq  05714_2.fastq  05728_1.fastq  05740_2.fastq  05754_1.fastq  05766_2.fastq
-05676_2.fastq  05690_1.fastq  05702_2.fastq  05716_1.fastq  05728_2.fastq  05742_1.fastq  05754_2.fastq  05768_1.fastq
-05678_1.fastq  05690_2.fastq  05704_1.fastq  05716_2.fastq  05730_1.fastq  05742_2.fastq  05756_1.fastq  05768_2.fastq
-05678_2.fastq  05692_1.fastq  05704_2.fastq  05718_1.fastq  05730_2.fastq  05744_1.fastq  05756_2.fastq  05770_1.fastq
-05680_1.fastq  05692_2.fastq  05706_1.fastq  05718_2.fastq  05732_1.fastq  05744_2.fastq  05758_1.fastq  05770_2.fastq
-05680_2.fastq  05694_1.fastq  05706_2.fastq  05720_1.fastq  05732_2.fastq  05746_1.fastq  05758_2.fastq  05772_1.fastq
-05682_1.fastq  05694_2.fastq  05708_1.fastq  05720_2.fastq  05734_1.fastq  05746_2.fastq  05760_1.fastq  05772_2.fastq
-05682_2.fastq  05696_1.fastq  05708_2.fastq  05722_1.fastq  05734_2.fastq  05748_1.fastq  05760_2.fastq  05774_1.fastq
-05684_1.fastq  05696_2.fastq  05710_1.fastq  05722_2.fastq  05736_1.fastq  05748_2.fastq  05762_1.fastq  05774_2.fastq
-05684_2.fastq  05698_1.fastq  05710_2.fastq  05724_1.fastq  05736_2.fastq  05750_1.fastq  05762_2.fastq  05776_1.fastq
-05686_1.fastq  05698_2.fastq  05712_1.fastq  05724_2.fastq  05738_1.fastq  05750_2.fastq  05764_1.fastq  05776_2.fastq
-
+683_1.fastq  691_1.fastq  699_1.fastq  707_1.fastq  715_1.fastq  723_1.fastq  731_1.fastq  739_1.fastq  747_1.fastq
+755_1.fastq  763_1.fastq  771_1.fastq  779_1.fastq  683_2.fastq  691_2.fastq  699_2.fastq  707_2.fastq  715_2.fastq
+723_2.fastq  731_2.fastq  739_2.fastq  747_2.fastq  755_2.fastq  763_2.fastq  771_2.fastq  779_2.fastq  685_1.fastq
+693_1.fastq  701_1.fastq  709_1.fastq  717_1.fastq  725_1.fastq  733_1.fastq  741_1.fastq  749_1.fastq  757_1.fastq
+765_1.fastq  773_1.fastq  781_1.fastq  685_2.fastq  693_2.fastq  701_2.fastq  709_2.fastq  717_2.fastq  725_2.fastq
+733_2.fastq  741_2.fastq  749_2.fastq  757_2.fastq  765_2.fastq  773_2.fastq  781_2.fastq  687_1.fastq  695_1.fastq
+703_1.fastq  711_1.fastq  719_1.fastq  727_1.fastq  735_1.fastq  743_1.fastq  751_1.fastq  759_1.fastq  767_1.fastq
+775_1.fastq  783_1.fastq  687_2.fastq  695_2.fastq  703_2.fastq  711_2.fastq  719_2.fastq  727_2.fastq  735_2.fastq
+743_2.fastq  751_2.fastq  759_2.fastq  767_2.fastq  775_2.fastq  783_2.fastq  689_1.fastq  697_1.fastq  705_1.fastq
+713_1.fastq  721_1.fastq  729_1.fastq  737_1.fastq  745_1.fastq  753_1.fastq  761_1.fastq  769_1.fastq  777_1.fastq
+689_2.fastq  697_2.fastq  705_2.fastq  713_2.fastq  721_2.fastq  729_2.fastq  737_2.fastq  745_2.fastq  753_2.fastq
+761_2.fastq  769_2.fastq  777_2.fastq
 ```
-A similar structure will have been put in place for test data under the `./Test` directory, with files equally split under `./Train` and `./Test` for cross-validation purposes (however, different choices would be possible). This conventional arrangement will be assumed in the rest of this document for all the examples involving `KPop`-based classifiers.
+A similar structure will have been put in place for test data under the `Test/` directory, with files equally split under `Train/` and `Test/` for cross-validation purposes (however, different choices would be possible). This conventional arrangement will be assumed in the rest of this document for all the examples involving `KPop`-based classifiers.
 
 ##### 4.1.1.2. Data analysis
 
@@ -323,7 +321,7 @@ while read DIR; do
   CLASS=$(echo "$DIR" | awk '{l=split(gensub("[/]+$","",1),s,"/"); print s[l]}')
   echo "Processing class '${CLASS}'..." > /dev/stderr
   ls "$DIR"/*_1.fastq |
-    Parallel --lines-per-block 1 -- awk '{l=split($0,s,"/"); system("KPopCount -k 10 -l "gensub("_1.fastq$","",1,s[l])" -p "$0" "gensub("_1.fastq$","_2.fastq",1))}' |
+    Parallel --lines-per-block 1 -- awk '{l=split($0,s,"/"); system("KPopCount -k 12 -l "gensub("_1.fastq$","",1,s[l])" -p "$0" "gensub("_1.fastq$","_2.fastq",1))}' |
     KPopCountDB -f /dev/stdin -r "~." -a "$CLASS" -p -l "$CLASS" -n -p -d --summary --table-transform none -t /dev/stdout 2> /dev/null
 done
 ```
@@ -333,9 +331,9 @@ The script takes as input a list of directories. For each directory, the script 
 
 So, for instance,
 ```bash
-$ echo Train/058 | ./process_classes
+$ echo Train/8 | ./process_classes
 ```
-would process all files present in directory `./Train/058`.
+would process all files present in directory `Train/8`.
 
 Note that the script is implicitly parallelised, in that both `Parallel` and `KPopCountDB` will automatically check for the number of available processors, and start an adequate number of computing threads to take full advantage of them. `KPopCount` is not by itself parallel, but multiple copies of it will be invoked through `Parallel`.
 
@@ -346,13 +344,13 @@ $ KPopTwist -i Classes
 ```
 The first command will generate one combined, representative spectrum for each class in the training set, and subsequently, thanks to `KPopCountDB`, combine the spectra for all the representatives into a database having prefix `Classes` and full name `Classes.KPopCounter`.
 
-The second command will "twist" the database, i.e., generate a dataset-specific transformation that turns *k*-mer spectra of the size chosen when generating them (10 in this case) into vectors embedded in a reduced-dimensionality space. The transformation is stored in the file `Classes.KPopTwister`. In addition, `KPopTwist` also produces a file containing the positions of the class representatives in twisted space (`Classes.KPopTwisted`). Such files will be reused in the following.
+The second command will "twist" the database, i.e., generate a dataset-specific transformation that turns *k*-mer spectra of the size chosen when generating them (10 in this case) into vectors embedded in a reduced-dimensionality space. The transformation is stored in the file `Classes.KPopTwister`. In addition, `KPopTwist` also produces a file containing the positions of the class representatives in twisted space (`Classes.KPopTwisted`). Such files will be reused in what follows.
 
 Once that has been done, the command
 ```bash
-ls Test/*/*_1.fastq | Parallel --lines-per-block 1 -- awk '{l=split($0,s,"/"); system("KPopCount -k 10 -l "gensub("_1.fastq$","",1,s[l])" -p "$0" "gensub("_1.fastq$","_2.fastq",1))}' | KPopTwistDB -i T Classes -k /dev/stdin -o t Test -v
+$ ls Test/*/*_1.fastq | Parallel --lines-per-block 1 -- awk '{l=split($0,s,"/"); system("KPopCount -k 12 -l "gensub("_1.fastq$","",1,s[l])" -p "$0" "gensub("_1.fastq$","_2.fastq",1))}' | KPopTwistDB -i T Classes -k /dev/stdin -o t Test -v
 ```
-will generate separate _k_-mer spectra for each file in the test set, and twist them according to the "classifying" transformation stored in file `Classes.KPopTwister`. The results will be stored in an additional file, `Test.KPopTwisted`.
+will generate separate *k*-mer spectra for each file in the test set, and twist them according to the "classifying" transformation stored in file `Classes.KPopTwister`. The results will be stored in an additional file, `Test.KPopTwisted`.
 
 All the files generated so far are binary &mdash; their content is laid out according to the way OCaml data structures are stored in memory.
 
@@ -364,13 +362,13 @@ will load a binary file (hence option `-i`) of the "twisted" type (hence option 
 
 The file `Test.KPopTwisted.txt` will contain a header
 ```
-""    "Dim1"    "Dim2"    "Dim3"    "Dim4"    "Dim5"    "Dim6"    "Dim7"    "Dim8"    "Dim9"    "Dim10"    "Dim11"    "Dim12"    "Dim13"    "Dim14"    "Dim15"    "Dim16"    "Dim17"    "Dim18"    "Dim19"    "Dim20"    "Dim21"    "Dim22"    "Dim23"    "Dim24"    "Dim25"    "Dim26"    "Dim27"    "Dim28"    "Dim29"    "Dim30"    "Dim31"    "Dim32"    "Dim33"    "Dim34"    "Dim35"    "Dim36"    "Dim37"    "Dim38"    "Dim39"    "Dim40"    "Dim41"    "Dim42"    "Dim43"    "Dim44"    "Dim45"    "Dim46"    "Dim47"    "Dim48"    "Dim49"    "Dim50"    "Dim51"    "Dim52"    "Dim53"    "Dim54"    "Dim55"    "Dim56"    "Dim57"    "Dim58"    "Dim59"    "Dim60"    "Dim61"    "Dim62"    "Dim63"    "Dim64"    "Dim65"    "Dim66"    "Dim67"    "Dim68"    "Dim69"    "Dim70"    "Dim71"    "Dim72"    "Dim73"    "Dim74"    "Dim75"    "Dim76"    "Dim77"    "Dim78"    "Dim79"    "Dim80"    "Dim81"    "Dim82"    "Dim83"    "Dim84"    "Dim85"    "Dim86"    "Dim87"    "Dim88"    "Dim89"    "Dim90"    "Dim91"    "Dim92"    "Dim93"    "Dim94"    "Dim95"    "Dim96"    "Dim97"    "Dim98"    "Dim99"
+""  "Dim1"  "Dim2"  "Dim3"  "Dim4"  "Dim5"  "Dim6"  "Dim7"  "Dim8"  "Dim9"
 ```
 followed by rows such as
 ```
-"00002"    0.208303753652877    -0.204365699709935    0.474116247298613    -0.329722324765537    -0.385408051653039    0.0787792685599588    -0.851349902900387    0.30390279629666    -0.570446452179573    0.0852710206894159    -0.14790774401408    0.166607494778671    -0.0546181793656805    0.0476882959310556    0.0770788371437616    -0.0444686466010732    0.444721244127617    -0.673498184325522    0.362464609963262    -0.23454642728241    -1.34485439984727    0.658186285078834    -2.71800078600714    -1.27972655963794    2.27870884130667    1.24896517540089    0.561025490167653    0.450790128719747    -1.26132001288061    -0.250979150371771    -0.835539884518506    -0.443631637558216    -0.423180456184031    0.430020246411259    0.46866195496528    0.387402309339635    0.612014444008186    -0.834351696527018    -0.307770640074338    -0.727900404893945    0.142020888265305    0.0135700796514422    0.00172479916704904    -0.0386401755418014    0.273868140313799    0.118584665052629    -0.323070417267769    -0.315861011471072    -0.28873815035643    0.485502657444407    0.0980163084187126    -0.241195808461705    -0.0902438356160271    -0.348076849358953    0.149833659280451    0.101820897520809    0.436106979627955    -0.278760531142856    0.07642997624802    0.0734403482595658    -0.0976549111054914    -0.0662557825632169    0.130576096666569    0.19461712397724    0.131184003676229    -0.0274033695221185    0.0189332375778051    -0.0434489000554688    0.194493500351839    -0.0330209932696197    -0.0582006902983816    -0.015835571654948    0.0599251621030898    -0.263070425755192    0.163512702555629    0.0841590618810513    0.0296529536401996    0.0069817958564591    -0.0415246013366838    -0.0429221341747157    0.0686729171428239    -0.0526129530232641    0.12576164944361    0.0894051484230737    0.129241266260151    0.247597048821563    -0.336945850645509    -0.0319494824195588    0.0551447733877536    -0.0345965874113023    0.0448018576557607    -0.0463083593768541    -0.0246429930707945    -0.010635515038952    0.0414757895743002    0.037329550406034    0.130848249442206    0.0476197328655712    0.0871447416286987
+"121"   0.461489766036905       0.568113255163704       -0.882699288338637      -0.0272667586657692     0.0581302393092316      -0.0189776114363531     0.00161058296863769     0.0225299502172142      -0.0278201311947722
 ```
-expressing the coordinates of twisted sequences or samples (in this case, sample `00002`) in twisted space.
+expressing the coordinates of twisted sequences or samples (in this case, sample `121`) in twisted space.
 
 We now have several files in our directory, namely
 ```
@@ -389,20 +387,42 @@ $ KPopTwistDB -i t Test -d Classes -O d Test-vs-Classes
 ```
 which reads "load twisted file `Test.KPopTwisted`, compute pairwise distances with the contents of `Classes.KPopTwisted` &mdash; the results will be placed in the "distance" register of `KPopTwistDB` &mdash;, and write results into tabular file `Test-vs-Classes.KPopDMatrix.txt` (we write to a text rather than binary file for illustration). File `Test-vs-Classes.KPopDMatrix.txt` will contain a header
 ```
-""    "001"    "002"    "003"    "004"    "005"    "006"    "007"    "008"    "009"    "010"    "011"    "012"    "013"    "014"    "015"    "016"    "017"    "018"    "019"    "020"    "021"    "022"    "023"    "024"    "025"    "026"    "027"    "028"    "029"    "030"    "031"    "032"    "033"    "034"    "035"    "036"    "037"    "038"    "039"    "040"    "041"    "042"    "043"    "044"    "045"    "046"    "047"    "048"    "049"    "050"    "051"    "052"    "053"    "054"    "055"    "056"    "057"    "058"    "059"    "060"    "061"    "062"    "063"    "064"    "065"    "066"    "067"    "068"    "069"    "070"    "071"    "072"    "073"    "074"    "075"    "076"    "077"    "078"    "079"    "080"    "081"    "082"    "083"    "084"    "085"    "086"    "087"    "088"    "089"    "090"    "091"    "092"    "093"    "094"    "095"    "096"    "097"    "098"    "099"    "100"
+""      "10"    "1"     "2"     "3"     "4"     "5"     "6"     "7"     "8"     "9"
 ```
 i.e., the list of the training classes, followed by rows of corresponding distances, such as
 ```
-"00002"    4.83318357568108    11.2700687698413    11.312275301648    11.3764544034853    11.3461374337725    11.3995743751314    11.3212630750153    11.3235657518601    11.2894831167086    11.2996189792259    11.3319535190977    11.3049899338697    11.3228806629005    10.7946131257386    11.2989551747821    11.3558238395219    11.3463712117818    11.3413347717848    11.2618856360064    11.2939890914082    11.2975021258629    10.9943136806685    11.3675942484271    11.3318345009204    11.2477131079917    11.3850214310342    11.339496082918    11.3512732628066    11.3805283679928    11.311696483027    11.3270984609357    11.2738264778713    11.3319347292255    11.3312805552031    11.3386564211209    11.3523905528578    11.3523801939233    11.2736454863803    11.3627258350476    11.3122176318586    11.1304466434475    11.2886203042309    11.3291458624942    11.2798698818615    11.3584269442804    11.3256941762598    11.3360992385991    11.4044126239344    11.3573797752414    11.3412980071085    11.3217385309613    11.2649251859287    11.3149809895284    11.3684126575704    11.2129191129393    11.3173113023552    11.2650040203027    11.2638052741922    11.3596195002195    11.3276044208353    11.2916429174247    11.2528032578129    11.3282351768788    11.2101731026977    11.308760763843    11.3350961792258    11.3781799486808    11.363751496013    11.2858863236711    11.3017512672026    11.2478994650813    11.3259720371017    11.2276363181204    11.3591481763441    11.2524694906482    11.1954140195673    11.2726408581533    11.3262901145608    11.2897238191158    11.111774981885    11.321534697352    11.3431179539068    11.3815709287912    11.3114731321002    11.2565581966433    11.3106489656005    11.3604250330645    11.3762292992287    11.3206443897329    11.3521555950233    11.3633309667897    11.3243176458611    11.3660329600687    11.317589842657    11.3872372791905    11.3480763014578    11.3171596442202    11.3144795186318    11.2903974518633    11.2476606139466
+"121"   3.298234166382  3.33901585931896        1.85388698190156        3.35586331250312        3.35677089495605        3.35069768834933        3.31043491848486        3.30792669036762        3.32894004017435        3.31694544810727
 ```
 
-In this case, for instance, sequence `00002` has distance in twisted space of \~4.8 from class `001`, while the distance from all other classes is >10.7. That classifies the sequence as belonging to class `00002` (which is correct according to the truth table of the simulation).
+In this case, for instance, sequence `121` has distance in twisted space of \~1.9 from class `2`, while the distance from all other classes is >3.3. That classifies the sequence as belonging to class `2` (which is correct according to the truth table of the simulation).
 
-In fact, an automated way of summarising distances and finding the $n$ closest ones is implemented in the option `-s` of `KPopTwistDB`, and that is what one would probably use in real life. A complete explanation of how to do so and understand the resulting output format can be found [below](#distance-summary-line).
+In fact, an automated way of summarising distances and finding the $n$ closest ones is implemented in the option `-s` of `KPopTwistDB`, and that is what one would probably use in real life. The command
+```
+KPopTwistDB -i d Test-vs-Classes -s Test-vs-Classes
+```
+will produce a file `Test-vs-Classes.KPopSummary.txt` made of tab-separated lines<a name="distance-summary-line"></a>, one per sequence, such as
+```
+"121"   3.18187160005451        0.467075454492746       3.32894004017435        0.0217576481749768      "2"     1.85388698190156        -2.84319076367473       "10"    3.298234166382  0.249130124925674
+```
+
+The first 5 fields have a fixed meaning, being:
+1. Sequence name
+2. Mean of distances from all classes for the sequence being considered
+3. Standard deviation of distances from all classes for the sequence being considered
+4. Median of distances from all classes for the sequence being considered
+5. MAD of distances from all classes for the sequence being considered.
+
+Those are followed by groups of 3 fields (how many groups depends on the parameters given when the summary was created), each field being:
+1. Class name
+2. Distance from this class for the sequence being considered
+3. _z_-score of the distance from this class for the sequence being considered.
+The groups list the classes closest to the sequence (2 by default). They are sorted by increasing distance.
+
+For instance, in the [example line shown above](#distance-summary-line) the summary examines sequence `121`, revealing that its mean distance from classes is 3.18; the closest class is `2`, at a distance of 1.85 (corresponding to a _z_-score of -2.84) while the second closest class is `10`, at a distance of 3.30 (corresponding to a _z_-score of 0.25). This line confirms in a statistically more sound way what we had glimpsed by eye above from the complete list of distances.
 
 #### 4.1.2. Classifier for deep-sequencing *M.tuberculosis* samples
 
-This example requires a large sequencing dataset available from the Short Read Archive (~1300 samples) to be downloaded and processed. 
+This example requires a large sequencing dataset available from the [Short Read Archive](https://www.ncbi.nlm.nih.gov/sra) (\~1300 samples) to be downloaded and processed. The list of SRA identifiers used as a starting point 
 
 ##### 4.1.2.1. Data preparation
 
@@ -424,7 +444,7 @@ KPopCount -l ERR275184 -s ERR275184.extendedFrags.fastq -p ERR275184.notCombined
 
 The script requires several additional components, namely:
 * [`trim_galore`](). It is run at the very beginning of the script to trim adapters
-* `FASTools`
+* `FASTools`.     . It can be obtained from the [BiOCamLib repository](https://github.com/PaoloRibeca/BiOCamLib). on which the implementation of `KPop` depends
 * The GEM mapper
 * `flash`
 
@@ -475,6 +495,7 @@ Note that in this example we annotate the name of each test sequence with its cl
 ###### Two-class workflow
 
 
+    [above](#distance-summary-line).
 
 ```bash
 $ KPopTwistDB $(ls Test/*.KPopTwisted | awk '{split($0,s,"[.]"); printf " -a t "s[1]}') -o t Test -d Classes -o d Test-vs-Classes -s Test-vs-Classes -v
@@ -735,25 +756,7 @@ One way or another, once a file `Test-vs-Classes.KPopDMatrix` containing all the
 ```bash
 $ KPopTwistDB -i d Test-vs-Classes -s Test-vs-Classes -v
 ```
-in order to produce a textual summary of the distances. The resulting file (~118 MB in size) will be made of tab-separated lines<a name="distance-summary-line"></a> such as
-```
-"Andorra/AND-233_2120014134_GC/2021"    29.4039559581116    9.31337835887503    25.4387583046277    5.53805839322387    "AY.73"    6.47858919958511    -2.46155217528344    "AY.9"    18.4433084234649    -1.17687128261057
-```
-
-The first 5 fields have a fixed meaning, being:
-1. Sequence name
-2. Mean of distances from all classes for the sequence being considered
-3. Standard deviation of distances from all classes for the sequence being considered
-4. Median of distances from all classes for the sequence being considered
-5. MAD of distances from all classes for the sequence being considered.
-
-Those are followed by groups (how many depends on the parameters given when the summary was created) of 3 fields, each one being:
-1. Class name
-2. Distance from this class for the sequence being considered
-3. _z_-score of the distance from this class for the sequence being considered.
-The groups list the classes closest to the sequence. They are sorted by increasing distance.
-
-For instance, in the [example line shown above](#distance-summary-line) the summary examines sequence `Andorra/AND-233_2120014134_GC/2021`, revealing that its mean distance from classes is 29.4; the closest class is `AY.73`, at a distance of 6.47 (corresponding to a _z_-score of -2.46) while the second closest class is `AY.9`, at a distance of 18.4 (corresponding to a _z_-score of -1.17).
+in order to produce the usual textual summary of the distances. The resulting file will be \~118 MB in size.
 
 And quite likely, one would also wish to run something like the following commands:
 ```bash
