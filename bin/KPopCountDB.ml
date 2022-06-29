@@ -1057,7 +1057,7 @@ let _ =
   TA.set_header header;
   TA.set_synopsis "[ACTIONS]";
   TA.parse [
-    TA.make_separator_multiline [ "Actions"; "They are executed delayed and in order of specification." ];
+    TA.make_separator_multiline [ "Actions."; "They are executed delayed and in order of specification." ];
     [ "-e"; "-E"; "--empty" ],
       None,
       [ "put an empty database into the register" ],
@@ -1137,7 +1137,7 @@ let _ =
       (fun _ -> Selected_print |> Tools.List.accum Parameters.program);
     [ "-c"; "-C"; "--selection-clear" ],
       None,
-      [ "purges the selection register" ],
+      [ "purge the selection register" ],
       TA.Optional,
       (fun _ -> Selected_clear |> Tools.List.accum Parameters.program);
     [ "-s"; "-S"; "--selection-to-table-filter" ],
@@ -1220,7 +1220,7 @@ let _ =
         " (which will be given extension .KPopCounter)" ],
       TA.Optional,
       (fun _ -> To_file (TA.get_parameter () |> KMerDB.make_filename_binary) |> Tools.List.accum Parameters.program);
-    TA.make_separator_multiline [ "Miscellaneous options"; "They are set immediately." ];
+    TA.make_separator_multiline [ "Miscellaneous options."; "They are set immediately." ];
     [ "-T"; "--threads" ],
       Some "<computing_threads>",
       [ "number of concurrent computing threads to be spawned";
