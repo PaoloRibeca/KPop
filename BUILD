@@ -23,7 +23,7 @@ if [ "$PROFILE" = "release" ]; then
   strip _build/default/bin/KPopCount.exe _build/default/bin/KPopCountDB.exe _build/default/bin/KPopTwist_.exe _build/default/bin/KPopTwistDB.exe
 fi
 
-rm -f KPopCount KPopCountDB kPopTwist KPopTwistDB
+rm -f KPopCount KPopCountDB KPopTwist_ KPopTwistDB
 ln -s _build/default/bin/KPopCount.exe KPopCount
 ln -s _build/default/bin/KPopCountDB.exe KPopCountDB
 ln -s _build/default/bin/KPopTwist_.exe KPopTwist_
