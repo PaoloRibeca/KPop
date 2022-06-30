@@ -13,6 +13,10 @@ if [ -z "$PROFILE" ]; then
   PROFILE="dev"
 fi
 
+if [ "$PROFILE" = "release" ]; then
+  rm -rf _build
+fi
+
 dune build --profile="$PROFILE" bin/KPopCount.exe
 dune build --profile="$PROFILE" bin/KPopCountDB.exe
 dune build --profile="$PROFILE" bin/KPopTwist_.exe
