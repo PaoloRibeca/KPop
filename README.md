@@ -272,7 +272,7 @@ Note that the classifier should be generated according to the data type of the i
 
 #### 4.1.1. Classifier for simulated *M.tuberculosis* sequencing reads
 
-As described in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v1), we simulated sequencing reads for 1,000 *M.tuberculosis* genomes. The data thus generated is large (~127 GB) and hence we are not making it available for download. However, the scripts used to (re-)generate it can be found in the directory [`test`](https://github.com/PaoloRibeca/KPop/tree/main/test) of this repository.
+As described in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v1), we simulated sequencing reads for 1,000 *M.tuberculosis* genomes. The data thus generated is large (~127 GB) and hence we are not making it directly available for download. However, the scripts used to (re-)generate it can be found in the [`test`](https://github.com/PaoloRibeca/KPop/tree/main/test) directory of this repository.
 
 ##### 4.1.1.1. Data preparation
 
@@ -422,40 +422,41 @@ For instance, in the [example line shown above](#distance-summary-line) the summ
 
 #### 4.1.2. Classifier for deep-sequencing *M.tuberculosis* samples
 
-This example requires a large sequencing dataset available from the [Short Read Archive](https://www.ncbi.nlm.nih.gov/sra) (\~1300 samples) to be downloaded and processed. The list of SRA identifiers used as a starting point 
+This example requires a large sequencing dataset available from the [Short Read Archive](https://www.ncbi.nlm.nih.gov/sra) (\~1300 samples) to be downloaded and processed. As before, the data is too large to be stored for direct download; however, the lists of SRA identifiers used as a starting point for this experiment can be found in the [`test`](https://github.com/PaoloRibeca/KPop/tree/main/test) directory of this repository.
 
 ##### 4.1.2.1. Data preparation
 
+As described in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v1), one of the advantages offered by `KPop` is its versatility. In particular, by pre-processing reads one can easily have the method focus on particular regions or features of the genome of interest, as shown in the following figure:
+
 ![Preprocessing for KPop-based deep-sequencing classifiers](images/KPop-Preprocessing-RR.png)
 
-
-In this case, we want to only keep sequencing reads that are likely to originate from *Mycobacterium* and discard contaminations. In order to do so, we process each sample through the following script (here we assume to be operating on sample `ERR275184`, which comes as the two paired-end FASTQ files `ERR275184_1.fastq.gz` and `ERR275184_2.fastq.gz`):
+For this example, we are mainly interested in performing a pre-processing step to discard contaminations &mdash; i.e., we want to only keep sequencing reads that are likely to originate from *Mycobacterium*. In order to do so, we process each set of sequencing reads through the following script (here we assume to be operating on sample `ERR275184`, which comes as the two paired-end FASTQ files `ERR275184_1.fastq.gz` and `ERR275184_2.fastq.gz`):
 
 ```bash
 # First, trim
-trim_galore -j 8 --paired ERR275184_1.fastq.gz ERR275184_2.fastq.gz
+$ trim_galore -j 8 --paired ERR275184_1.fastq.gz ERR275184_2.fastq.gz
 # Second, filter
-FASTools -p <(zcat ERR275184_1_val_1.fq.gz) <(zcat ERR275184_2_val_2.fq.gz) | awk -F '\t' 'function round(x){return (x%1>=0.5?x+(1-x%1):x-x%1)} BEGIN{MIN_LEN=50; SEGM_LEN=25} {l=length($2); if (l>=MIN_LEN) {n=round(l/SEGM_LEN); segm_len=round(l/n); n=round(l/segm_len); split($1,s," "); for (i=1;i<=n;++i) {lo=1+segm_len*(i-1); hi=(i==n?l:segm_len*i); print "@"(i==1?s[1]"~"$2"~"$3:s[1])"\n"substr($2,lo,hi-lo+1)"\n+\n"substr($3,lo,hi-lo+1)}}}' | gem3-mapper -I Mycobacterium.CompleteGenomes.gem -t ${__CPUS__} -F MAP | awk -F '\t' 'BEGIN{current=""} function process_current(){if (current!="") print hits"\t"current} {l=split($1,s,"~"); if (l==3) {process_current(); current=gensub("~","\t","g",$1); hits=0} if ($4~"^(|0:|0:0:)[1-9]") ++hits} END{process_current()}' | awk -F '\t' -v FIRST=ERR275184_1.fastq -v SECOND=ERR275184_2.fastq 'BEGIN{MIN_HITS=3; current=""; found=0} function process_current(){if (current!=""&&hits>=MIN_HITS&&found==2) {print first > FIRST; print second > SECOND}} {if ($2!=current) {process_current(); current=$2; found=1; hits=$1; first="@"$2"\n"$3"\n+\n"$4} else {++found; hits+=$1; second="@"$2"\n"$3"\n+\n"$4}} END{process_current()}'
+$ FASTools e -p <(zcat ERR275184_1_val_1.fq.gz) <(zcat ERR275184_2_val_2.fq.gz) | FASTools -S | awk -F '\t' 'function round(x){return (x%1>=0.5?x+(1-x%1):x-x%1)} BEGIN{MIN_LEN=50; SEGM_LEN=25} {l=length($2); if (l>=MIN_LEN) {n=round(l/SEGM_LEN); segm_len=round(l/n); n=round(l/segm_len); split($1,s," "); for (i=1;i<=n;++i) {lo=1+segm_len*(i-1); hi=(i==n?l:segm_len*i); print "@"(i==1?s[1]"~"$2"~"$3:s[1])"\n"substr($2,lo,hi-lo+1)"\n+\n"substr($3,lo,hi-lo+1)}}}' | gem3-mapper -I Mycobacterium.CompleteGenomes.gem -t ${__CPUS__} -F MAP | awk -F '\t' 'BEGIN{current=""} function process_current(){if (current!="") print hits"\t"current} {l=split($1,s,"~"); if (l==3) {process_current(); current=gensub("~","\t","g",$1); hits=0} if ($4~"^(|0:|0:0:)[1-9]") ++hits} END{process_current()}' | awk -F '\t' -v FIRST=ERR275184_1.fastq -v SECOND=ERR275184_2.fastq 'BEGIN{MIN_HITS=3; current=""; found=0} function process_current(){if (current!=""&&hits>=MIN_HITS&&found==2) {print first > FIRST; print second > SECOND}} {if ($2!=current) {process_current(); current=$2; found=1; hits=$1; first="@"$2"\n"$3"\n+\n"$4} else {++found; hits+=$1; second="@"$2"\n"$3"\n+\n"$4}} END{process_current()}'
 # Third, merge
-flash -m 20 -M 500 ERR275184_1.fastq ERR275184_2.fastq -o ERR275184
+$ flash -m 20 -M 500 ERR275184_1.fastq ERR275184_2.fastq -o ERR275184
 # Fourth, count k-mers
-KPopCount -l ERR275184 -s ERR275184.extendedFrags.fastq -p ERR275184.notCombined_1.fastq ERR275184.notCombined_2.fastq > ERR275184.k12.txt
+$ KPopCount -l ERR275184 -s ERR275184.extendedFrags.fastq -p ERR275184.notCombined_1.fastq ERR275184.notCombined_2.fastq > ERR275184.k12.txt
 ```
 
 The script requires several additional components, namely:
-* [`trim_galore`](). It is run at the very beginning of the script to trim adapters
-* `FASTools`.     . It can be obtained from the [BiOCamLib repository](https://github.com/PaoloRibeca/BiOCamLib). on which the implementation of `KPop` depends
-* The GEM mapper
-* `flash`
+* [Trim Galore](https://www.bioinformatics.babraham.ac.uk/projects/trim_galore/) and dependencies. It is run at the very beginning of the script to do quality and adapter trimming on the reads
+* `FASTools`. It is a Swiss-knife tool to manipulate FASTA/FASTQ files. It can be obtained from the [BiOCamLib repository](https://github.com/PaoloRibeca/BiOCamLib). on which the implementation of `KPop` depends
+* [The GEM mapper](https://github.com/smarco/gem3-mapper). It is a high-performance and very accurate aligner with an expressive native output format that we exploit in our script to quickly select matches
+* [FLASH](https://ccb.jhu.edu/software/FLASH/). It is a fast program to merge partially overlapping FASTQ paired-end reads. While our approach is not very sensitive to their presence, merging them helps keeping the overall *k*-mer normalisation more even, and it is hence considered good practice.
 
-The main idea behind the script is to split each read into small segments (`SEGM_LEN`, i.e., 25 nt in the code above), map each chunk into a *Mycobacterium* "pangenome", and keep the pair only if a sufficient number of segments (`MIN_HITS`, i.e, 3 in the code above) align to the pangenome. The sequences we used for the pangenome can be downloaded from
-
-the index can be generated with the command
-```
-gem3-indexer -i -o 
+The main idea behind the script is to split each read into small segments (`SEGM_LEN`, i.e., 25 nt in the code above), map each chunk into a *Mycobacterium* "pangenome", and keep the pair only if a sufficient number of segments (`MIN_HITS`, i.e, 3 in the code above) align to the pangenome. The sequences we used for the pangenome are listed in the [`test`](https://github.com/PaoloRibeca/KPop/tree/main/test) directory of this repository and can be downloaded from the SRA &mdash; we'll assume that they have all been concatenated into file `Mycobacterium.CompleteGenomes.fasta`. Once that has been done, an index for the pangenome can be generated with the command
+```bash
+gem3-indexer -i Mycobacterium.CompleteGenomes.fasta -o Mycobacterium.CompleteGenomes
 ```
 
-The input of the first `awk` command executed after `gem3-mapper` has FASTQ record in tabular format, with the number of mapping chunks coming before it:
+That will generate the file `Mycobacterium.CompleteGenomes.gem` appearing in the script.
+
+After each read has been split into chunks and aligned to the pangenome, the input of the first `awk` command executed after `gem3-mapper` will have FASTQ record in tabular format, with the number of mapping chunks coming before it:
 
 ```
 4       ERR275184.16    NGCACTCGGGGGCATGCCGATGCCCAAGGCAGTGGTCTGGGCGCTGCATGAGCACATCTTGGGCGCCAATCCGGCGGTATGGATGTACGCCGGCGGCGCGG   #1=DFFFFHHHHHJJJJJJJJJIJJICHIJJJHJHHHHHFFEDDDDDDDCCCDDDDDDDDCC@BD@BDDDDDDDDDDBBBDDDDDDED?BDDDBDDDD<99
@@ -467,59 +468,90 @@ The input of the first `awk` command executed after `gem3-mapper` has FASTQ reco
 ```
 and the second `awk` commands counts the sum of aligned segments and decides whether or not to keep the pair.
 
-However, equivalent techniques that discard extraneous reads using different approaches would also be acceptable.
+However, equivalent techniques that discard extraneous reads using different approaches or programs would also be acceptable.
 
 ##### 4.1.2.2. Data analysis
 
-```bash
-$ ls Counts-Lineages/*.k12.txt | tawk 'BEGIN{while (getline < "LIST-Mycobacteria-final.txt") t[$1]=$2} {split($0,s,"[/.]"); if (s[2] in t) {type=t[s[2]]; ++counts[type]; what=(counts[type]%2)==1?"Train":"Test"; print $0; system("mkdir -p "what"/"type"; cp "$0" "what"/"type"/")}}'
-```
+Once reads have been pre-processed and their *k*-mer spectrum generated for each sample, data analysis proceeds along the lines of the [simulated *M.tuberculosis* example above](#4112-data-analysis) &mdash; we assume that the spectra have been placed in a `Train` and `Test` directory and separated into subdirectory according to their class, as per the convention previously described. We then generate representative spectra for the classes; twist them; and use the resulting transformation to twist the test sequences, processing each directory in parallel. The results are then collected in the database `Test.KPopTwisted`.
 
 ```bash
 $ ls -d Train/*/ | awk '{print substr(gensub("Train/","",1),1,length($0)-7)}' | Parallel -l 1 -t 4 -- awk '{CLASS=$0; system("cat Train/"CLASS"/*.txt | KPopCountDB -f /dev/stdin -r \"~.\" -a "CLASS" -l "CLASS" -n -d -v --table-transform none -t "CLASS)}'
-```
-
-```bash
 $ cat M_*.KPopCounter.txt | KPopCountDB -f /dev/stdin -o Classes -v
-```
-
-```bash
 $ KPopTwist -i Classes -v
-```
-
-```bash
 $ ls -d Test/M_*/ | Parallel -l 1 -t 4 -- awk '{system("cat "$0"*.k12.txt | awk -F \047\\t\047 \047{if ($1==\"\") print $0\"\\001"substr($0,6,length($0)-6)"\"; else print}\047 | KPopTwistDB -i T Classes -k /dev/stdin -o t "substr($0,1,length($0)-1)" -v")}'
+$ KPopTwistDB $(ls Test/*.KPopTwisted | awk '{split($0,s,"[.]"); printf " -a t "s[1]}') -o t Test
 ```
 Note that in this example we annotate the name of each test sequence with its class, by adding to it a non-printable character `\001` followed by the class (`KPop` is fine with non-printable characters in labels, provided that they are not `\000`). We'll do the same below for the training sequences below, so as to be able to count the majority class when we use a *k*-NN approach.
 
+As detailed in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v1), for this example we explored three different classifiers. Although they all provide very good performance, these alternative approaches are easy to implement using `KPop` tools and illustrate the versatility of our framework.
+
 ###### Two-class workflow
 
-
-    [above](#distance-summary-line).
-
+This approach works exactly as in the [simulated *M.tuberculosis* example above](#4112-data-analysis):
 ```bash
-$ KPopTwistDB $(ls Test/*.KPopTwisted | awk '{split($0,s,"[.]"); printf " -a t "s[1]}') -o t Test -d Classes -o d Test-vs-Classes -s Test-vs-Classes -v
+$ KPopTwistDB -i t Test -d Classes -o d Test-vs-Classes -s Test-vs-Classes -v
 $ cat Test-vs-Classes.KPopSummary.txt | awk '{print gensub("\001","\"\t\"","g")}' > RESULTS-2C.txt
 ```
 
+Note the use of the distance capability provided by `KPopTwistDB`, as in the previous example, which produces results with the format explained [above](#distance-summary-line). We also post-process such results to split the name of the test sequence and its annotated class into two separate columns &mdash; as mentioned before, we had joined them through a non-printable character `\001` that we now turn into `\t`.
+
 ###### *k*-NN approach
 
-In this case, we implement the classifier by using a *k*-NN approach, i.e. by performing a majority call among the *k* nearest neighbours found for each test sequence - the result is the class which is most represented in the *k* closest data points belonging to the training set. In order to be able to do so, we need to separately compute the twisted spectrum of each training sequence &mdash; we also collect them into a DB named `Train`:
-
+In this case, we implement the classifier by using a *k*-NN approach, i.e. by performing a majority call among the *k* nearest neighbours found for each test sequence - the result is the class which is most represented in the *k* closest data points belonging to the training set. In order to be able to do so, we need to separately compute the twisted spectrum of each training sequence &mdash; we also collect them into a database named `Train`:
 ```bash
 $ ls -d Train/M_*/ | Parallel -l 1 -t 4 -- awk '{system("cat "$0"*.k12.txt | awk -F \047\\t\047 \047{if ($1==\"\") print $0\"\\001"substr($0,7,length($0)-7)"\"; else print}\047 | KPopTwistDB -i T Classes -k /dev/stdin -o t "substr($0,1,length($0)-1)" -v")}'
 $ KPopTwistDB $(ls Train/*.KPopTwisted | awk '{split($0,s,"[.]"); printf " -a t "s[1]}') -o t Train
 ```
 
+We then use the distance capability of `KPopTwist` as before. However, in this case we alter the default to output information about 5 nearest neighbours rather than 2:
 ```bash
 $ KPopTwistDB $(ls Test/*.KPopTwisted | awk '{split($0,s,"[.]"); printf " -a t "s[1]}') -o t Test -d Train -o d Test-vs-Train --keep-at-most 5 -s Test-vs-Train -v
 ```
-This produces the usual digest of the distance matrix containing, in this case, the 5 training sequences that are closest to the test sequence (we adopt a 5-NN classification approach in this example, but the number of neighbours could be different). However, we still have to parse the digest in order to compute how many of the nearest neighbours belong to the most frequent class, which translates into a slightly more complex script:
+This produces the usual digest of the distance matrix containing, in this case, the 5 training sequences that are closest to the test sequence (we adopt a 5-NN classification approach in this example, but of course the number of neighbours could be chosen to be different). At this point we are almost done, but we still have to parse the digest in order to compute how many of the nearest neighbours belong to the most frequent class, which translates into a slightly more complex script:
 
 ```bash
 $ cat Test-vs-Train.KPopSummary.txt | awk '{print gensub("\001","\"\t\"","g")}' | awk '{delete c; delete o; n=0; for (i=8;i<=NF;i+=4) {++n; if (!($i in c)) o[length(c)+1]=$i; ++c[$i]} max=0; max_class=0; l=length(o); for (i=1;i<=l;++i) {if (c[o[i]]>max) {max=c[o[i]]; max_class=o[i]}} print $0"\t"max_class"\t"(max/n)}' > RESULTS-kNN.txt
 ```
 Notably, we solve ties by selecting the class that appears first, i.e. which has a sequence that is closer to the test sequence.
+
+###### Random forest approach
+
+This is a more sophisticated approach that uses random forests to implement the predictor. Note that this is possible because `KPop` is capable of producing an explicit embedding of the sequences as a vector in twisted space. As we are going to use an external R library to implement the predictor, we first have to export to a tabular text file the coordinates of the sequences in twisted space &mdash; which we can do with `KPopTwist` &mdash; and then, once more, de-mangle the class information into a separate column:
+```bash
+$ KPopTwistDB -i t Train -O t Train -i t Test -O t Test
+$ cat Train.KPopTwisted.txt | awk '{print gensub("\001","\"\t\"","g")}' | awk -F '\t' 'BEGIN{OFS="\t"} {if (NR==1) {$1="\"Lineage\""}; print}' > Train.Truth.KPopTwisted.txt
+$ cat Test.KPopTwisted.txt | awk '{print gensub("\001","\"\t\"","g")}' | awk -F '\t' 'BEGIN{OFS="\t"} {if (NR==1) {$1="\"Lineage\""} else $2="\"\""; print}' > Test.Truth.KPopTwisted.txt
+```
+
+The files `Train.Truth.KPopTwisted.txt` and `Test.Truth.KPopTwisted.txt` will now contain the coordinates of train and test sequences in twisted space, respectively. We then run the following R commands:
+```R
+library(randomForest)
+train<-read.table("Train.Truth.KPopTwisted.txt")
+test<-read.table("Test.Truth.KPopTwisted.txt")
+rf<-randomForest(Lineage~.,data=train,mtry=4)
+write.table(as.data.frame(predict(rf,test)),"RF.txt",sep="\t")
+```
+which will produce a file `RF.txt` with the preliminary results of the predictor.
+
+And finally, this command re-annotates the sequences with their original class for comparison purposes:
+```bash
+$ cat RF.txt | awk -F '\t' 'BEGIN{while (getline < "NGS-TB-Test.txt") t["\""$1"\""]="\""$2"\""} {if (NR>1) print $1"\t"t[$1]"\t"$2}' > RESULTS-RF.txt
+```
+generating a final result `RESULTS-RF.txt`. The file `NGS-TB-Test.txt` contains the original annotation for each test sequence, and is available from the [`test`](https://github.com/PaoloRibeca/KPop/tree/main/test) directory of this repository.
+
+It should be noted that the structure of `RESULTS-RF.txt` is simpler than that of the final files produced by the previous methods. It contains lines such as
+```
+...
+"ERR046839"     "M_tuberculosis_L4"     "M_tuberculosis_L4"
+"ERR046933"     "M_tuberculosis_L5"     "M_tuberculosis_L5"
+"ERR072050"     "M_tuberculosis_L4"     "M_tuberculosis_L4"
+"ERR1023314"    "M_tuberculosis_L4"     "M_tuberculosis_L4"
+"ERR1023338"    "M_tuberculosis_L3"     "M_tuberculosis_L3"
+"ERR1023449"    "M_tuberculosis_L2"     "M_tuberculosis_L2"
+"ERR1034887"    "M_tuberculosis_L4"     "M_tuberculosis_L4"
+...
+```
+each one reporting samples name, original class, and classification generated by random forest &mdash; there is no additional statistical information reported in the default output generated by `randomForest`.
 
 #### 4.1.3. Classifier for COVID-19 sequences (Hyena)
 
@@ -540,7 +572,7 @@ As a first step, we must extract the actual COVID-19 sequences that we need in o
 $ CHUNK_BLOCKS=125; BLOCK_SIZE=$(( 1024 * 1024 )); rm -rf Split; mkdir Split; echo sequences.fasta | awk -v CHUNK_BLOCKS="$CHUNK_BLOCKS" -v BLOCK_SIZE="$BLOCK_SIZE" 'END{get_size="ls -l \047"$0"\047 | awk \047{print $5}\047" |& getline size; close(get_size); blocks=int((size+BLOCK_SIZE)/BLOCK_SIZE); chunks=int((blocks+CHUNK_BLOCKS)/CHUNK_BLOCKS); for (i=0;i<chunks;++i) print $0"\t"i*CHUNK_BLOCKS}' | Parallel -l 1 -t $(( $(nproc) * 3 )) -- awk -F '\t' -v BLOCK_SIZE="$BLOCK_SIZE" '{get_chunk="dd bs="BLOCK_SIZE" if=\047"$1"\047 skip="$2" 2> /dev/null"; overhang=""; line=""; while (get_chunk |& getline line) {if (line==""||line~"^>") break; overhang=overhang line"\n"} print $1"\t"($2*BLOCK_SIZE)+length(overhang); close(get_chunk)}' | awk -F '\t' '{if (NR>1) print $1"\t"old"\t"($2-old); old=$2}' | Parallel -l 1 -- awk -F '\t' -v BLOCK_SIZE="$BLOCK_SIZE" 'function remove_spaces(name,     s){split(name,s,"/"); return gensub("[ _]","","g",s[1])"/"s[2]"/"s[3]} BEGIN{nr=0; while (getline < "lineages.csv") {++nr; if (nr>1) {split($0,s,","); t[remove_spaces(gensub("^BHR/","Bahrain/",1,s[1]))]=s[2]}}} function output_sequence(){++counts[offset"/"class]; print ">"name"\n"seq > "Split/"offset"/"class".fasta"; return} {offset=$2; system("mkdir -p Split/"offset); get_chunk="dd bs="BLOCK_SIZE" if=\047"$1"\047 iflag=\"skip_bytes,count_bytes\" skip="offset" count="$3" 2> /dev/null"; first=0; while (get_chunk |& getline) {if ($0~"^>") {if (first&&active) output_sequence(); first=1; active=0; split(substr($0,10),s,"[|]"); res=remove_spaces(s[1]); if (res in t) {active=1; name=res; class=t[res]; seq=""}} else {if (active) seq=seq $0}} if (active) output_sequence()} END{for (i in counts) print i"\t"counts[i]}' | awk -F '\t' '{split($1,s,"/"); offset=s[1]; class=s[2]; system("cat \"Split/"$1".fasta\" >> \"Split/"class".fasta\"; rm \"Split/"$1".fasta\"; rmdir --ignore-fail-on-non-empty Split/"offset); counts[class]+=$2} END{for (i in counts) print i"\t"counts[i]}' > Stats.txt
 ```
 
-Although apparently daunting, the script is just performing a parallelised scan of the big file, in order to find the sequences specified in `lineages.csv` and write them as files &mdash; one per class &mdash; in the directory `Split`. In particular, the script is made of three parts, each one performing a specific task:
+Although apparently daunting, the script is just performing a parallelised scan of the big file, in order to find the sequences specified in `lineages.csv` and write them as files &mdash; one per class &mdash; in the directory `Split`. In particular, the script is made of three parts, each one performing a specific task.
 
 ###### Indexing
 
@@ -636,6 +668,14 @@ Parallel -l 1 -- awk -F '\t' -v BLOCK_SIZE="$BLOCK_SIZE" '
 '
 ```
 
+This is the core of the method, with several "worker" processes that are spawned and executed at the same time by `Parallel`. Each one operates on one of the chunks identified by the previous part, streaming it with `dd` and identifying the class each sequence belongs to by comparing it with the information contained in `lineages.csv` (some additional manipulations are needed in order to cope with several inconsistencies between the way metadata is represented in `sequences.fasta` and `lineages.csv`, but they are not really relevant to the general workflow).
+
+Each worker outputs its results in a different directory named `Split/<offset>`, where `<offset>` is the position within `sequences.fasta` of the beginning of the chunk processed by the worker. The sequences seen by each worker are split into different sub-directories of `Split/<offset>`, named `Split/<offset>/<lineage>`, according to their class. Each worker also outputs a summary made of a series of records of the form
+
+`<offset>`<kbd>/</kbd>`<lineage>`<kbd>Tab</kbd>`<frequency>`
+
+that is subsequently fed to the next stage.
+
 ###### Sequential collection
 
 ```bash
@@ -653,11 +693,8 @@ awk -F '\t' '
   }
 ' > Stats.txt
 ```
-This part of the scripts receives information about the sequences processed by each worker as a series of records of the form
 
-`<offset>`<kbd>/</kbd>`<lineage>`<kbd>Tab</kbd>`<frequency>`
-
-It then accumulates the worker-specific results, which have been stored into the `Split/<offset>` directory, into global ones that have the same name but in the `Split` directory. Worker-specific files and temporary directories are then deleted. Finally, the script outputs a file named `Stats.txt` containing the number of sequences successfully found and written for each lineage.
+Implementing our usual convention, this last part accumulates the worker-specific results, which had been stored by each worker into a separate `Split/<offset>` directory, into global results that have the same structure (one sub-directory per lineage/class) but live in the `Split` directory. Worker-specific files and temporary directories are then deleted. Finally, the script outputs a file named `Stats.txt` containing the number of sequences successfully found and written for each lineage.
 
 Unfortunately this step cannot be easily parallelised, as a concurrent write to the same file by several processes would result in corruption of the file &mdash; so it turns out to be the bottleneck. We could implement some locking/mutexing mechanism, but, after all, we have to prepare data only once. So we sit down and wait a couple hours.
 
@@ -781,17 +818,19 @@ That takes into account in a different way the estimated importance of the diffe
 
 ### 4.2. Relatedness engine
 
-In the same vein, by using `KPop` one can also easily generate a "relatedness engine" out of a classification (i.e., a system finding the most similar sequences in a large database). Here we do that taking the previous exercise on COVID-19 as a starting point.
+The previous examples have all showcased `KPop`'s capability to encode sequences as vectors in twisted space and find the closest neighbours there. This correctly suggests that by using `KPop` one can also easily generate a "relatedness engine" out of a classification &mdash; i.e., a system finding the most similar sequences in a large database.
 
-The overall strategy is illustrated in the following figure:
+The overall strategy is illustrated in the following figure, which assumes that we have already generated a classifying twister (purple box) and a database of twisted sequences (second box from the top on the right) to start with:
 
 ![KPop-based relatedness engine](images/KPop-RelatednessEngine-RR.png)
 
-First, we twist all the COVID-19 sequences in the GISAID database according to the classifier we generated in [the previous section](#412-classifier-for-covid-19-sequences-hyena), by running the command
-```bash
-```
+Briefly, we can generate and twist new spectra (top left), find out their nearest neighbours in the database of twisted sequences (central line and bottom left), and add the new twisted spectra to the database (bottom right).
 
-That generates a database containing 
+Here we illustrate the approach taking the previous exercise on COVID-19 as a starting point. For the sake of simplicity, we'll take as existing database the twisted test sequences (half of the GISAID database) in the file `Test.KPopTwisted`. The classifier will be the one we generated in [the previous section](#412-classifier-for-covid-19-sequences-hyena) and contained in the file `Classes.KPopTwister`. The command
+```bash
+cat Train/C.36.3.fasta | fasta-tabular | shuf | head -1 | tawk '{print $1 > "/dev/stderr"; print ">"$1"\n"$2}' | KPopCount -k 10 -f /dev/stdin -l "C.36.3" | KPopTwistDB -i T Classes -k /dev/stdin -d Test --keep-at-most 300 -s Related
+```
+will then randomly select one sequence from the `C.36.3` lineage and find the 300 sequences closest to it. A summary in the usual format will be output to file `Related.KPopSummary.txt`. Note that loading this specific database in memory is going to take long as the file is \~8.4 G, but one only needs to do it once when sequences are processed in batches.
 
 ### 4.3. Pseudo-phylogenetic trees
 
