@@ -1,5 +1,7 @@
 #!/bin/sh
 
+set -e
+
 #####################################################################
 # You might need to change this line depending on your installation #
 BIOCAMLIB_PATH=../BiOCamLib
