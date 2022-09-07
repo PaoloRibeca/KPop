@@ -19,11 +19,11 @@ module IntSet = Tools.IntSet
 module StringSet = Tools.StringSet
 module StringMap = Tools.StringMap
 
-(* For counts. We assume each count is < 2^31 *)
+(* For counts. We assume each count to be < 2^31 *)
 module IBAVector =
 Tools.BA.Vector (
   struct
-    include Int32
+    include Tools.Number.Make(Int32)
     type elt_t = Bigarray.int32_elt
     let elt = Bigarray.Int32
   end
@@ -33,9 +33,12 @@ Tools.BA.Vector (
 module FBAVector =
 Tools.BA.Vector (
   struct
-    include Float
-    let of_float x = x
-    let to_float x = x
+    include Tools.Number.Make(
+      struct
+        include Float
+        let of_float x = x
+        let to_float x = x
+      end)
     type elt_t = Bigarray.float64_elt
     let elt = Bigarray.Float64
   end
@@ -198,9 +201,9 @@ and [@warning "-32"] Statistics:
           let v =
             match what with
             | Col ->
-              IBAVector.N.to_int core.storage.(n).IBAVector.=(i)
+              IBAVector.N.to_int core.storage.(n).IBAVector.@(i)
             | Row ->
-              IBAVector.N.to_int core.storage.(i).IBAVector.=(n) in
+              IBAVector.N.to_int core.storage.(i).IBAVector.@(n) in
           let v =
             if v >= threshold then
               v
@@ -441,7 +444,7 @@ and KMerDB:
           Array.map (resize ?exact:(Some true) eff_ny) a
     let resize_string_array_array ?(exact = false) =
       _resize_t_array_ ~exact Array.length resize_string_array (fun l -> Array.make l "")
-    module BAVectorMisc (M: Tools.BA.VectorType) =
+    module BAVectorMisc (M: Tools.BA.Type) =
       struct
         let resize ?(exact = false) n a =
           let l = M.length a in
@@ -741,16 +744,16 @@ and KMerDB:
             let col = !db.core.storage.(col_idx)
             and norm = stats.col_stats.(col_idx).sum in
             for i = 0 to red_n_rows do
-              res.FBAVector.+(i) <- IBAVector.N.to_float col.IBAVector.=(i) *. max_norm /. norm
+              res.FBAVector.+(i) <- IBAVector.N.to_float col.IBAVector.@(i) *. max_norm /. norm
             done
           | None -> ())
         selection;
       let new_col_idx = Hashtbl.find !db.col_names_to_idx new_label in
       let new_col = !db.core.storage.(new_col_idx) and norm = ref 0. in
       for i = 0 to red_n_rows do
-        let res_i = IBAVector.N.of_float res.FBAVector.=(i) in
+        let res_i = IBAVector.N.of_float res.FBAVector.@(i) in
         (* Actual copy to storage *)
-        new_col.IBAVector.=(i) <- res_i;
+        new_col.IBAVector.@(i) <- res_i;
         norm := !norm +. IBAVector.N.to_float res_i
       done;
       if verbose then
@@ -911,7 +914,7 @@ and KMerDB:
                 Array.iter
                   (fun (_, row_idx) ->
                     Printf.bprintf buf "%s%.*g" (if !first_done then "\t" else "") filter.precision begin
-                      IBAVector.N.to_int db.core.storage.(col_idx).IBAVector.=(row_idx) |>
+                      IBAVector.N.to_int db.core.storage.(col_idx).IBAVector.@(row_idx) |>
                         transform
                           ~col_num:db.core.n_cols ~col_stats:stats.col_stats.(col_idx)
                           ~row_num:db.core.n_rows ~row_stats:stats.row_stats.(row_idx)
@@ -972,7 +975,7 @@ and KMerDB:
                 Array.iteri
                   (fun j (_, col_idx) ->
                     Printf.bprintf buf "%s%.*g" (if j = 0 then "" else "\t") filter.precision begin
-                      IBAVector.N.to_int db.core.storage.(col_idx).IBAVector.=(row_idx) |>
+                      IBAVector.N.to_int db.core.storage.(col_idx).IBAVector.@(row_idx) |>
                         transform
                           ~col_num:db.core.n_cols ~col_stats:stats.col_stats.(col_idx)
                           ~row_num:db.core.n_rows ~row_stats:stats.row_stats.(row_idx)
