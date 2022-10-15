@@ -109,7 +109,7 @@ module Parameters =
     let verbose = ref Defaults.verbose
   end
 
-let version = "0.5"
+let version = "0.6"
 
 let header =
   Printf.sprintf begin
@@ -192,8 +192,6 @@ let _ =
       TA.Optional,
       (fun _ -> TA.usage (); exit 1)
   ];
-  let module KMCD = KMerCounter (KMer.DNAEncodingHash (struct let value = !Parameters.k end)) in
-  let module KMCP = KMerCounter (KMer.ProteinEncodingHash (struct let value = !Parameters.k end)) in
   Parameters.inputs := List.rev !Parameters.inputs;
   if !Parameters.inputs <> [] then begin
     let store = ref KMer.ReadFiles.empty in
@@ -201,8 +199,12 @@ let _ =
       (fun input -> store := KMer.ReadFiles.add_from_files !store input)
       !Parameters.inputs;
     begin match !Parameters.content with
-    | DNA -> KMCD.compute ~linter:(Sequences.Lint.dnaize ~keep_dashes:false)
-    | Protein -> KMCP.compute ~linter:(Sequences.Lint.proteinize ~keep_dashes:false)
+    | DNA ->
+      let module KMCD = KMerCounter (KMer.DNAEncodingHash (struct let value = !Parameters.k end)) in
+      KMCD.compute ~linter:(Sequences.Lint.dnaize ~keep_dashes:false)
+    | Protein ->
+      let module KMCP = KMerCounter (KMer.ProteinEncodingHash (struct let value = !Parameters.k end)) in
+      KMCP.compute ~linter:(Sequences.Lint.proteinize ~keep_dashes:false)
     end ~verbose:!Parameters.verbose !store !Parameters.max_results_size !Parameters.label !Parameters.output
   end
 
