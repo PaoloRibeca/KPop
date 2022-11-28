@@ -14,6 +14,7 @@
 *)
 
 open BiOCamLib
+open KPop
 
 module IntSet = Tools.IntSet
 module StringSet = Tools.StringSet
@@ -275,9 +276,7 @@ and [@warning "-32"] Statistics:
         row_stats = compute_all Row }
   end
 and KMerDB:
-(*
-  K-mers are stored as columns, labels as rows
-*)
+  (* Each k-mer spectrum is stored as a column *)
   sig
     type marshalled_t = {
       n_cols: int; (* The number of vectors *)
@@ -341,7 +340,9 @@ and KMerDB:
     val to_table:
       ?filter:TableFilter.t -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> string -> unit
     val make_filename_table: string -> string
-
+    (* Spectral distance matrix *)
+    val to_distances:
+      ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Space.Distance.t -> t -> string -> unit
   end
 = struct
     type marshalled_t = {
@@ -861,7 +862,7 @@ and KMerDB:
         (fun i col_name ->
           (* There might be additional storage, or we might need to remove some columns *)
           if i < db.core.n_cols && StringSet.mem col_name filter.filter_columns |> not then
-            Tools.List.accum cols (col_name ,i))
+            Tools.List.accum cols (col_name, i))
         db.core.idx_to_col_names;
       let meta = Tools.Array.of_rlist !meta and rows = Tools.Array.of_rlist !rows
       and cols = Tools.Array.of_rlist !cols in
@@ -1004,7 +1005,29 @@ and KMerDB:
     let make_filename_table = function
       | w when String.length w >= 5 && String.sub w 0 5 = "/dev/" -> w
       | prefix -> prefix ^ ".KPopCounter.txt"
-
+    let to_distances ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) distance db prefix =
+      (* Matrix distance is computed rowwise, but k-mers are stored as columns in db - we have to transpose *)
+      let n_r = db.core.n_rows and n_c = db.core.n_cols in
+      let metric = Float.Array.make n_c 1.
+      and matrix = {
+        Matrix.Base.idx_to_col_names = Array.sub db.core.idx_to_row_names 0 n_r;
+        idx_to_row_names = Array.sub db.core.idx_to_col_names 0 n_c;
+        storage =
+          let red_n_c = n_c - 1
+          (* We immediately allocate all the needed memory, as we already know how much we will need *)
+          and storage = Array.init n_c (fun _ -> Float.Array.create n_r) in
+          Array.iteri
+            (fun i row ->
+              for j = 0 to red_n_c do
+                IBAVector.N.to_float row.IBAVector.@(j) |> Float.Array.set storage.(j) i
+              done)
+            db.core.storage;
+          storage
+      } in
+      Matrix.to_binary ~verbose {
+        which = DMatrix;
+        matrix = Matrix.Base.get_distance_matrix ~threads ~elements_per_step ~verbose distance metric matrix
+      } prefix
   end
 
 type to_do_t =
@@ -1021,6 +1044,7 @@ type to_do_t =
   | Selected_print
   | Selected_clear
   | Selected_to_filter
+  | To_file of string
   | Table_emit_row_names of bool
   | Table_emit_col_names of bool
   | Table_emit_metadata of bool
@@ -1029,10 +1053,12 @@ type to_do_t =
   | Table_emit_zero_rows of bool
   | Table_precision of int
   | To_table of string
-  | To_file of string
+  | Distance_set of Space.Distance.t
+  | To_distances of string
 
 module Defaults =
   struct
+    let distance = Space.Distance.of_string "euclidean"
     let filter = KMerDB.TableFilter.default
     let threads = Tools.Parallel.get_nproc ()
     let verbose = false
@@ -1047,7 +1073,7 @@ module Parameters =
     let verbose = ref Defaults.verbose
   end
 
-let version = "0.28"
+let version = "0.29"
 
 let header =
   Printf.sprintf begin
@@ -1060,24 +1086,25 @@ let _ =
   TA.set_header header;
   TA.set_synopsis "[ACTIONS]";
   TA.parse [
-    TA.make_separator_multiline [ "Actions."; "They are executed delayed and in order of specification." ];
-    [ "-e"; "-E"; "--empty" ],
+    TA.make_separator_multiline [ "Actions."; "They are executed delayed and in order of specification" ];
+    TA.make_separator "| Actions on the database register";
+    [ "-e"; "--empty" ],
       None,
       [ "put an empty database into the register" ],
       TA.Optional,
       (fun _ -> Empty |> Tools.List.accum Parameters.program);
-    [ "-i"; "-I"; "--input" ],
+    [ "-i"; "--input" ],
       Some "<binary_file_prefix>",
       [ "load to the register the database present in the specified file";
         " (which must have extension .KPopCounter)" ],
       TA.Optional,
       (fun _ -> Of_file (TA.get_parameter () |> KMerDB.make_filename_binary) |> Tools.List.accum Parameters.program);
-    [ "-m"; "-M"; "--metadata"; "--add-metadata" ],
+    [ "-m"; "--metadata"; "--add-metadata" ],
       Some "<metadata_table_file_name>",
       [ "add to the database present in the register metadata from the specified file" ],
       TA.Optional,
       (fun _ -> Add_meta (TA.get_parameter ()) |> Tools.List.accum Parameters.program);
-    [ "-f"; "-F"; "--files"; "--add-files" ],
+    [ "-f"; "--files"; "--add-files" ],
       Some "<k-mer_table_file_name>[','...','<k-mer_table_file_name>]",
       [ "add to the database present in the register k-mers from the specified files" ],
       TA.Optional,
@@ -1088,67 +1115,24 @@ let _ =
       [ "print a summary of the database present in the register" ],
       TA.Optional,
       (fun _ -> Summary |> Tools.List.accum Parameters.program);
-    [ "-l"; "-L"; "--labels"; "--selection-from-labels" ],
-      Some "<vector_label>[','...','<vector_label>]",
-      [ "put into the selection register the specified labels" ],
+    [ "-o"; "--output" ],
+      Some "<binary_file_prefix>",
+      [ "dump the database present in the register to the specified file";
+        " (which will be given extension .KPopCounter)" ],
       TA.Optional,
-      (fun _ ->
-        let labels = TA.get_parameter () in
-        if labels <> "" then
-        Selected_from_labels (labels |> Tools.Split.on_char_as_list ',' |> StringSet.of_list)
-          |> Tools.List.accum Parameters.program);
-    [ "-r"; "-R"; "--regexps"; "--selection-from-regexps" ],
-      Some "<metadata_field>'~'<regexp>[','...','<metadata_field>'~'<regexp>]",
-      [ "put into the selection register the labels of the vectors";
-        "whose metadata fields match the specified regexps.";
-        "An empty metadata field matches the labels" ],
+      (fun _ -> To_file (TA.get_parameter () |> KMerDB.make_filename_binary) |> Tools.List.accum Parameters.program);
+    [ "--distance"; "--distance-function"; "--set-distance"; "--set-distance-function" ],
+      Some "'euclidean'|'minkowski(<non_negative_float>)'",
+      [ "set the function to be used when computing distances.";
+        "The parameter for Minkowski is the power" ],
+      TA.Default (fun () -> Space.Distance.to_string Defaults.distance),
+      (fun _ -> Distance_set (TA.get_parameter () |> Space.Distance.of_string) |> Tools.List.accum Parameters.program);
+    [ "-d"; "--distances"; "--compute-distances"; "--compute-distances-spectral" ],
+      Some "<binary_file_prefix>",
+      [ "compute distances between all the spectra present in the register";
+        " (the result will have extension .KPopDMatrix)" ],
       TA.Optional,
-      (fun _ ->
-        Selected_from_regexps begin
-          List.map
-            (fun l ->
-              let res = Tools.Split.on_char_as_list '~' l in
-              if List.length res <> 2 then begin
-                TA.usage ();
-                List.length res |>
-                  Printf.sprintf "Option '-r': Wrong number of fields in list (expected 2, found %d)" |>
-                  TA.parse_error (* parse_error exits the program *)
-              end;
-              List.nth res 0, List.nth res 1 |> Str.regexp)
-            (TA.get_parameter () |> Tools.Split.on_char_as_list ',')
-        end |> Tools.List.accum Parameters.program);
-    [ "-a"; "-A"; "--add-sum-selection"; "--selection-add-sum" ],
-      Some "<new_vector_label>",
-      [ "add to the database present in the register (or replace if the new label exists)";
-        "a linear combination of the vectors whose labels are in the selection register" ],
-      TA.Optional,
-      (fun _ -> Add_sum_selected (TA.get_parameter ()) |> Tools.List.accum Parameters.program);
-    [ "-d"; "-D"; "--delete"; "--selection-remove" ],
-      None,
-      [ "remove from the table the vectors whose labels are in the selection register" ],
-      TA.Optional,
-      (fun _ -> Remove_selected |> Tools.List.accum Parameters.program);
-    [ "-n"; "-N"; "--selection-negate" ],
-      None,
-      [ "negate the labels that are present in the selection register" ],
-      TA.Optional,
-      (fun _ -> Selected_negate |> Tools.List.accum Parameters.program);
-    [ "-p"; "-P"; "--selection-print" ],
-      None,
-      [ "print the labels that are present in the selection register" ],
-      TA.Optional,
-      (fun _ -> Selected_print |> Tools.List.accum Parameters.program);
-    [ "-c"; "-C"; "--selection-clear" ],
-      None,
-      [ "purge the selection register" ],
-      TA.Optional,
-      (fun _ -> Selected_clear |> Tools.List.accum Parameters.program);
-    [ "-s"; "-S"; "--selection-to-table-filter" ],
-      None,
-      [ "filters out vectors whose labels are present in the selection register";
-        "when writing the database as a tab-separated file" ],
-      TA.Optional,
-      (fun _ -> Selected_to_filter |> Tools.List.accum Parameters.program);
+      (fun _ -> To_distances (TA.get_parameter ()) |> Tools.List.accum Parameters.program);
     [ "--table-emit-row-names" ],
       Some "'true'|'false'",
       [ "whether to emit row names for the database present in the register";
@@ -1217,13 +1201,69 @@ let _ =
         "  the file will be given extension .KPopCounter.txt)" ],
       TA.Optional,
       (fun _ -> To_table (TA.get_parameter () |> KMerDB.make_filename_table) |> Tools.List.accum Parameters.program);
-    [ "-o"; "-O"; "--output" ],
-      Some "<binary_file_prefix>",
-      [ "dump the database present in the register to the specified file";
-        " (which will be given extension .KPopCounter)" ],
+    TA.make_separator "| Actions involving the selection register";
+    [ "-L"; "--labels"; "--selection-from-labels" ],
+      Some "<vector_label>[','...','<vector_label>]",
+      [ "put into the selection register the specified labels" ],
       TA.Optional,
-      (fun _ -> To_file (TA.get_parameter () |> KMerDB.make_filename_binary) |> Tools.List.accum Parameters.program);
-    TA.make_separator_multiline [ "Miscellaneous options."; "They are set immediately." ];
+      (fun _ ->
+        let labels = TA.get_parameter () in
+        if labels <> "" then
+        Selected_from_labels (labels |> Tools.Split.on_char_as_list ',' |> StringSet.of_list)
+          |> Tools.List.accum Parameters.program);
+    [ "-R"; "--regexps"; "--selection-from-regexps" ],
+      Some "<metadata_field>'~'<regexp>[','...','<metadata_field>'~'<regexp>]",
+      [ "put into the selection register the labels of the vectors";
+        "whose metadata fields match the specified regexps.";
+        "An empty metadata field matches the labels" ],
+      TA.Optional,
+      (fun _ ->
+        Selected_from_regexps begin
+          List.map
+            (fun l ->
+              let res = Tools.Split.on_char_as_list '~' l in
+              if List.length res <> 2 then begin
+                TA.usage ();
+                List.length res |>
+                  Printf.sprintf "Option '-r': Wrong number of fields in list (expected 2, found %d)" |>
+                  TA.parse_error (* parse_error exits the program *)
+              end;
+              List.nth res 0, List.nth res 1 |> Str.regexp)
+            (TA.get_parameter () |> Tools.Split.on_char_as_list ',')
+        end |> Tools.List.accum Parameters.program);
+    [ "-A"; "--add-sum-selection"; "--selection-add-sum" ],
+      Some "<new_vector_label>",
+      [ "add to the database present in the register (or replace if the new label exists)";
+        "a linear combination of the vectors whose labels are in the selection register" ],
+      TA.Optional,
+      (fun _ -> Add_sum_selected (TA.get_parameter ()) |> Tools.List.accum Parameters.program);
+    [ "-D"; "--delete"; "--selection-remove" ],
+      None,
+      [ "remove from the table the vectors whose labels are in the selection register" ],
+      TA.Optional,
+      (fun _ -> Remove_selected |> Tools.List.accum Parameters.program);
+    [ "-N"; "--selection-negate" ],
+      None,
+      [ "negate the labels that are present in the selection register" ],
+      TA.Optional,
+      (fun _ -> Selected_negate |> Tools.List.accum Parameters.program);
+    [ "-P"; "--selection-print" ],
+      None,
+      [ "print the labels that are present in the selection register" ],
+      TA.Optional,
+      (fun _ -> Selected_print |> Tools.List.accum Parameters.program);
+    [ "-C"; "--selection-clear" ],
+      None,
+      [ "purge the selection register" ],
+      TA.Optional,
+      (fun _ -> Selected_clear |> Tools.List.accum Parameters.program);
+    [ "-F"; "--selection-to-table-filter" ],
+      None,
+      [ "filters out vectors whose labels are present in the selection register";
+        "when writing the database as a tab-separated file" ],
+      TA.Optional,
+      (fun _ -> Selected_to_filter |> Tools.List.accum Parameters.program);
+    TA.make_separator_multiline [ "Miscellaneous options."; "They are set immediately" ];
     [ "-T"; "--threads" ],
       Some "<computing_threads>",
       [ "number of concurrent computing threads to be spawned";
@@ -1250,9 +1290,9 @@ let _ =
   end;
   if !Parameters.verbose then
     TA.header ();
-  (* These are the three registers available to the program *)
+  (* These are the registers available to the program *)
   let current = KMerDB.make_empty () |> ref and selected = ref StringSet.empty
-  and filter = ref KMerDB.TableFilter.default in
+  and filter = ref KMerDB.TableFilter.default and distance = ref Defaults.distance in
 
   (* The addition of an exception handler would be nice *)
 
@@ -1305,6 +1345,10 @@ let _ =
       | To_table fname ->
         KMerDB.to_table ~filter:!filter ~threads:!Parameters.threads ~verbose:!Parameters.verbose !current fname
       | To_file fname ->
-        KMerDB.to_binary ~verbose:!Parameters.verbose !current fname)
+        KMerDB.to_binary ~verbose:!Parameters.verbose !current fname
+      | Distance_set dist ->
+        distance := dist
+      | To_distances prefix ->
+        KMerDB.to_distances ~threads:!Parameters.threads ~verbose:!Parameters.verbose !distance !current prefix)
     program
 

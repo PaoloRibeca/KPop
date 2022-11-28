@@ -29,8 +29,61 @@ module Misc =
   end
 
 (* General matrix class *)
-include (
-  struct
+module Base:
+  sig
+    type t = {
+      (* We number rows and columns starting from 0 *)
+      idx_to_col_names: string array;
+      idx_to_row_names: string array;
+      (* Stored row-wise *)
+      storage: Float.Array.t array
+    }
+    val empty: t
+    (* We read in a matrix which has conditions as row names
+        and a (large) number of tags (genes, k-mers, etc.) as column names.
+       In keeping with the convention accepted by R, the first row would be a header,
+        and the first column the row names.
+       Names might be quoted *)
+    exception Wrong_number_of_columns of int * int * int
+    val of_file: ?threads:int -> ?bytes_per_step:int -> ?verbose:bool -> string -> t
+    val to_file: ?precision:int -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> string -> unit
+    val transpose_single_threaded: ?verbose:bool -> t -> t
+    val transpose: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> t
+    exception Incompatible_geometries of string array * string array
+    exception Duplicate_label of string
+    val merge_rowwise: ?verbose:bool -> t -> t -> t
+    val multiply_matrix_vector:
+      ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> Float.Array.t -> Float.Array.t
+    val multiply_matrix_vector_single_threaded: ?verbose:bool -> t -> Float.Array.t -> Float.Array.t
+    type sparse_vector_t = {
+      length: int;
+      elements: float Tools.IntMap.t
+    }
+    val multiply_matrix_sparse_vector_single_threaded: ?verbose:bool -> t -> sparse_vector_t -> Float.Array.t
+    val multiply_matrix_matrix:
+      ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> t -> t
+    val get_distance_matrix:
+      ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Space.Distance.t -> Float.Array.t -> t -> t
+    (* Compute distances between the rows of two matrices - more general version of the previous one *)
+    val get_distance_rowwise:
+      ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Space.Distance.t -> Float.Array.t -> t -> t -> t
+    module NearestNeighbor:
+      sig
+        type tt = t
+        module Preconditioner:
+          sig
+            type t
+
+          end
+        type t
+        val make_rowwise: Space.Distance.t -> Float.Array.t -> Preconditioner.t -> tt -> t
+        val find_and_replace:
+          ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
+          t -> ((string * Float.Array.t * string * Float.Array.t * float) option -> (string * Float.Array.t) option) ->
+          unit
+      end
+  end
+= struct
     type t = {
       idx_to_col_names: string array;
       idx_to_row_names: string array;
@@ -271,19 +324,20 @@ include (
         Incompatible_geometries (m.idx_to_col_names, Array.make (Float.Array.length v) "") |> raise;
       let d = Array.length m.idx_to_row_names in
       (* We immediately allocate all the needed memory, as we already know how much we will need *)
-      let red_d = d - 1 and res = Float.Array.create d and elts_done = ref 0 in
+      let res = Float.Array.create d and elts_done = ref 0 in
       (* We decorate each vector element coordinate with the respective value *)
-      for i = 0 to red_d do
-        let acc = ref 0. in
-        Float.Array.iter2
-          (fun el_1 el_2 ->
-            acc := !acc +. (el_1 *. el_2))
-          m.storage.(i) v;
-        Float.Array.set res i !acc;
-        incr elts_done;
-        if verbose && !elts_done mod 100 = 0 then
-          Printf.eprintf "\r(%s): Done %d/%d elements%!            \r" __FUNCTION__ !elts_done d
-      done;
+      Array.iteri
+        (fun i row ->
+          let acc = ref 0. in
+          Float.Array.iter2
+            (fun el_1 el_2 ->
+              acc := !acc +. (el_1 *. el_2))
+            row v;
+          Float.Array.set res i !acc;
+          incr elts_done;
+          if verbose && !elts_done mod 100 = 0 then
+            Printf.eprintf "\r(%s): Done %d/%d elements%!            \r" __FUNCTION__ !elts_done d)
+        m.storage;
       if verbose then
         Printf.eprintf "\r(%s): Done %d/%d elements.            \n%!" __FUNCTION__ !elts_done d;
       res
@@ -296,19 +350,20 @@ include (
         Incompatible_geometries (m.idx_to_col_names, Array.make (s_v.length) "") |> raise;
       let d = Array.length m.idx_to_row_names in
       (* We immediately allocate all the needed memory, as we already know how much we will need *)
-      let red_d = d - 1 and res = Float.Array.make d 0. and elts_done = ref 0 in
+      let res = Float.Array.make d 0. and elts_done = ref 0 in
       (* We decorate each vector element coordinate with the respective value *)
-      for i = 0 to red_d do
-        let m_v = m.storage.(i) and acc = ref 0. in
-        Tools.IntMap.iter
-          (fun j el ->
-            acc := !acc +. (Float.Array.get m_v j *. el))
-          s_v.elements;
-        Float.Array.set res i !acc;
-        incr elts_done;
-        if verbose && !elts_done mod 100 = 0 then
-          Printf.eprintf "\r(%s): Done %d/%d elements%!            \r" __FUNCTION__ !elts_done d
-      done;
+      Array.iteri
+        (fun i row ->
+          let acc = ref 0. in
+          Tools.IntMap.iter
+            (fun j el ->
+              acc := !acc +. (Float.Array.get row j *. el))
+            s_v.elements;
+          Float.Array.set res i !acc;
+          incr elts_done;
+          if verbose && !elts_done mod 100 = 0 then
+            Printf.eprintf "\r(%s): Done %d/%d elements%!            \r" __FUNCTION__ !elts_done d)
+        m.storage;
       if verbose then
         Printf.eprintf "\r(%s): Done %d/%d elements.            \n%!" __FUNCTION__ !elts_done d;
       res
@@ -413,6 +468,7 @@ include (
       { idx_to_col_names = m2.idx_to_col_names;
         idx_to_row_names = m1.idx_to_row_names;
         storage = storage }
+    (* Compute rowwise distance *)
     let get_distance_matrix ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) distance metric m =
       let distance = Space.Distance.compute distance metric and d = Array.length m.idx_to_row_names in
       (* We immediately allocate all the needed memory, as we already know how much we will need *)
@@ -543,14 +599,14 @@ include (
             let [@warning "-32"] compute ?(threads = 1) ?(verbose = false) m =
               (* Column n *)
               let compute_one n =
-                let min = ref 0. and max = ref 0. and sum = ref 0.
-                and red_len = Array.length m.idx_to_row_names - 1 in
-                for i = 0 to red_len do
-                  let v = Float.Array.get m.storage.(i) n in
-                  min := Stdlib.min !min v;
-                  max := Stdlib.max !max v;
-                  sum := !sum +. v
-                done;
+                let min = ref 0. and max = ref 0. and sum = ref 0. in
+                Array.iter
+                  (fun row ->
+                    let v = Float.Array.get row n in
+                    min := Stdlib.min !min v;
+                    max := Stdlib.max !max v;
+                    sum := !sum +. v)
+                  m.storage;
                 { min = !min;
                   max = !max;
                   sum = !sum } in
@@ -607,58 +663,268 @@ include (
           ()
 
       end
-  end: sig
+  end
+
+(* KPop-specialised matrices.
+   We include in order not to have a repeated module prefix *)
+include [@warning "-32"] (
+  struct
+    module Type =
+      struct
+        type t =
+          | Twister
+          | Inertia
+          | Twisted
+          | DMatrix
+          | Metrics
+        let to_string = function
+          | Twister -> "KPopTwister"
+          | Inertia -> "KPopInertia"
+          | Twisted -> "KPopTwisted"
+          | DMatrix -> "KPopDMatrix"
+          | Metrics -> "KPopMetrics"
+        exception Unknown_type of string
+        let of_string = function
+          | "KPopTwister" -> Twister
+          | "KPopInertia" -> Inertia
+          | "KPopTwisted" -> Twisted
+          | "KPopDMatrix" -> DMatrix
+          | "KPopMetrics" -> Metrics
+          | w ->
+            Unknown_type w |> raise
+      end
     type t = {
-      (* We number rows and columns starting from 0 *)
-      idx_to_col_names: string array;
-      idx_to_row_names: string array;
-      (* Stored row-wise *)
-      storage: Float.Array.t array
+      which: Type.t;
+      matrix: Base.t
     }
-    val empty: t
-    (* We read in a matrix which has conditions as row names
-        and a (large) number of tags (genes, k-mers, etc.) as column names.
-       In keeping with the convention accepted by R, the first row would be a header,
-        and the first column the row names.
-       Names might be quoted *)
-    exception Wrong_number_of_columns of int * int * int
-    val of_file: ?threads:int -> ?bytes_per_step:int -> ?verbose:bool -> string -> t
+    let empty which =
+      { which; matrix = Base.empty }
+    (* The three following functions implement automatic file naming *)
+    let make_filename_table which = function
+      | w when String.length w >= 5 && String.sub w 0 5 = "/dev/" -> w
+      | prefix -> prefix ^ "." ^ Type.to_string which ^ ".txt"
+    let make_filename_binary which name =
+      match which, name with
+      | _, _ when String.length name >= 5 && String.sub name 0 5 = "/dev/" -> name
+      | Type.Twisted, prefix | DMatrix, prefix | Metrics, prefix -> prefix ^ "." ^ Type.to_string which
+      | Twister, _ | Inertia, _ -> assert false (* Should always be done through KPopTwister *)
+    let make_filename_summary = function
+      | w when String.length w >= 5 && String.sub w 0 5 = "/dev/" -> w
+      | prefix -> prefix ^ ".KPopSummary.txt"
+    (* We redefine the implementation for Matrix in order to set the correct KPop types *)
+    let of_file ?(threads = 1) ?(bytes_per_step = 4194304) ?(verbose = false) which prefix =
+      { which; matrix = make_filename_table which prefix |> Base.of_file ~threads ~bytes_per_step ~verbose }
+    let to_file ?(precision = 15) ?(threads = 1) ?(elements_per_step = 40000) ?(verbose = false) m prefix =
+      make_filename_table m.which prefix |> Base.to_file ~precision ~threads ~elements_per_step ~verbose m.matrix
+    let transpose_single_threaded ?(verbose = false) m =
+      { m with matrix = Base.transpose_single_threaded ~verbose m.matrix }
+    let transpose ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) m =
+      { m with matrix = Base.transpose ~threads ~elements_per_step ~verbose m.matrix }
+    exception Incompatible_matrices of Type.t * Type.t
+    let merge_rowwise ?(verbose = false) m1 m2 =
+      if m1.which <> m2.which then
+        Incompatible_matrices (m1.which, m2.which) |> raise;
+      { which = m1.which; matrix = Base.merge_rowwise ~verbose m1.matrix m2.matrix }
+    let multiply_matrix_vector_single_threaded ?(verbose = false) m =
+      Base.multiply_matrix_vector_single_threaded ~verbose m.matrix
+    let multiply_matrix_sparse_vector_single_threaded ?(verbose = false) m =
+      Base.multiply_matrix_sparse_vector_single_threaded ~verbose m.matrix
+    let multiply_matrix_vector ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) m v =
+      Base.multiply_matrix_vector ~threads ~elements_per_step ~verbose m.matrix v
+    let multiply_matrix_matrix ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) which m1 m2 =
+      { which; matrix = Base.multiply_matrix_matrix ~threads ~elements_per_step ~verbose m1.matrix m2.matrix }
+    let get_distance_matrix ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) distance metric m =
+      { which = DMatrix;
+        matrix = Base.get_distance_matrix ~threads ~elements_per_step ~verbose distance metric m.matrix }
+    (* Compute distances between the rows of two matrices - more general version of the previous one *)
+    let get_distance_rowwise ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) distance metric m1 m2 =
+      { which = DMatrix;
+        matrix = Base.get_distance_rowwise ~threads ~elements_per_step ~verbose distance metric m1.matrix m2.matrix }
+    exception Unexpected_type of Type.t * Type.t
+    module FloatIntMultimap = Tools.Multimap (Tools.ComparableFloat) (Tools.ComparableInt)
+    let summarize_distance
+        ?(keep_at_most = Some 2) ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) m prefix =
+      if m.which <> DMatrix then
+        Unexpected_type (m.which, DMatrix) |> raise;
+      let n_cols = Array.length m.matrix.idx_to_col_names in
+      let req_len =
+        match keep_at_most with
+        | None -> n_cols
+        | Some at_most -> at_most
+      and f_n_cols = float_of_int n_cols in
+      let process_row buf row_idx =
+        let name = m.matrix.idx_to_row_names.(row_idx) and row = m.matrix.storage.(row_idx)
+        and distr = ref FloatIntMultimap.empty in
+        (* We find the median and filter the result *)
+        Float.Array.iteri
+          (fun col_idx dist ->
+            distr := FloatIntMultimap.add dist col_idx !distr)
+          row;
+        let eff_len = ref 0 and median_pos = n_cols / 2 |> ref and median = ref 0. and acc = ref 0. in
+        FloatIntMultimap.iter_set
+          (fun dist set ->
+            let set_len = FloatIntMultimap.ValSet.cardinal set in
+            acc := !acc +. (float_of_int set_len *. dist);
+            if !median_pos >= 0 && !median_pos - set_len < 0 then
+              median := dist;
+            median_pos := !median_pos - set_len;
+            if !eff_len < req_len then
+              eff_len := !eff_len + set_len)
+          !distr;
+        let eff_len = !eff_len and median = !median and mean =
+          if n_cols > 0 then
+            !acc /. f_n_cols
+          else
+            0. in
+        (* We compute standard deviation e MAD *)
+        acc := 0.;
+        let ddistr = ref Tools.FloatMap.empty in
+        Float.Array.iteri
+          (fun _ dist ->
+            let d = dist -. mean in
+            acc := !acc +. (d *. d);
+            let d = (dist -. median) |> abs_float in
+            ddistr :=
+              match Tools.FloatMap.find_opt d !ddistr with
+              | None ->
+                Tools.FloatMap.add d 1 !ddistr
+              | Some n ->
+                Tools.FloatMap.add d (n + 1) !ddistr)
+          row;
+        median_pos := n_cols / 2;
+        let mad = ref 0. in
+        Tools.FloatMap.iter
+          (fun d occs ->
+            if !median_pos >= 0 && !median_pos - occs < 0 then
+              mad := d;
+            median_pos := !median_pos - occs)
+          !ddistr;
+        let mad = !mad and stddev =
+          if n_cols > 1 then
+            !acc /. (f_n_cols -. 1.) |> sqrt
+          else
+            0. in
+        Printf.bprintf buf "\"%s\"\t%.15g\t%.15g\t%.15g\t%.15g" name mean stddev median mad;
+        FloatIntMultimap.iteri
+          (fun i dist col_idx ->
+            if i < eff_len then
+              Printf.bprintf buf "\t\"%s\"\t%.15g\t%.15g"
+                m.matrix.idx_to_col_names.(col_idx) dist ((dist -. mean) /. stddev))
+          !distr;
+        Printf.bprintf buf "\n" in
+      let n_rows = Array.length m.matrix.idx_to_row_names and processed_rows = ref 0 and buf = Buffer.create 1048576
+      and fname = make_filename_summary prefix in
+      let output = open_out fname in
+      (* Parallel section *)
+      Tools.Parallel.process_stream_chunkwise
+        (fun () ->
+          if !processed_rows < n_rows then
+            let to_do = max 1 (elements_per_step / n_cols) |> min (n_rows - !processed_rows) in
+            let new_processed_rows = !processed_rows + to_do in
+            let res = !processed_rows, new_processed_rows - 1 in
+            processed_rows := new_processed_rows;
+            res
+          else
+            raise End_of_file)
+        (fun (lo_row, hi_row) ->
+          Buffer.clear buf;
+          for i = lo_row to hi_row do
+            process_row buf i
+          done;
+          hi_row - lo_row + 1, Buffer.contents buf)
+        (fun (n_processed, block) ->
+          Printf.fprintf output "%s" block;
+          let old_processed_rows = !processed_rows in
+          processed_rows := !processed_rows + n_processed;
+          if verbose && !processed_rows / 10000 > old_processed_rows / 10000 then
+            Printf.eprintf "\r(%s): Writing distance digest to file '%s': done %d/%d lines%!"
+              __FUNCTION__ fname !processed_rows n_rows)
+        threads;
+      if verbose then
+        Printf.eprintf "\r(%s): Writing distance digest to file '%s': done %d/%d lines.\n%!"
+          __FUNCTION__ fname n_rows n_rows;
+      close_out output
+    (* *)
+    let archive_version = "2022-04-03"
+    (* *)
+    let to_channel output m =
+      Type.to_string m.which |> output_value output;
+      archive_version |> output_value output;
+      output_value output m.matrix
+    let to_binary ?(verbose = false) m prefix =
+      let fname = make_filename_binary m.which prefix in
+      let output = open_out fname in
+      if verbose then
+        Printf.eprintf "(%s): Outputting DB to file '%s'...%!" __FUNCTION__ fname;
+      to_channel output m;
+      close_out output;
+      if verbose then
+        Printf.eprintf " done.\n%!"
+    exception Incompatible_archive_version of string * string
+    let of_channel input =
+      let which = (input_value input: string) in
+      let version = (input_value input: string) in
+      if version <> archive_version then
+        Incompatible_archive_version (which, version) |> raise;
+      { which = Type.of_string which; matrix = (input_value input: Base.t) }
+    let of_binary ?(verbose = false) which prefix =
+      let fname = make_filename_binary which prefix in
+      let input = open_in fname in
+      if verbose then
+        Printf.eprintf "(%s): Reading DB from file '%s'...%!" __FUNCTION__ fname;
+      let res = of_channel input in
+      close_in input;
+      if which <> res.which then
+        Unexpected_type (which, res.which) |> raise;
+      if verbose then
+        Printf.eprintf " done.\n%!";
+      res
+  end: sig
+    module Type:
+      sig
+        type t =
+          | Twister
+          | Inertia
+          | Twisted
+          | DMatrix
+          | Metrics
+        val to_string: t -> string
+        exception Unknown_type of string
+        val of_string: string -> t
+      end
+    type t = {
+      which: Type.t;
+      matrix: Base.t
+    }
+    val empty: Type.t -> t
+    (* All file name arguments are in fact _prefixes_ *)
+    val of_file: ?threads:int -> ?bytes_per_step:int -> ?verbose:bool -> Type.t -> string -> t
+    (* This one discards type information - use at your own risk *)
     val to_file: ?precision:int -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> string -> unit
     val transpose_single_threaded: ?verbose:bool -> t -> t
     val transpose: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> t
-    exception Incompatible_geometries of string array * string array
-    exception Duplicate_label of string
+    exception Incompatible_matrices of Type.t * Type.t
     val merge_rowwise: ?verbose:bool -> t -> t -> t
+    val multiply_matrix_vector_single_threaded: ?verbose:bool -> t -> Float.Array.t -> Float.Array.t
+    val multiply_matrix_sparse_vector_single_threaded: ?verbose:bool -> t -> Base.sparse_vector_t -> Float.Array.t
     val multiply_matrix_vector:
       ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> Float.Array.t -> Float.Array.t
-    val multiply_matrix_vector_single_threaded: ?verbose:bool -> t -> Float.Array.t -> Float.Array.t
-    type sparse_vector_t = {
-      length: int;
-      elements: float Tools.IntMap.t
-    }
-    val multiply_matrix_sparse_vector_single_threaded: ?verbose:bool -> t -> sparse_vector_t -> Float.Array.t
-    val multiply_matrix_matrix:
-      ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> t -> t
+    val multiply_matrix_matrix: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Type.t -> t -> t -> t
+    (* Compute distances between the rows of a matrix *)
     val get_distance_matrix:
       ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Space.Distance.t -> Float.Array.t -> t -> t
     (* Compute distances between the rows of two matrices - more general version of the previous one *)
     val get_distance_rowwise:
       ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Space.Distance.t -> Float.Array.t -> t -> t -> t
-    module NearestNeighbor:
-      sig
-        type tt = t
-        module Preconditioner:
-          sig
-            type t
-
-          end
-        type t
-        val make_rowwise: Space.Distance.t -> Float.Array.t -> Preconditioner.t -> tt -> t
-        val find_and_replace:
-          ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
-          t -> ((string * Float.Array.t * string * Float.Array.t * float) option -> (string * Float.Array.t) option) ->
-          unit
-      end
+    exception Unexpected_type of Type.t * Type.t
+    val summarize_distance:
+      ?keep_at_most:int option -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> string -> unit
+    (* Binary marshalling of the matrix *)
+    val to_channel: out_channel -> t -> unit
+    exception Incompatible_archive_version of string * string
+    val of_channel: in_channel -> t
+    val to_binary: ?verbose:bool -> t -> string -> unit
+    val of_binary: ?verbose:bool -> Type.t -> string -> t
   end
 )
 

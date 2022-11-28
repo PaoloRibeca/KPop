@@ -16,271 +16,11 @@
 open BiOCamLib
 open KPop
 
-module [@warning "-32"] KPopMatrix:
-  sig
-    module Type:
-      sig
-        type t =
-          | Twister
-          | Inertia
-          | Twisted
-          | DMatrix
-          | Metrics
-        val to_string: t -> string
-        exception Unknown_type of string
-        val of_string: string -> t
-      end
-    type t = {
-      which: Type.t;
-      matrix: Matrix.t
-    }
-    val empty: Type.t -> t
-    (* All file name arguments are in fact _prefixes_ *)
-    val of_file: ?threads:int -> ?bytes_per_step:int -> ?verbose:bool -> Type.t -> string -> t
-    (* This one discards type information - use at your own risk *)
-    val to_file: ?precision:int -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> string -> unit
-    val transpose_single_threaded: ?verbose:bool -> t -> t
-    val transpose: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> t
-    exception Incompatible_matrices of Type.t * Type.t
-    val merge_rowwise: ?verbose:bool -> t -> t -> t
-    val multiply_matrix_vector_single_threaded: ?verbose:bool -> t -> Float.Array.t -> Float.Array.t
-    val multiply_matrix_sparse_vector_single_threaded: ?verbose:bool -> t -> Matrix.sparse_vector_t -> Float.Array.t
-    val multiply_matrix_vector:
-      ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> Float.Array.t -> Float.Array.t
-    val multiply_matrix_matrix: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Type.t -> t -> t -> t
-    val get_distance_matrix:
-      ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Space.Distance.t -> Float.Array.t -> t -> t
-    (* Compute distances between the rows of two matrices - more general version of the previous one *)
-    val get_distance_rowwise:
-      ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Space.Distance.t -> Float.Array.t -> t -> t -> t
-    exception Unexpected_type of Type.t * Type.t
-    val summarize_distance:
-      ?keep_at_most:int option -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> string -> unit
-    (* Binary marshalling of the matrix *)
-    val to_channel: out_channel -> t -> unit
-    exception Incompatible_archive_version of string * string
-    val of_channel: in_channel -> t
-    val to_binary: ?verbose:bool -> t -> string -> unit
-    val of_binary: ?verbose:bool -> Type.t -> string -> t
-  end
-= struct
-    module Type =
-      struct
-        type t =
-          | Twister
-          | Inertia
-          | Twisted
-          | DMatrix
-          | Metrics
-        let to_string = function
-          | Twister -> "KPopTwister"
-          | Inertia -> "KPopInertia"
-          | Twisted -> "KPopTwisted"
-          | DMatrix -> "KPopDMatrix"
-          | Metrics -> "KPopMetrics"
-        exception Unknown_type of string
-        let of_string = function
-          | "KPopTwister" -> Twister
-          | "KPopInertia" -> Inertia
-          | "KPopTwisted" -> Twisted
-          | "KPopDMatrix" -> DMatrix
-          | "KPopMetrics" -> Metrics
-          | w ->
-            Unknown_type w |> raise
-      end
-    type t = {
-      which: Type.t;
-      matrix: Matrix.t
-    }
-    let empty which =
-      { which; matrix = Matrix.empty }
-    (* The three following functions implement automatic file naming *)
-    let make_filename_table which = function
-      | w when String.length w >= 5 && String.sub w 0 5 = "/dev/" -> w
-      | prefix -> prefix ^ "." ^ Type.to_string which ^ ".txt"
-    let make_filename_binary which name =
-      match which, name with
-      | _, _ when String.length name >= 5 && String.sub name 0 5 = "/dev/" -> name
-      | Type.Twisted, prefix | DMatrix, prefix | Metrics, prefix -> prefix ^ "." ^ Type.to_string which
-      | Twister, _ | Inertia, _ -> assert false (* Should always be done through KPopTwister *)
-    let make_filename_summary = function
-      | w when String.length w >= 5 && String.sub w 0 5 = "/dev/" -> w
-      | prefix -> prefix ^ ".KPopSummary.txt"
-    (* We redefine the implementation for Matrix in order to set the correct KPop types *)
-    let of_file ?(threads = 1) ?(bytes_per_step = 4194304) ?(verbose = false) which prefix =
-      { which; matrix = make_filename_table which prefix |> Matrix.of_file ~threads ~bytes_per_step ~verbose }
-    let to_file ?(precision = 15) ?(threads = 1) ?(elements_per_step = 40000) ?(verbose = false) m prefix =
-      make_filename_table m.which prefix |> Matrix.to_file ~precision ~threads ~elements_per_step ~verbose m.matrix
-    let transpose_single_threaded ?(verbose = false) m =
-      { m with matrix = Matrix.transpose_single_threaded ~verbose m.matrix }
-    let transpose ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) m =
-      { m with matrix = Matrix.transpose ~threads ~elements_per_step ~verbose m.matrix }
-    exception Incompatible_matrices of Type.t * Type.t
-    let merge_rowwise ?(verbose = false) m1 m2 =
-      if m1.which <> m2.which then
-        Incompatible_matrices (m1.which, m2.which) |> raise;
-      { which = m1.which; matrix = Matrix.merge_rowwise ~verbose m1.matrix m2.matrix }
-    let multiply_matrix_vector_single_threaded ?(verbose = false) m =
-      Matrix.multiply_matrix_vector_single_threaded ~verbose m.matrix
-    let multiply_matrix_sparse_vector_single_threaded ?(verbose = false) m =
-      Matrix.multiply_matrix_sparse_vector_single_threaded ~verbose m.matrix
-    let multiply_matrix_vector ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) m v =
-      Matrix.multiply_matrix_vector ~threads ~elements_per_step ~verbose m.matrix v
-    let multiply_matrix_matrix ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) which m1 m2 =
-      { which; matrix = Matrix.multiply_matrix_matrix ~threads ~elements_per_step ~verbose m1.matrix m2.matrix }
-    let get_distance_matrix ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) distance metric m =
-      { which = DMatrix;
-        matrix = Matrix.get_distance_matrix ~threads ~elements_per_step ~verbose distance metric m.matrix }
-    (* Compute distances between the rows of two matrices - more general version of the previous one *)
-    let get_distance_rowwise ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) distance metric m1 m2 =
-      { which = DMatrix;
-        matrix = Matrix.get_distance_rowwise ~threads ~elements_per_step ~verbose distance metric m1.matrix m2.matrix }
-    exception Unexpected_type of Type.t * Type.t
-    module FloatIntMultimap = Tools.Multimap (Tools.ComparableFloat) (Tools.ComparableInt)
-    let summarize_distance
-        ?(keep_at_most = Some 2) ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) m prefix =
-      if m.which <> DMatrix then
-        Unexpected_type (m.which, DMatrix) |> raise;
-      let n_cols = Array.length m.matrix.idx_to_col_names in
-      let req_len =
-        match keep_at_most with
-        | None -> n_cols
-        | Some at_most -> at_most
-      and f_n_cols = float_of_int n_cols in
-      let process_row buf row_idx =
-        let name = m.matrix.idx_to_row_names.(row_idx) and row = m.matrix.storage.(row_idx)
-        and distr = ref FloatIntMultimap.empty in
-        (* We find the median and filter the result *)
-        Float.Array.iteri
-          (fun col_idx dist ->
-            distr := FloatIntMultimap.add dist col_idx !distr)
-          row;
-        let eff_len = ref 0 and median_pos = n_cols / 2 |> ref and median = ref 0. and acc = ref 0. in
-        FloatIntMultimap.iter_set
-          (fun dist set ->
-            let set_len = FloatIntMultimap.ValSet.cardinal set in
-            acc := !acc +. (float_of_int set_len *. dist);
-            if !median_pos >= 0 && !median_pos - set_len < 0 then
-              median := dist;
-            median_pos := !median_pos - set_len;
-            if !eff_len < req_len then
-              eff_len := !eff_len + set_len)
-          !distr;
-        let eff_len = !eff_len and median = !median and mean =
-          if n_cols > 0 then
-            !acc /. f_n_cols
-          else
-            0. in
-        (* We compute standard deviation e MAD *)
-        acc := 0.;
-        let ddistr = ref Tools.FloatMap.empty in
-        Float.Array.iteri
-          (fun _ dist ->
-            let d = dist -. mean in
-            acc := !acc +. (d *. d);
-            let d = (dist -. median) |> abs_float in
-            ddistr :=
-              match Tools.FloatMap.find_opt d !ddistr with
-              | None ->
-                Tools.FloatMap.add d 1 !ddistr
-              | Some n ->
-                Tools.FloatMap.add d (n + 1) !ddistr)
-          row;
-        median_pos := n_cols / 2;
-        let mad = ref 0. in
-        Tools.FloatMap.iter
-          (fun d occs ->
-            if !median_pos >= 0 && !median_pos - occs < 0 then
-              mad := d;
-            median_pos := !median_pos - occs)
-          !ddistr;
-        let mad = !mad and stddev =
-          if n_cols > 1 then
-            !acc /. (f_n_cols -. 1.) |> sqrt
-          else
-            0. in
-        Printf.bprintf buf "\"%s\"\t%.15g\t%.15g\t%.15g\t%.15g" name mean stddev median mad;
-        FloatIntMultimap.iteri
-          (fun i dist col_idx ->
-            if i < eff_len then
-              Printf.bprintf buf "\t\"%s\"\t%.15g\t%.15g"
-                m.matrix.idx_to_col_names.(col_idx) dist ((dist -. mean) /. stddev))
-          !distr;
-        Printf.bprintf buf "\n" in
-      let n_rows = Array.length m.matrix.idx_to_row_names and processed_rows = ref 0 and buf = Buffer.create 1048576
-      and fname = make_filename_summary prefix in
-      let output = open_out fname in
-      (* Parallel section *)
-      Tools.Parallel.process_stream_chunkwise
-        (fun () ->
-          if !processed_rows < n_rows then
-            let to_do = max 1 (elements_per_step / n_cols) |> min (n_rows - !processed_rows) in
-            let new_processed_rows = !processed_rows + to_do in
-            let res = !processed_rows, new_processed_rows - 1 in
-            processed_rows := new_processed_rows;
-            res
-          else
-            raise End_of_file)
-        (fun (lo_row, hi_row) ->
-          Buffer.clear buf;
-          for i = lo_row to hi_row do
-            process_row buf i
-          done;
-          hi_row - lo_row + 1, Buffer.contents buf)
-        (fun (n_processed, block) ->
-          Printf.fprintf output "%s" block;
-          let old_processed_rows = !processed_rows in
-          processed_rows := !processed_rows + n_processed;
-          if verbose && !processed_rows / 10000 > old_processed_rows / 10000 then
-            Printf.eprintf "\r(%s): Writing distance digest to file '%s': done %d/%d lines%!"
-              __FUNCTION__ fname !processed_rows n_rows)
-        threads;
-      if verbose then
-        Printf.eprintf "\r(%s): Writing distance digest to file '%s': done %d/%d lines.\n%!"
-          __FUNCTION__ fname n_rows n_rows;
-      close_out output
-    (* *)
-    let archive_version = "2022-04-03"
-    (* *)
-    let to_channel output m =
-      Type.to_string m.which |> output_value output;
-      archive_version |> output_value output;
-      output_value output m.matrix
-    let to_binary ?(verbose = false) m prefix =
-      let fname = make_filename_binary m.which prefix in
-      let output = open_out fname in
-      if verbose then
-        Printf.eprintf "(%s): Outputting DB to file '%s'...%!" __FUNCTION__ fname;
-      to_channel output m;
-      close_out output;
-      if verbose then
-        Printf.eprintf " done.\n%!"
-    exception Incompatible_archive_version of string * string
-    let of_channel input =
-      let which = (input_value input: string) in
-      let version = (input_value input: string) in
-      if version <> archive_version then
-        Incompatible_archive_version (which, version) |> raise;
-      { which = Type.of_string which; matrix = (input_value input: Matrix.t) }
-    let of_binary ?(verbose = false) which prefix =
-      let fname = make_filename_binary which prefix in
-      let input = open_in fname in
-      if verbose then
-        Printf.eprintf "(%s): Reading DB from file '%s'...%!" __FUNCTION__ fname;
-      let res = of_channel input in
-      close_in input;
-      if which <> res.which then
-        Unexpected_type (which, res.which) |> raise;
-      if verbose then
-        Printf.eprintf " done.\n%!";
-      res
-  end
-
-module [@warning "-32"] KPopTwister:
+module [@warning "-32"] Twister:
   sig
     type t = {
-      twister: KPopMatrix.t; (* Coordinate transformation *)
-      inertia: KPopMatrix.t  (* Variance per coordinate *)
+      twister: Matrix.t; (* Coordinate transformation *)
+      inertia: Matrix.t  (* Variance per coordinate *)
     }
     val empty: t
     val to_files: ?precision:int -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> string -> unit
@@ -294,25 +34,25 @@ module [@warning "-32"] KPopTwister:
     exception Duplicate_label of string
     val add_twisted_from_files:
       ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> ?debug:bool ->
-      t -> KPopMatrix.t -> string list -> KPopMatrix.t
+      t -> Matrix.t -> string list -> Matrix.t
     (* *)
     val to_binary: ?verbose:bool -> t -> string -> unit
     val of_binary: ?verbose:bool -> string -> t
   end
 = struct
     type t = {
-      twister: KPopMatrix.t;
-      inertia: KPopMatrix.t
+      twister: Matrix.t;
+      inertia: Matrix.t
     }
-    let empty = { twister = KPopMatrix.empty Twister; inertia = KPopMatrix.empty Inertia }
+    let empty = { twister = Matrix.empty Twister; inertia = Matrix.empty Inertia }
     (* *)
     let to_files ?(precision = 15) ?(threads = 1) ?(elements_per_step = 40000) ?(verbose = false) tr prefix =
-      KPopMatrix.to_file ~precision ~threads ~elements_per_step ~verbose tr.twister prefix;
-      KPopMatrix.to_file ~precision ~threads ~elements_per_step ~verbose tr.inertia prefix
+      Matrix.to_file ~precision ~threads ~elements_per_step ~verbose tr.twister prefix;
+      Matrix.to_file ~precision ~threads ~elements_per_step ~verbose tr.inertia prefix
     exception Mismatched_twister_files of string array * string array * string array
     let of_files ?(threads = 1) ?(bytes_per_step = 4194304) ?(verbose = false) prefix =
-      let twister = KPopMatrix.of_file ~threads ~bytes_per_step ~verbose Twister prefix
-      and inertia = KPopMatrix.of_file ~threads ~bytes_per_step ~verbose Inertia prefix in
+      let twister = Matrix.of_file ~threads ~bytes_per_step ~verbose Twister prefix
+      and inertia = Matrix.of_file ~threads ~bytes_per_step ~verbose Inertia prefix in
       (* Let's run at least some checks *)
       if begin
         inertia.matrix.idx_to_row_names <> [| "inertia" |] ||
@@ -338,10 +78,10 @@ module [@warning "-32"] KPopTwister:
     exception Duplicate_label of string
     let [@warning "-27"] add_twisted_from_files
         ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) ?(debug = false) twister twisted fnames =
-      if twisted.KPopMatrix.which <> Twisted then
-        KPopMatrix.Unexpected_type (twisted.KPopMatrix.which, Twisted) |> raise;
+      if twisted.Matrix.which <> Twisted then
+        Matrix.Unexpected_type (twisted.Matrix.which, Twisted) |> raise;
       let twisted_idx_to_col_names =
-        if twisted.matrix = Matrix.empty then
+        if twisted.matrix = Matrix.Base.empty then
           twister.twister.matrix.idx_to_row_names
         else twisted.matrix.idx_to_col_names in
       if twister.twister.matrix.idx_to_row_names <> twisted_idx_to_col_names then
@@ -451,7 +191,7 @@ module [@warning "-32"] KPopTwister:
           (* We first normalise and then transform the spectrum *)
           let acc = !acc in
           let s_v = {
-            Matrix.length = num_twister_cols;
+            Matrix.Base.length = num_twister_cols;
             elements =
               if acc <> 0. then
                 Tools.IntMap.map
@@ -462,7 +202,7 @@ module [@warning "-32"] KPopTwister:
                 !s_v
           } in
           let t2 = Sys.time () in
-          let res = KPopMatrix.multiply_matrix_sparse_vector_single_threaded ~verbose:false twister.twister s_v in
+          let res = Matrix.multiply_matrix_sparse_vector_single_threaded ~verbose:false twister.twister s_v in
           let t3 = Sys.time () in
           if debug then
             Printf.eprintf "DEBUG=(lines=%d/%d/%d,%.3g,%.3g,%.3g)\n%!"
@@ -484,8 +224,8 @@ module [@warning "-32"] KPopTwister:
           idx_to_row_names.(i) <- label;
           storage.(i) <- row)
         !res;
-      { KPopMatrix.which = Twisted;
-        matrix = { Matrix.idx_to_col_names = twisted_idx_to_col_names; idx_to_row_names; storage } }
+      { Matrix.which = Twisted;
+        matrix = { Matrix.Base.idx_to_col_names = twisted_idx_to_col_names; idx_to_row_names; storage } }
     (* *)
     let make_filename_binary = function
       | w when String.length w >= 5 && String.sub w 0 5 = "/dev/" -> w
@@ -495,8 +235,8 @@ module [@warning "-32"] KPopTwister:
       let output = open_out fname in
       if verbose then
         Printf.eprintf "(%s): Outputting DB to file '%s'...%!" __FUNCTION__ fname;
-      KPopMatrix.to_channel output t.twister;
-      KPopMatrix.to_channel output t.inertia;
+      Matrix.to_channel output t.twister;
+      Matrix.to_channel output t.inertia;
       close_out output;
       if verbose then
         Printf.eprintf " done.\n%!"
@@ -505,13 +245,13 @@ module [@warning "-32"] KPopTwister:
       let input = open_in fname in
       if verbose then
         Printf.eprintf "(%s): Reading DB from file '%s'...%!" __FUNCTION__ fname;
-      let twister = KPopMatrix.of_channel input in
-      let inertia = KPopMatrix.of_channel input in
+      let twister = Matrix.of_channel input in
+      let inertia = Matrix.of_channel input in
       close_in input;
-      if KPopMatrix.Type.Twister <> twister.which then
-        KPopMatrix.Unexpected_type (Twister, twister.which) |> raise;
-      if KPopMatrix.Type.Inertia <> inertia.which then
-        KPopMatrix.Unexpected_type (Inertia, inertia.which) |> raise;
+      if Matrix.Type.Twister <> twister.which then
+        Matrix.Unexpected_type (Twister, twister.which) |> raise;
+      if Matrix.Type.Inertia <> inertia.which then
+        Matrix.Unexpected_type (Inertia, inertia.which) |> raise;
       if verbose then
         Printf.eprintf " done.\n%!";
       { twister; inertia }
@@ -590,7 +330,7 @@ module Parameters =
     let verbose = ref Defaults.verbose
   end
 
-let version = "0.16"
+let version = "0.17"
 
 let header =
   Printf.sprintf begin
@@ -633,7 +373,7 @@ let _ =
       [ "load the specified tabular database(s) into the specified register";
         " (T=twister; t=twisted; d=distance).";
         "File extension is automatically determined depending on database type";
-        " (will be: .KPopTwister.txt and .KPopInertia.txt; .KPopTwisted.txt;";
+        " (will be: .Twister.txt and .KPopInertia.txt; .KPopTwisted.txt;";
         "  or .KPopDMatrix.txt, respectively)" ],
       TA.Optional,
       (fun _ ->
@@ -725,7 +465,7 @@ let _ =
       [ "dump the database present in the specified register";
         " (T=twister; t=twisted; d=distance; m=metrics) to the specified tabular file(s).";
         "File extension is automatically determined depending on database type";
-        " (will be: .KPopTwister.txt and .KPopInertia.txt; .KPopTwisted.txt;";
+        " (will be: .Twister.txt and .KPopInertia.txt; .KPopTwisted.txt;";
         "  .KPopDMatrix; or .KPopMetrics, respectively)" ],
       TA.Optional,
       (fun _ ->
@@ -774,15 +514,15 @@ let _ =
   if !Parameters.verbose then
     TA.header ();
   (* These are the registers available to the program *)
-  let twister = ref KPopTwister.empty and twisted = KPopMatrix.empty Twisted |> ref
+  let twister = ref Twister.empty and twisted = Matrix.empty Twisted |> ref
   and distance = ref Defaults.distance
   and metric = Space.Distance.Metric.compute Defaults.metric |> ref
-  and distances = KPopMatrix.empty DMatrix |> ref and precision = ref Defaults.precision
+  and distances = Matrix.empty DMatrix |> ref and precision = ref Defaults.precision
   and keep_at_most = ref Defaults.keep_at_most in
   let compute_metrics () =
     if Array.length !twister.inertia.matrix.idx_to_row_names > 0 then
       (* We use the metric induced by inertia *)
-      { Matrix.idx_to_row_names = [| "metrics" |];
+      { Matrix.Base.idx_to_row_names = [| "metrics" |];
         idx_to_col_names = !twister.inertia.matrix.idx_to_col_names;
         storage = [| !metric !twister.inertia.matrix.storage.(0) |] }
     else begin
@@ -792,95 +532,96 @@ let _ =
         idx_to_col_names = !twisted.matrix.idx_to_col_names;
         storage = [| Float.Array.make len 1. |> !metric |] }
     end in
+
   (* The addition of an exception handler would be nice *)
 
   List.iter
     (function
       | Empty RegisterType.Twister ->
-        twister := KPopTwister.empty
+        twister := Twister.empty
       | Empty RegisterType.Twisted ->
-        twisted := KPopMatrix.empty Twisted
+        twisted := Matrix.empty Twisted
       | Empty RegisterType.Distances ->
-        distances := KPopMatrix.empty DMatrix
+        distances := Matrix.empty DMatrix
       | Empty RegisterType.Metrics ->
         assert false
       | Binary_to_register (RegisterType.Twister, prefix) ->
-        twister := KPopTwister.of_binary ~verbose:!Parameters.verbose prefix
+        twister := Twister.of_binary ~verbose:!Parameters.verbose prefix
       | Binary_to_register (RegisterType.Twisted, prefix) ->
-        twisted := KPopMatrix.of_binary ~verbose:!Parameters.verbose Twisted prefix;
+        twisted := Matrix.of_binary ~verbose:!Parameters.verbose Twisted prefix;
         if !twisted.which <> Twisted then
-          KPopMatrix.Unexpected_type (!twisted.which, Twisted) |> raise
+          Matrix.Unexpected_type (!twisted.which, Twisted) |> raise
       | Binary_to_register (RegisterType.Distances, prefix) ->
-        distances := KPopMatrix.of_binary ~verbose:!Parameters.verbose DMatrix prefix;
+        distances := Matrix.of_binary ~verbose:!Parameters.verbose DMatrix prefix;
         if !distances.which <> DMatrix then
-          KPopMatrix.Unexpected_type (!distances.which, DMatrix) |> raise
+          Matrix.Unexpected_type (!distances.which, DMatrix) |> raise
       | Binary_to_register (RegisterType.Metrics, _) ->
         assert false
       | Add_binary_to_register (RegisterType.Twister, _) ->
         assert false
       | Add_binary_to_register (RegisterType.Twisted, prefix) ->
-        let additional = KPopMatrix.of_binary ~verbose:!Parameters.verbose Twisted prefix in
+        let additional = Matrix.of_binary ~verbose:!Parameters.verbose Twisted prefix in
         if additional.which <> Twisted then
-          KPopMatrix.Unexpected_type (additional.which, Twisted) |> raise;
-        twisted := KPopMatrix.merge_rowwise ~verbose:!Parameters.verbose !twisted additional
+          Matrix.Unexpected_type (additional.which, Twisted) |> raise;
+        twisted := Matrix.merge_rowwise ~verbose:!Parameters.verbose !twisted additional
       | Add_binary_to_register (RegisterType.Distances, prefix) ->
-        let additional = KPopMatrix.of_binary ~verbose:!Parameters.verbose DMatrix prefix in
+        let additional = Matrix.of_binary ~verbose:!Parameters.verbose DMatrix prefix in
         if additional.which <> DMatrix then
-          KPopMatrix.Unexpected_type (additional.which, DMatrix) |> raise;
-        distances := KPopMatrix.merge_rowwise ~verbose:!Parameters.verbose !distances additional
+          Matrix.Unexpected_type (additional.which, DMatrix) |> raise;
+        distances := Matrix.merge_rowwise ~verbose:!Parameters.verbose !distances additional
       | Add_binary_to_register (RegisterType.Metrics, _) ->
         assert false
       | Tables_to_register (RegisterType.Twister, prefix) ->
-        twister := KPopTwister.of_files ~threads:!Parameters.threads ~verbose:!Parameters.verbose prefix
+        twister := Twister.of_files ~threads:!Parameters.threads ~verbose:!Parameters.verbose prefix
       | Tables_to_register (RegisterType.Twisted, prefix) ->
-        twisted := KPopMatrix.of_file ~threads:!Parameters.threads ~verbose:!Parameters.verbose Twisted prefix;
+        twisted := Matrix.of_file ~threads:!Parameters.threads ~verbose:!Parameters.verbose Twisted prefix;
         if !twisted.which <> Twisted then
-          KPopMatrix.Unexpected_type (!twisted.which, Twisted) |> raise
+          Matrix.Unexpected_type (!twisted.which, Twisted) |> raise
       | Tables_to_register (RegisterType.Distances, prefix) ->
-        distances := KPopMatrix.of_file ~threads:!Parameters.threads ~verbose:!Parameters.verbose DMatrix prefix;
+        distances := Matrix.of_file ~threads:!Parameters.threads ~verbose:!Parameters.verbose DMatrix prefix;
         if !distances.which <> DMatrix then
-          KPopMatrix.Unexpected_type (!distances.which, DMatrix) |> raise
+          Matrix.Unexpected_type (!distances.which, DMatrix) |> raise
       | Tables_to_register (RegisterType.Metrics, _) ->
         assert false
       | Add_tables_to_register (RegisterType.Twister, _) ->
         assert false
       | Add_tables_to_register (RegisterType.Twisted, prefix) ->
-        let additional = KPopMatrix.of_file ~threads:!Parameters.threads ~verbose:!Parameters.verbose Twisted prefix in
+        let additional = Matrix.of_file ~threads:!Parameters.threads ~verbose:!Parameters.verbose Twisted prefix in
         if additional.which <> Twisted then
-          KPopMatrix.Unexpected_type (additional.which, Twisted) |> raise;
-        twisted := KPopMatrix.merge_rowwise ~verbose:!Parameters.verbose !twisted additional
+          Matrix.Unexpected_type (additional.which, Twisted) |> raise;
+        twisted := Matrix.merge_rowwise ~verbose:!Parameters.verbose !twisted additional
       | Add_tables_to_register (RegisterType.Distances, prefix) ->
-        let additional = KPopMatrix.of_file ~threads:!Parameters.threads ~verbose:!Parameters.verbose DMatrix prefix in
+        let additional = Matrix.of_file ~threads:!Parameters.threads ~verbose:!Parameters.verbose DMatrix prefix in
         if additional.which <> DMatrix then
-          KPopMatrix.Unexpected_type (additional.which, DMatrix) |> raise;
-        distances := KPopMatrix.merge_rowwise ~verbose:!Parameters.verbose !distances additional
+          Matrix.Unexpected_type (additional.which, DMatrix) |> raise;
+        distances := Matrix.merge_rowwise ~verbose:!Parameters.verbose !distances additional
       | Add_tables_to_register (RegisterType.Metrics, _) ->
         assert false
       | Add_kmer_files_to_twisted fnames ->
         twisted :=
-          KPopTwister.add_twisted_from_files
+          Twister.add_twisted_from_files
             ~threads:!Parameters.threads ~verbose:!Parameters.verbose !twister !twisted fnames
       | Register_to_binary (RegisterType.Twister, prefix) ->
-        KPopTwister.to_binary ~verbose:!Parameters.verbose !twister prefix
+        Twister.to_binary ~verbose:!Parameters.verbose !twister prefix
       | Register_to_binary (RegisterType.Twisted, prefix) ->
-        KPopMatrix.to_binary ~verbose:!Parameters.verbose !twisted prefix
+        Matrix.to_binary ~verbose:!Parameters.verbose !twisted prefix
       | Register_to_binary (RegisterType.Distances, prefix) ->
-        KPopMatrix.to_binary ~verbose:!Parameters.verbose !distances prefix
+        Matrix.to_binary ~verbose:!Parameters.verbose !distances prefix
       | Register_to_binary (RegisterType.Metrics, _) ->
         assert false
       | Set_precision prec ->
         precision := prec
       | Register_to_tables (RegisterType.Twister, prefix) ->
-        KPopTwister.to_files ~precision:!precision ~threads:!Parameters.threads ~verbose:!Parameters.verbose
+        Twister.to_files ~precision:!precision ~threads:!Parameters.threads ~verbose:!Parameters.verbose
           !twister prefix
       | Register_to_tables (RegisterType.Twisted, prefix) ->
-        KPopMatrix.to_file
+        Matrix.to_file
           ~precision:!precision ~threads:!Parameters.threads ~verbose:!Parameters.verbose !twisted prefix
       | Register_to_tables (RegisterType.Distances, prefix) ->
-        KPopMatrix.to_file
+        Matrix.to_file
           ~precision:!precision ~threads:!Parameters.threads ~verbose:!Parameters.verbose !distances prefix
       | Register_to_tables (RegisterType.Metrics, prefix) ->
-        KPopMatrix.to_file
+        Matrix.to_file
           ~precision:!precision ~threads:!Parameters.threads ~verbose:!Parameters.verbose {
             which = Metrics;
             matrix = compute_metrics ()
@@ -890,16 +631,16 @@ let _ =
       | Set_metric metr ->
         metric := Space.Distance.Metric.compute metr
       | Distances_from_twisted_binary prefix ->
-        let twisted_db = KPopMatrix.of_binary ~verbose:!Parameters.verbose Twisted prefix in
+        let twisted_db = Matrix.of_binary ~verbose:!Parameters.verbose Twisted prefix in
         if !twisted.which <> Twisted then
-          KPopMatrix.Unexpected_type (!twisted.which, Twisted) |> raise;
+          Matrix.Unexpected_type (!twisted.which, Twisted) |> raise;
         distances :=
-          KPopMatrix.get_distance_rowwise ~verbose:!Parameters.verbose ~threads:!Parameters.threads
+          Matrix.get_distance_rowwise ~threads:!Parameters.threads ~verbose:!Parameters.verbose
             !distance (compute_metrics ()).storage.(0) !twisted twisted_db
       | Set_keep_at_most kam ->
         keep_at_most := kam
       | Distances_summary prefix ->
-        KPopMatrix.summarize_distance
+        Matrix.summarize_distance
           ~keep_at_most:!keep_at_most ~threads:!Parameters.threads ~verbose:!Parameters.verbose !distances prefix)
     program
 
