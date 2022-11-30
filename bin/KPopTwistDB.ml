@@ -330,7 +330,7 @@ module Parameters =
     let verbose = ref Defaults.verbose
   end
 
-let version = "0.17"
+let version = "0.18"
 
 let header =
   Printf.sprintf begin
@@ -373,7 +373,7 @@ let _ =
       [ "load the specified tabular database(s) into the specified register";
         " (T=twister; t=twisted; d=distance).";
         "File extension is automatically determined depending on database type";
-        " (will be: .Twister.txt and .KPopInertia.txt; .KPopTwisted.txt;";
+        " (will be: .KPopTwister.txt and .KPopInertia.txt; .KPopTwisted.txt;";
         "  or .KPopDMatrix.txt, respectively)" ],
       TA.Optional,
       (fun _ ->
@@ -465,8 +465,8 @@ let _ =
       [ "dump the database present in the specified register";
         " (T=twister; t=twisted; d=distance; m=metrics) to the specified tabular file(s).";
         "File extension is automatically determined depending on database type";
-        " (will be: .Twister.txt and .KPopInertia.txt; .KPopTwisted.txt;";
-        "  .KPopDMatrix; or .KPopMetrics, respectively)" ],
+        " (will be: .KPopTwister.txt and .KPopInertia.txt; .KPopTwisted.txt;";
+        "  .KPopDMatrix.txt; or .KPopMetrics.txt, respectively)" ],
       TA.Optional,
       (fun _ ->
         let register_type = TA.get_parameter () |> RegisterType.of_string in

@@ -84,10 +84,10 @@ $ KPopCount -h
 ```
 in your terminal. You will see a header containing information about the version:
 ```
-This is the KPopCount program (version 0.5)
+This is the KPopCount program (version 0.6)
  (c) 2017-2022 Paolo Ribeca, <paolo.ribeca@gmail.com>
 ```
-followed by detailed information. The general form(s) the command can be used is:
+followed by detailed information. The general form the command can be used is:
 ```
 KPopCount -l|--label <output_vector_label> [OPTIONS]
 ```
@@ -125,10 +125,10 @@ $ KPopCountDB -h
 ```
 in your terminal. You will see a header containing information about the version:
 ```
-This is the KPopCountDB program (version 0.28)
+This is the KPopCountDB program (version 0.30)
  (c) 2020-2022 Paolo Ribeca, <paolo.ribeca@gmail.com>
 ```
-followed by detailed information. The general form(s) the command can be used is:
+followed by detailed information. The general form the command can be used is:
 ```
 KPopCountDB [ACTIONS]
 ```
@@ -136,35 +136,44 @@ KPopCountDB [ACTIONS]
 **Actions.**
 They are executed delayed and in order of specification.
 
+Actions on the database register:
+
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
-| `-e`<br>`-E`<br>`--empty` |  |  put an empty database into the register |  |
-| `-i`<br>`-I`<br>`--input` | _&lt;binary\_file\_prefix&gt;_ |  load to the register the database present in the specified file  (which must have extension \.KPopCounter) |  |
-| `-m`<br>`-M`<br>`--metadata`<br>`--add-metadata` | _&lt;metadata\_table\_file\_name&gt;_ |  add to the database present in the register metadata from the specified file |  |
-| `-f`<br>`-F`<br>`--files`<br>`--add-files` | _&lt;k\-mer\_table\_file\_name&gt;[','\.\.\.','&lt;k\-mer\_table\_file\_name&gt;]_ |  add to the database present in the register *k*\-mers from the specified files |  |
+| `-e`<br>`--empty` |  |  put an empty database into the register |  |
+| `-i`<br>`--input` | _&lt;binary\_file\_prefix&gt;_ |  load to the register the database present in the specified file  (which must have extension `.KPopCounter`) |  |
+| `-m`<br>`--metadata`<br>`--add-metadata` | _&lt;metadata\_table\_file\_name&gt;_ |  add to the database present in the register metadata from the specified file |  |
+| `-f`<br>`--files`<br>`--add-files` | _&lt;k\-mer\_table\_file\_name&gt;\[','\.\.\.','&lt;k\-mer\_table\_file\_name&gt;\]_ |  add to the database present in the register *k*\-mers from the specified files |  |
 | `--summary` |  |  print a summary of the database present in the register |  |
-| `-l`<br>`-L`<br>`--labels`<br>`--selection-from-labels` | _&lt;vector\_label&gt;[','\.\.\.','&lt;vector\_label&gt;]_ |  put into the selection register the specified labels |  |
-| `-r`<br>`-R`<br>`--regexps`<br>`--selection-from-regexps` | _&lt;metadata\_field&gt;'\~'&lt;regexp&gt;[','\.\.\.','&lt;metadata\_field&gt;'\~'&lt;regexp&gt;]_ |  put into the selection register the labels of the vectors whose metadata fields match the specified regexps\.<br>An empty metadata field matches the labels |  |
-| `-a`<br>`-A`<br>`--add-sum-selection`<br>`--selection-add-sum` | _&lt;new\_vector\_label&gt;_ |  add to the database present in the register (or replace if the new label exists) a linear combination of the vectors whose labels are in the selection register |  |
-| `-d`<br>`-D`<br>`--delete`<br>`--selection-remove` |  |  remove from the table the vectors whose labels are in the selection register |  |
-| `-n`<br>`-N`<br>`--selection-negate` |  |  negate the labels that are present in the selection register |  |
-| `-p`<br>`-P`<br>`--selection-print` |  |  print the labels that are present in the selection register |  |
-| `-c`<br>`-C`<br>`--selection-clear` |  |  purge the selection register |  |
-| `-s`<br>`-S`<br>`--selection-to-table-filter` |  |  filters out vectors whose labels are present in the selection register when writing the database as a tab\-separated file |  |
+| `-o`<br>`--output` | _&lt;binary\_file\_prefix&gt;_ |  dump the database present in the register to the specified file  (which will be given extension `.KPopCounter`) |  |
+| `--distance`<br>`--distance-function`<br>`--set-distance`<br>`--set-distance-function` | _'euclidean'&#124;'minkowski\(&lt;non\_negative\_float&gt;\)'_ |  set the function to be used when computing distances\.<br>The parameter for Minkowski is the power | <ins>default=<mark>_euclidean_</mark></ins> |
+| `-d`<br>`--distances`<br>`--compute-distances`<br>`--compute-distances-spectral` | _&lt;binary\_file\_prefix&gt;_ |  compute distances between all the spectra present in the register  (the result will have extension `.KPopDMatrix`) |  |
 | `--table-emit-row-names` | _'true'&#124;'false'_ |  whether to emit row names for the database present in the register when writing it as a tab\-separated file | <ins>default=<mark>_true_</mark></ins> |
 | `--table-emit-col-names` | _'true'&#124;'false'_ |  whether to emit column names for the database present in the register when writing it as a tab\-separated file | <ins>default=<mark>_true_</mark></ins> |
 | `--table-emit-metadata` | _'true'&#124;'false'_ |  whether to emit metadata for the database present in the register when writing it as a tab\-separated file | <ins>default=<mark>_false_</mark></ins> |
-| `--table-transpose` | _'true'&#124;'false'_ |  whether to transpose the database present in the register before writing it as a tab\-separated file  (if 'true' : rows are vector names, columns are (metadata and) *k*\-mer names;   if 'false': rows are (metadata and) *k*\-mer names, columns are vector names) | <ins>default=<mark>_false_</mark></ins> |
+| `--table-transpose` | _'true'&#124;'false'_ |  whether to transpose the database present in the register before writing it as a tab\-separated file  (if `true` : rows are vector names, columns are (metadata and) *k*\-mer names;   if `false`: rows are (metadata and) *k*\-mer names, columns are vector names) | <ins>default=<mark>_false_</mark></ins> |
 | `--table-threshold` | _&lt;non\_negative\_integer&gt;_ |  set to zero all counts that are less than this threshold before transforming and outputting them | <ins>default=<mark>_1_</mark></ins> |
-| `--table-power` | _&lt;non\_negative\_float&gt;_ |  raise counts to this power before transforming and outputting them\.<br>A power of 0 when the 'pseudocount' method is used performs a logarithmic transformation | <ins>default=<mark>_1\._</mark></ins> |
+| `--table-power` | _&lt;non\_negative\_float&gt;_ |  raise counts to this power before transforming and outputting them\.<br>A power of 0 when the `pseudocount` method is used performs a logarithmic transformation | <ins>default=<mark>_1\._</mark></ins> |
 | `--table-transform`<br>`--table-transformation` | _'none'&#124;'normalize'&#124;'pseudocount'&#124;'clr'_ |  transformation to apply to table elements before outputting them | <ins>default=<mark>_normalize_</mark></ins> |
 | `--table-emit-zero-rows` | _'true'&#124;'false'_ |  whether to emit rows whose elements are all zero when writing the database as a tab\-separated file | <ins>default=<mark>_false_</mark></ins> |
 | `--table-set-precision` | _&lt;positive\_integer&gt;_ |  set the number of precision digits to be used when outputting counts | <ins>default=<mark>_15_</mark></ins> |
-| `-t`<br>`--table` | _&lt;file\_prefix&gt;_ |  write the database present in the register as a tab\-separated file  (rows are *k*\-mer names, columns are vector names;   the file will be given extension \.KPopCounter\.txt) |  |
-| `-o`<br>`-O`<br>`--output` | _&lt;binary\_file\_prefix&gt;_ |  dump the database present in the register to the specified file  (which will be given extension \.KPopCounter) |  |
+| `-t`<br>`--table` | _&lt;file\_prefix&gt;_ |  write the database present in the register as a tab\-separated file  (rows are *k*\-mer names, columns are vector names;   the file will be given extension `.KPopCounter.txt`) |  |
+
+Actions involving the selection register:
+
+| Option | Argument(s) | Effect | Note(s) |
+|-|-|-|-|
+| `-L`<br>`--labels`<br>`--selection-from-labels` | _&lt;vector\_label&gt;\[','\.\.\.','&lt;vector\_label&gt;\]_ |  put into the selection register the specified labels |  |
+| `-R`<br>`--regexps`<br>`--selection-from-regexps` | _&lt;metadata\_field&gt;'\~'&lt;regexp&gt;\[','\.\.\.','&lt;metadata\_field&gt;'\~'&lt;regexp&gt;\]_ |  put into the selection register the labels of the vectors whose metadata fields match the specified regexps\.<br>An empty metadata field matches the labels |  |
+| `-A`<br>`--add-sum-selection`<br>`--selection-add-sum` | _&lt;new\_vector\_label&gt;_ |  add to the database present in the register (or replace if the new label exists) a linear combination of the vectors whose labels are in the selection register |  |
+| `-D`<br>`--delete`<br>`--selection-remove` |  |  remove from the table the vectors whose labels are in the selection register |  |
+| `-N`<br>`--selection-negate` |  |  negate the labels that are present in the selection register |  |
+| `-P`<br>`--selection-print` |  |  print the labels that are present in the selection register |  |
+| `-C`<br>`--selection-clear` |  |  purge the selection register |  |
+| `-F`<br>`--selection-to-table-filter` |  |  filters out vectors whose labels are present in the selection register when writing the database as a tab\-separated file |  |
 
 **Miscellaneous options.**
-They are set immediately.
+They are set immediately
 
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
@@ -183,7 +192,7 @@ in your terminal. You will see a header containing information about the version
 This is the KPopTwist program (version 0.14)
  (c) 2022 Paolo Ribeca, <paolo.ribeca@gmail.com>
 ```
-Usage:
+followed by detailed information. The general form the command can be used is:
 ```
 kPopTwist -i|--input <input_table_prefix> [OPTIONS]
 ```
@@ -194,14 +203,14 @@ kPopTwist -i|--input <input_table_prefix> [OPTIONS]
 |-|-|-|-|
 | `-f`<br>`-F`<br>`-s`<br>`-S`<br>`--fraction`<br>`--sampling`<br>`--sampling-fraction` | _&lt;non\_negative\_float&gt;_ |  fraction of the rows to be considered and resampled before twisting | <ins>default=<mark>_1\._</mark></ins> |
 | `--threshold` | _&lt;non\_negative\_integer&gt;_ |  set to zero all counts that are less than this threshold before transforming them | <ins>default=<mark>_1_</mark></ins> |
-| `--power` | _&lt;non\_negative\_float&gt;_ |  raise counts to this power before transforming them\.<br>A power of 0 when the 'pseudocount' method is used performs a logarithmic transformation | <ins>default=<mark>_1\._</mark></ins> |
+| `--power` | _&lt;non\_negative\_float&gt;_ |  raise counts to this power before transforming them\.<br>A power of 0 when the `pseudocount` method is used performs a logarithmic transformation | <ins>default=<mark>_1\._</mark></ins> |
 | `--transform`<br>`--transformation` | _'none'&#124;'normalize'&#124;'pseudocount'&#124;'clr'_ |  transformation to apply to table elements | <ins>default=<mark>_normalize_</mark></ins> |
 
 **Input/Output**
 
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
-| `-i`<br>`--input` | _&lt;input\_table\_prefix&gt;_ |  load the specified *k*\-mer database in the register and twist it\.<br>File extension is automatically determined  (will be \.KPopCounter)\.<br>The prefix is then re\-used for output  (and the output file will be given prefix \.KPopTwisted) | *(mandatory)* |
+| `-i`<br>`--input` | _&lt;input\_table\_prefix&gt;_ |  load the specified *k*\-mer database in the register and twist it\.<br>File extension is automatically determined  (will be `.KPopCounter`)\.<br>The prefix is then re\-used for output  (and the output file will be given prefix `.KPopTwisted`) | *(mandatory)* |
 
 **Miscellaneous**
 
@@ -219,10 +228,10 @@ $ KPopTwistDB -h
 ```
 in your terminal. You will see a header containing information about the version:
 ```
-This is the KPopTwistDB program (version 0.16)
+This is the KPopTwistDB program (version 0.18)
  (c) 2022 Paolo Ribeca, <paolo.ribeca@gmail.com>
 ```
-followed by detailed information. The general form(s) the command can be used is:
+followed by detailed information. The general form the command can be used is:
 ```
 KPopTwistDB [ACTIONS]
 ```
@@ -232,20 +241,20 @@ They are executed delayed and in order of specification.
 
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
-| `-e`<br>`--empty` | _T&#124;t&#124;d_ |  load an empty twisted database into the specified register  (T=twister; t=twisted; d=distance) |  |
-| `-i`<br>`--input` | _T&#124;t&#124;d &lt;binary\_file\_prefix&gt;_ |  load the specified binary database into the specified register  (T=twister; t=twisted; d=distance)\.<br>File extension is automatically determined depending on database type  (will be: \.KPopTwister; \.KPopTwisted; or \.KPopDMatrix, respectively) |  |
-| `-I`<br>`--Input` | _T&#124;t&#124;d &lt;table\_file\_prefix&gt;_ |  load the specified tabular database(s) into the specified register  (T=twister; t=twisted; d=distance)\.<br>File extension is automatically determined depending on database type  (will be: \.KPopTwister\.txt and \.KPopInertia\.txt; \.KPopTwisted\.txt;   or \.KPopDMatrix\.txt, respectively) |  |
-| `-a`<br>`--add` | _t&#124;d &lt;binary\_file\_prefix&gt;_ |  add the contents of the specified binary database to the specified register  (t=twisted; d=distance)\.<br>File extension is automatically determined depending on database type  (will be: \.KPopTwisted; or \.KPopDMatrix, respectively) |  |
-| `-A`<br>`--Add` | _t&#124;d &lt;table\_file\_prefix&gt;_ |  add the contents of the specified tabular database to the specified register  (t=twisted; d=distance)\.<br>File extension is automatically determined depending on database type  (will be: \.KPopTwisted\.txt; or \.KPopDMatrix\.txt, respectively) |  |
+| `-e`<br>`--empty` | _T&#124;t&#124;d_ |  load an empty twisted database into the specified register  (`T`=twister; `t`=twisted; `d`=distance) |  |
+| `-i`<br>`--input` | _T&#124;t&#124;d &lt;binary\_file\_prefix&gt;_ |  load the specified binary database into the specified register  (`T`=twister; `t`=twisted; `d`=distance)\.<br>File extension is automatically determined depending on database type  (will be: `.KPopTwister`; `.KPopTwisted`; or `.KPopDMatrix`, respectively) |  |
+| `-I`<br>`--Input` | _T&#124;t&#124;d &lt;table\_file\_prefix&gt;_ |  load the specified tabular database(s) into the specified register  (`T`=twister; `t`=twisted; `d`=distance)\.<br>File extension is automatically determined depending on database type  (will be: `.KPopTwister.txt` and `.KPopInertia.txt`; `.KPopTwisted.txt`;   or `.KPopDMatrix.txt`, respectively) |  |
+| `-a`<br>`--add` | _t&#124;d &lt;binary\_file\_prefix&gt;_ |  add the contents of the specified binary database to the specified register  (`t`=twisted; `d`=distance)\.<br>File extension is automatically determined depending on database type  (will be: `.KPopTwisted`; or `.KPopDMatrix`, respectively) |  |
+| `-A`<br>`--Add` | _t&#124;d &lt;table\_file\_prefix&gt;_ |  add the contents of the specified tabular database to the specified register  (`t`=twisted; `d`=distance)\.<br>File extension is automatically determined depending on database type  (will be: `.KPopTwisted.txt`; or `.KPopDMatrix.txt`, respectively) |  |
 | `-k`<br>`-K`<br>`--kmers`<br>`--add-kmers`<br>`--add-kmer-files` | _&lt;k\-mer\_table\_file\_name&gt;[','\.\.\.','&lt;k\-mer\_table\_file\_name&gt;]_ |  twist *k*\-mers from the specified files through the transformation present in the twister register, and add the results to the database present in the twisted register |  |
 | `--distance`<br>`--distance-function`<br>`--set-distance`<br>`--set-distance-function` | _'euclidean'&#124;<br> 'minkowski(&lt;non\_negative\_float&gt;)'_ |  set the function to be used when computing distances\.<br>The parameter for Minkowski is the power | <ins>default=<mark>_euclidean_</mark></ins> |
 | `-m`<br>`--metric`<br>`--metric-function`<br>`--set-metric`<br>`--set-metric-function` | _'flat'&#124;<br> 'power('&lt;non\_negative\_float&gt;')'&#124;<br> 'sigmoid('SIGMOID\_PARAMETERS')'_ |  where SIGMOID\_PARAMETERS :=  &lt;non\_negative\_float&gt;','&lt;non\_negative\_float&gt;','  &lt;non\_negative\_float&gt;','&lt;non\_negative\_float&gt; : set the metric function to be used when computing distances\.<br>Parameters are:  power; thresholding multiplier; left and right sigmoid tightnesses\. | <ins>default=<mark>_sigmoid(1,3,10,10)_</mark></ins> |
-| `-d`<br>`--distances`<br>`--compute-distances`<br>`--compute-distances-twisted` | _&lt;twisted\_binary\_file\_prefix&gt;_ |  compute distances between all the vectors present in the twisted register and all the vectors present in the specified twisted binary file  (which must have extension \.KPopTwisted)\.<br>The result will be placed in the distance register |  |
-| `-o`<br>`--output` | _T&#124;t&#124;d &lt;binary\_file\_prefix&gt;_ |  dump the database present in the specified register  (T=twister; t=twisted; d=distance) to the specified binary file\.<br>File extension is automatically determined depending on database type  (will be: \.KPopTwister; \.KPopTwisted; or \.KPopDMatrix, respectively) |  |
+| `-d`<br>`--distances`<br>`--compute-distances`<br>`--compute-distances-twisted` | _&lt;twisted\_binary\_file\_prefix&gt;_ |  compute distances between all the vectors present in the twisted register and all the vectors present in the specified twisted binary file  (which must have extension `.KPopTwisted`)\.<br>The result will be placed in the distance register |  |
+| `-o`<br>`--output` | _T&#124;t&#124;d &lt;binary\_file\_prefix&gt;_ |  dump the database present in the specified register  (`T`=twister; `t`=twisted; `d`=distance) to the specified binary file\.<br>File extension is automatically determined depending on database type  (will be: `.KPopTwister`; `.KPopTwisted`; or `.KPopDMatrix`, respectively) |  |
 | `--precision`<br>`--set-precision`<br>`--set-table-precision` | _&lt;positive\_integer&gt;_ |  set the number of precision digits to be used when outputting numbers | <ins>default=<mark>_15_</mark></ins> |
-| `-O`<br>`--Output` | _T&#124;t&#124;d&#124;m &lt;table\_file\_prefix&gt;_ |  dump the database present in the specified register  (T=twister; t=twisted; d=distance; m=metrics) to the specified tabular file(s)\.<br>File extension is automatically determined depending on database type  (will be: \.KPopTwister\.txt and \.KPopInertia\.txt; \.KPopTwisted\.txt;   \.KPopDMatrix; or \.KPopMetrics, respectively) |  |
+| `-O`<br>`--Output` | _T&#124;t&#124;d&#124;m &lt;table\_file\_prefix&gt;_ |  dump the database present in the specified register  (`T`=twister; `t`=twisted; `d`=distance; `m`=metrics) to the specified tabular file(s)\.<br>File extension is automatically determined depending on database type  (will be: `.KPopTwister.txt` and `.KPopInertia.txt`; `.KPopTwisted.txt`;   `.KPopDMatrix.txt`; or `.KPopMetrics.txt`, respectively) |  |
 | `--keep-at-most`<br>`--set-keep-at-most`<br>`--summary-keep-at-most` | _&lt;positive\_integer&gt;&#124;all_ |  set the maximum number of closest target sequences to be kept when summarizing distances | <ins>default=<mark>_2_</mark></ins> |
-| `-s`<br>`--summarize-distances` | _&lt;summary\_file\_prefix&gt;_ |  summarize the distances present in the distance register and write the result to the specified tabular file\.<br>File extension will be automatically determined  (will be \.KPopSummary\.txt) |  |
+| `-s`<br>`--summarize-distances` | _&lt;summary\_file\_prefix&gt;_ |  summarize the distances present in the distance register and write the result to the specified tabular file\.<br>File extension will be automatically determined  (will be `.KPopSummary.txt`) |  |
 
 **Miscellaneous options.**
 They are set immediately.

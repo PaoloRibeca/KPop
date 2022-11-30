@@ -276,7 +276,7 @@ and [@warning "-32"] Statistics:
         row_stats = compute_all Row }
   end
 and KMerDB:
-  (* Each k-mer spectrum is stored as a column *)
+  (* Conceptually, each k-mer spectrum is stored as a column, even though in practice we store the transposed matrix *)
   sig
     type marshalled_t = {
       n_cols: int; (* The number of vectors *)
@@ -1006,23 +1006,19 @@ and KMerDB:
       | w when String.length w >= 5 && String.sub w 0 5 = "/dev/" -> w
       | prefix -> prefix ^ ".KPopCounter.txt"
     let to_distances ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) distance db prefix =
-      (* Matrix distance is computed rowwise, but k-mers are stored as columns in db - we have to transpose *)
       let n_r = db.core.n_rows and n_c = db.core.n_cols in
-      let metric = Float.Array.make n_c 1.
+      let metric = Float.Array.make n_r 1.
       and matrix = {
         Matrix.Base.idx_to_col_names = Array.sub db.core.idx_to_row_names 0 n_r;
         idx_to_row_names = Array.sub db.core.idx_to_col_names 0 n_c;
         storage =
-          let red_n_c = n_c - 1
-          (* We immediately allocate all the needed memory, as we already know how much we will need *)
-          and storage = Array.init n_c (fun _ -> Float.Array.create n_r) in
-          Array.iteri
-            (fun i row ->
-              for j = 0 to red_n_c do
-                IBAVector.N.to_float row.IBAVector.@(j) |> Float.Array.set storage.(j) i
-              done)
-            db.core.storage;
-          storage
+          (* Matrix distance is computed rowwise, and k-mers are physically stored as rows in db:
+              geometry is fine - we just need to convert the counts to floats *)
+          Array.init n_c
+            (fun i ->
+              Float.Array.init n_r
+                (fun j ->
+                  IBAVector.N.to_float db.core.storage.(i).IBAVector.@(j)))
       } in
       Matrix.to_binary ~verbose {
         which = DMatrix;
@@ -1073,7 +1069,7 @@ module Parameters =
     let verbose = ref Defaults.verbose
   end
 
-let version = "0.29"
+let version = "0.30"
 
 let header =
   Printf.sprintf begin
@@ -1086,8 +1082,8 @@ let _ =
   TA.set_header header;
   TA.set_synopsis "[ACTIONS]";
   TA.parse [
-    TA.make_separator_multiline [ "Actions."; "They are executed delayed and in order of specification" ];
-    TA.make_separator "| Actions on the database register";
+    TA.make_separator_multiline [ "Actions."; "They are executed delayed and in order of specification." ];
+    TA.make_separator_multiline [ ""; "Actions on the database register:" ];
     [ "-e"; "--empty" ],
       None,
       [ "put an empty database into the register" ],
@@ -1201,7 +1197,7 @@ let _ =
         "  the file will be given extension .KPopCounter.txt)" ],
       TA.Optional,
       (fun _ -> To_table (TA.get_parameter () |> KMerDB.make_filename_table) |> Tools.List.accum Parameters.program);
-    TA.make_separator "| Actions involving the selection register";
+    TA.make_separator_multiline [ ""; "Actions involving the selection register:" ];
     [ "-L"; "--labels"; "--selection-from-labels" ],
       Some "<vector_label>[','...','<vector_label>]",
       [ "put into the selection register the specified labels" ],
