@@ -15,7 +15,7 @@
 
 open BiOCamLib
 
-module KMerCounter (KMH: KMer.KMerHash with type t = int):
+module KMerCounter (KMH: KMer.KMerHash_t with type t = int):
   sig
     val compute: ?verbose:bool -> linter:(string -> string) -> KMer.ReadFiles.t -> int -> string -> string -> unit
   end

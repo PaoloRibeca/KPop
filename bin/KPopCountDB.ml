@@ -445,7 +445,7 @@ and KMerDB:
           Array.map (resize ?exact:(Some true) eff_ny) a
     let resize_string_array_array ?(exact = false) =
       _resize_t_array_ ~exact Array.length resize_string_array (fun l -> Array.make l "")
-    module BAVectorMisc (M: Tools.BA.Type) =
+    module BAVectorMisc (M: Tools.BA.Type_t) =
       struct
         let resize ?(exact = false) n a =
           let l = M.length a in
