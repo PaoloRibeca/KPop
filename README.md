@@ -51,6 +51,12 @@ $ opam install dune
 ```
 if it is not already present. Make sure that you install OCaml version 4.12 or later.
 
+Cloning should be done with the option --recursive, as in
+```
+$ git clone --recursive git@github.com:PaoloRibeca/KPop.git
+```
+so as to make sure that all the subrepositories get correctly pulled.
+
 Then go to the directory into which you have downloaded the latest `KPop` sources, and type
 ```
 $ ./BUILD
