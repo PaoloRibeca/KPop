@@ -1,0 +1,3 @@
+[submodule "BiOCamLib"]
+	path = BiOCamLib
+	url = git@github.com:PaoloRibeca/BiOCamLib.git

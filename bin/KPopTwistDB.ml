@@ -106,7 +106,7 @@ module [@warning "-32"] Twister:
       let n = Array.length fnames and file_idx = ref 0 and file = open_in fnames.(0) |> ref and line_num = ref 0
       and labels = ref ("", "") and num_spectra = ref 0 in
       (* Parallel section *)
-      Tools.Parallel.process_stream_chunkwise
+      Processes.Parallel.process_stream_chunkwise
         (fun () ->
           if !file_idx = n then
             raise End_of_file
@@ -319,7 +319,7 @@ module Defaults =
     let metric = Space.Distance.Metric.of_string "sigmoid(1,3,10,10)"
     let precision = 15
     let keep_at_most = Some 2
-    let threads = Tools.Parallel.get_nproc ()
+    let threads = Processes.Parallel.get_nproc ()
     let verbose = false
   end
 

@@ -232,7 +232,7 @@ and [@warning "-32"] Statistics:
           | Row ->
             core.n_rows in
         let step = n / threads / 5 |> max 1 and processed = ref 0 and res = ref [] in
-        Tools.Parallel.process_stream_chunkwise
+        Processes.Parallel.process_stream_chunkwise
           (fun () ->
             if verbose then
               Printf.eprintf "\rComputing %s statistics [%d/%d]%!" (col_or_row_to_string what) !processed n;
@@ -890,7 +890,7 @@ and KMerDB:
           end;
           Printf.fprintf output "%!";
           let processed_cols = ref 0 and buf = Buffer.create 1048576 in
-          Tools.Parallel.process_stream_chunkwise
+          Processes.Parallel.process_stream_chunkwise
             (fun () ->
               if !processed_cols < n_cols then
                 let to_do = max 1 (elements_per_step / n_rows) |> min (n_cols - !processed_cols) in
@@ -957,7 +957,7 @@ and KMerDB:
             meta;
           Printf.fprintf output "%!";
           let processed_rows = ref 0 and buf = Buffer.create 1048576 in
-          Tools.Parallel.process_stream_chunkwise
+          Processes.Parallel.process_stream_chunkwise
             (fun () ->
               if !processed_rows < n_rows then
                 let to_do = max 1 (elements_per_step / n_cols) |> min (n_rows - !processed_rows) in
@@ -1056,7 +1056,7 @@ module Defaults =
   struct
     let distance = Space.Distance.of_string "euclidean"
     let filter = KMerDB.TableFilter.default
-    let threads = Tools.Parallel.get_nproc ()
+    let threads = Processes.Parallel.get_nproc ()
     let verbose = false
   end
 

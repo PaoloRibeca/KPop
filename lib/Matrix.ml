@@ -103,7 +103,7 @@ module Base:
           m.idx_to_col_names;
         Printf.fprintf output "\n%!";
         let processed_rows = ref 0 and buf = Buffer.create 1048576 in
-        Tools.Parallel.process_stream_chunkwise
+        Processes.Parallel.process_stream_chunkwise
           (fun () ->
             if !processed_rows < n_rows then
               let to_do = max 1 (elements_per_step / n_cols) |> min (n_rows - !processed_rows) in
@@ -172,7 +172,7 @@ module Base:
           line;
         (* We process the rest of the lines in parallel. The first element will be the name *)
         let end_reached = ref false and elts_read = ref 0 in
-        Tools.Parallel.process_stream_chunkwise
+        Processes.Parallel.process_stream_chunkwise
           (fun () ->
             if !end_reached then
               raise End_of_file
@@ -244,7 +244,7 @@ module Base:
       let storage = Array.init row_num (fun _ -> Float.Array.create 0) in
       (* Generate points to be computed by the parallel processs *)
       let i = ref 0 and end_reached = ref false and elts_done = ref 0 in
-      Tools.Parallel.process_stream_chunkwise
+      Processes.Parallel.process_stream_chunkwise
         (fun () ->
           if !end_reached then
             raise End_of_file
@@ -373,7 +373,7 @@ module Base:
       let d = Array.length m.idx_to_row_names in
       (* We immediately allocate all the needed memory, as we already know how much we will need *)
       let res = Float.Array.create d and i = ref 0 and end_reached = ref false and elts_done = ref 0 in
-      Tools.Parallel.process_stream_chunkwise
+      Processes.Parallel.process_stream_chunkwise
         (fun () ->
           if !end_reached then
             raise End_of_file
@@ -422,7 +422,7 @@ module Base:
       (* Generate points to be computed by the parallel processs *)
       let i = ref 0 and j = ref 0 and end_reached = ref false
       and prod = row_num * col_num and elts_done = ref 0 in
-      Tools.Parallel.process_stream_chunkwise
+      Processes.Parallel.process_stream_chunkwise
         (fun () ->
           if !end_reached then
             raise End_of_file
@@ -476,7 +476,7 @@ module Base:
       (* Generate points to be computed by the parallel processs *)
       let i = ref 0 and j = ref 0 and end_reached = ref false
       and total = (d * (d + 1)) / 2 and elts_done = ref 0 in
-      Tools.Parallel.process_stream_chunkwise
+      Processes.Parallel.process_stream_chunkwise
         (fun () ->
           if !end_reached then
             raise End_of_file
@@ -539,7 +539,7 @@ module Base:
       (* Generate points to be computed by the parallel processs *)
       let i = ref 0 and j = ref 0 and end_reached = ref false
       and prod = r1 * r2 and elts_done = ref 0 in
-      Tools.Parallel.process_stream_chunkwise
+      Processes.Parallel.process_stream_chunkwise
         (fun () ->
           if !end_reached then
             raise End_of_file
@@ -612,7 +612,7 @@ module Base:
                   sum = !sum } in
               let n = Array.length m.idx_to_col_names in
               let step = n / threads / 5 |> max 1 and processed = ref 0 and res = Array.make n empty in
-              Tools.Parallel.process_stream_chunkwise
+              Processes.Parallel.process_stream_chunkwise
                 (fun () ->
                   if verbose then
                     Printf.eprintf "\rComputing column statistics [%d/%d]%!" !processed n;
@@ -816,7 +816,7 @@ include [@warning "-32"] (
       and fname = make_filename_summary prefix in
       let output = open_out fname in
       (* Parallel section *)
-      Tools.Parallel.process_stream_chunkwise
+      Processes.Parallel.process_stream_chunkwise
         (fun () ->
           if !processed_rows < n_rows then
             let to_do = max 1 (elements_per_step / n_cols) |> min (n_rows - !processed_rows) in

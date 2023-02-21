@@ -9,7 +9,7 @@ module Defaults =
     let power = 1.
     let sampling = 1.
     (*let precision = 15*)
-    let threads = Tools.Parallel.get_nproc ()
+    let threads = Processes.Parallel.get_nproc ()
     let verbose = false
   end
 

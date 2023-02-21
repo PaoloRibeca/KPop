@@ -15,9 +15,9 @@
 
 open BiOCamLib
 
-module KMerCounter (KMH: KMer.KMerHash_t with type t = int):
+module KMerCounter (KMH: KMers.Hash_t with type t = int):
   sig
-    val compute: ?verbose:bool -> linter:(string -> string) -> KMer.ReadFiles.t -> int -> string -> string -> unit
+    val compute: ?verbose:bool -> linter:(string -> string) -> Files.ReadsIterate.t -> int -> string -> string -> unit
   end
 = struct
     let compute ?(verbose = false) ~linter store max_results_size label fname =
@@ -29,19 +29,19 @@ module KMerCounter (KMH: KMer.KMerHash_t with type t = int):
       (* Header with label *)
       Printf.fprintf output "\t%s\n" label;
       let output_format = Scanf.format_from_string (Printf.sprintf "%%0%dx\t%%d\n" ((KMH.k + 1) / 2)) "%d%d" in
-      let reads_cntr = ref 0 and res = KMer.IntHashtbl.create max_results_size in
-      KMer.ReadFiles.iter ~linter ~verbose:false
+      let reads_cntr = ref 0 and res = KMers.HashFrequencies.Base.create max_results_size in
+      Files.ReadsIterate.iter ~linter ~verbose:false
         (fun _ segm_id read ->
-          KMH.iter
+          KMH.iterc
             (fun hash occs ->
-              KMer.add_to_kmer_counter res hash occs;
-              if KMer.IntHashtbl.length res > max_results_size then begin
+              KMers.HashFrequencies.add res hash occs;
+              if KMers.HashFrequencies.Base.length res > max_results_size then begin
                 let min_binding =
-                  KMer.IntHashtbl.fold (fun _ occs old_min -> min old_min !occs) res max_int in
+                  KMers.HashFrequencies.Base.fold (fun _ occs old_min -> min old_min !occs) res max_int in
                 if verbose then
                   Printf.eprintf "\rKMerCounter.compute: Outputting and removing hashes having #%d occurrences...%!"
                     min_binding;
-                KMer.IntHashtbl.filter_map_inplace
+                KMers.HashFrequencies.Base.filter_map_inplace
                   (fun hash occs ->
                     if !occs = min_binding then begin
                       Printf.fprintf output output_format hash !occs;
@@ -55,7 +55,7 @@ module KMerCounter (KMH: KMer.KMerHash_t with type t = int):
                   Printf.eprintf " done.\n%!"
               end)
             read.seq;
-          if verbose && !reads_cntr mod 10000 = 0 then
+          if verbose && !reads_cntr mod 10_000 = 0 then
             Printf.eprintf "\rKMerCounter.compute: Added %d reads%!" !reads_cntr;
           if segm_id = 0 then
             incr reads_cntr)
@@ -64,7 +64,7 @@ module KMerCounter (KMH: KMer.KMerHash_t with type t = int):
         Printf.eprintf "\rKMerCounter.compute: Added %d reads\n%!" !reads_cntr;
         Printf.eprintf "KMerCounter.compute: Outputting hashes...%!";
       end;
-      KMer.IntHashtbl.iter (fun hash occs -> Printf.fprintf output output_format hash !occs) res;
+      KMers.HashFrequencies.iter (Printf.fprintf output output_format) res;
       if verbose then
         Printf.eprintf " done.%!\n";
       close_out output
@@ -109,12 +109,12 @@ module Parameters =
     let verbose = ref Defaults.verbose
   end
 
-let version = "0.6"
+let version = "0.7"
 
 let header =
   Printf.sprintf begin
     "This is the KPopCount program (version %s)\n%!" ^^
-    " (c) 2017-2022 Paolo Ribeca, <paolo.ribeca@gmail.com>\n%!"
+    " (c) 2017-2023 Paolo Ribeca, <paolo.ribeca@gmail.com>\n%!"
   end version
 
 let _ =
@@ -146,7 +146,7 @@ let _ =
       Some "<fasta_file_name>",
       [ "FASTA input file containing sequences" ],
       TA.Optional,
-      (fun _ -> KMer.FileType.FASTA (TA.get_parameter ()) |> Tools.List.accum Parameters.inputs);
+      (fun _ -> Files.Type.FASTA (TA.get_parameter ()) |> Tools.List.accum Parameters.inputs);
     [ "-s"; "-S"; "--single-end" ],
       Some "<fastq_file_name>",
       [ "FASTQ input file containing single-end sequencing reads" ],
@@ -194,16 +194,16 @@ let _ =
   ];
   Parameters.inputs := List.rev !Parameters.inputs;
   if !Parameters.inputs <> [] then begin
-    let store = ref KMer.ReadFiles.empty in
+    let store = ref Files.ReadsIterate.empty in
     List.iter
-      (fun input -> store := KMer.ReadFiles.add_from_files !store input)
+      (fun input -> store := Files.ReadsIterate.add_from_files !store input)
       !Parameters.inputs;
     begin match !Parameters.content with
     | DNA ->
-      let module KMCD = KMerCounter (KMer.DNAEncodingHash (struct let value = !Parameters.k end)) in
+      let module KMCD = KMerCounter (KMers.DNAHash (struct let value = !Parameters.k end)) in
       KMCD.compute ~linter:(Sequences.Lint.dnaize ~keep_dashes:false)
     | Protein ->
-      let module KMCP = KMerCounter (KMer.ProteinEncodingHash (struct let value = !Parameters.k end)) in
+      let module KMCP = KMerCounter (KMers.ProteinHash (struct let value = !Parameters.k end)) in
       KMCP.compute ~linter:(Sequences.Lint.proteinize ~keep_dashes:false)
     end ~verbose:!Parameters.verbose !store !Parameters.max_results_size !Parameters.label !Parameters.output
   end
