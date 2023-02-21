@@ -51,14 +51,12 @@ $ opam install dune
 ```
 if it is not already present. Make sure that you install OCaml version 4.12 or later.
 
-You'll also need a copy of the sources for the [BiOCamLib library](https://github.com/PaoloRibeca/BiOCamLib). We'll assume that you have cloned the repository in the directory `../BiOCamLib` with respect to the `KPop` sources; you'll have to modify the file `BUILD` in the `KPop` directory if that is not the case.
-
 Then go to the directory into which you have downloaded the latest `KPop` sources, and type
 ```
 $ ./BUILD
 ```
 
-That should generate all the executables you'll need (as of this writing, `KPopCount`, `KPopCounterDB`, `kPopTwist`, `KPopTwist`, `KPopTwistDB`). Copy them to some favourite location in your PATH, for instance `~/.local/bin`.
+That should generate all the executables you'll need (as of this writing, `KPopCount`, `KPopCounterDB`, `KPopTwist_`, `KPopTwist`, `KPopTwistDB`) in the directory `./build`. Copy them to some favourite location in your PATH, for instance `~/.local/bin`.
 
 For the time being, due to the presence of some legacy code, you'll also need to install some R packages (and possibly R itself) by using your favourite R package manager. Those packages are:
 ```
