@@ -32,7 +32,7 @@ module KMerCounter (KMH: KMers.Hash_t with type t = int):
       let reads_cntr = ref 0 and res = KMers.HashFrequencies.Base.create max_results_size in
       Files.ReadsIterate.iter ~linter ~verbose:false
         (fun _ segm_id read ->
-          KMH.iterc
+          KMH.iterc_rc
             (fun hash occs ->
               KMers.HashFrequencies.add res hash occs;
               if KMers.HashFrequencies.Base.length res > max_results_size then begin
