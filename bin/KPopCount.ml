@@ -32,7 +32,7 @@ module KMerCounter (KMH: KMers.Hash_t with type t = int):
       let reads_cntr = ref 0 and res = KMers.HashFrequencies.Base.create max_results_size in
       Files.ReadsIterate.iter ~linter ~verbose:false
         (fun _ segm_id read ->
-          KMH.iterc_rc
+          KMH.iterc
             (fun hash occs ->
               KMers.HashFrequencies.add res hash occs;
               if KMers.HashFrequencies.Base.length res > max_results_size then begin
@@ -200,7 +200,7 @@ let _ =
       !Parameters.inputs;
     begin match !Parameters.content with
     | DNA ->
-      let module KMCD = KMerCounter (KMers.DNAHash (struct let value = !Parameters.k end)) in
+      let module KMCD = KMerCounter (KMers.DNAHashDoubleStranded (struct let value = !Parameters.k end)) in
       KMCD.compute ~linter:(Sequences.Lint.dnaize ~keep_dashes:false)
     | Protein ->
       let module KMCP = KMerCounter (KMers.ProteinHash (struct let value = !Parameters.k end)) in
