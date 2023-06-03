@@ -198,7 +198,7 @@ This is the KPopTwist program (version 0.14)
 ```
 followed by detailed information. The general form the command can be used is:
 ```
-kPopTwist -i|--input <input_table_prefix> [OPTIONS]
+KPopTwist -i|--input <input_table_prefix> [OPTIONS]
 ```
 
 **Algorithmic parameters**
@@ -335,7 +335,7 @@ while read DIR; do
   echo "Processing class '${CLASS}'..." > /dev/stderr
   ls "$DIR"/*_1.fastq |
     Parallel --lines-per-block 1 -- awk '{l=split($0,s,"/"); system("KPopCount -k 12 -l "gensub("_1.fastq$","",1,s[l])" -p "$0" "gensub("_1.fastq$","_2.fastq",1))}' |
-    KPopCountDB -f /dev/stdin -r "~." -a "$CLASS" -p -l "$CLASS" -n -p -d --summary --table-transform none -t /dev/stdout 2> /dev/null
+    KPopCountDB -f /dev/stdin -R "~." -A "$CLASS" -P -L "$CLASS" -N -P -D --summary --table-transform none -t /dev/stdout 2> /dev/null
 done
 ```
 The program `Parallel` can be obtained from the [BiOCamLib repository](https://github.com/PaoloRibeca/BiOCamLib). on which the implementation of `KPop` depends.
