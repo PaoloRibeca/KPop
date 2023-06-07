@@ -13,19 +13,20 @@ Depending on the problem at hand, `KPop` analysis can require a relatively large
 &emsp; [1.1. Conda channel](#11-conda-channel)<br>
 &emsp; [1.2. Pre-compiled binaries](#12-pre-compiled-binaries)<br>
 &emsp; [1.3. Manual install](#13-manual-install)<br>
-[2. Overview of commands](#2-overview-of-commands)<br>
-[3. Command line syntax](#3-command-line-syntax)<br>
-&emsp; [3.1. `KPopCount`](#31-kpopcount)<br>
-&emsp; [3.2. `KPopCountDB`](#32-kpopcountdb)<br>
-&emsp; [3.3. `KPopTwist`](#33-kpoptwist)<br>
-&emsp; [3.4. `KPopTwistDB`](#34-kpoptwistdb)<br>
-[4. Examples](#4-examples)<br>
-&emsp; [4.1. Sequence classification](#41-sequence-classification)<br>
-&emsp; &emsp; [4.1.1. Classifier for simulated *M.tuberculosis* sequencing reads](#411-classifier-for-simulated-mtuberculosis-sequencing-reads)<br>
-&emsp; &emsp; [4.1.2. Classifier for deep-sequencing *M.tuberculosis* samples](#412-classifier-for-deep-sequencing-mtuberculosis-samples)<br>
-&emsp; &emsp; [4.1.3. Classifier for COVID-19 sequences (Hyena)](#413-classifier-for-covid-19-sequences-hyena)<br>
-&emsp; [4.2. Relatedness engine](#42-relatedness-engine)<br>
-&emsp; [4.3. Pseudo-phylogenetic trees](#43-pseudo-phylogenetic-trees)<br>
+[2. Quick start](#2-quick-start)<br>
+[3. Overview of commands](#3-overview-of-commands)<br>
+[4. Command line syntax](#4-command-line-syntax)<br>
+&emsp; [4.1. `KPopCount`](#41-kpopcount)<br>
+&emsp; [4.2. `KPopCountDB`](#42-kpopcountdb)<br>
+&emsp; [4.3. `KPopTwist`](#43-kpoptwist)<br>
+&emsp; [4.4. `KPopTwistDB`](#44-kpoptwistdb)<br>
+[5. Examples](#5-examples)<br>
+&emsp; [5.1. Sequence classification](#51-sequence-classification)<br>
+&emsp; &emsp; [5.1.1. Classifier for simulated *M.tuberculosis* sequencing reads](#511-classifier-for-simulated-mtuberculosis-sequencing-reads)<br>
+&emsp; &emsp; [5.1.2. Classifier for deep-sequencing *M.tuberculosis* samples](#512-classifier-for-deep-sequencing-mtuberculosis-samples)<br>
+&emsp; &emsp; [5.1.3. Classifier for COVID-19 sequences (Hyena)](#513-classifier-for-covid-19-sequences-hyena)<br>
+&emsp; [5.2. Relatedness engine](#52-relatedness-engine)<br>
+&emsp; [5.3. Pseudo-phylogenetic trees](#53-pseudo-phylogenetic-trees)<br>
 
 ## 1. Installation
 
@@ -70,17 +71,20 @@ data.table
 ca
 ```
 
-## 2. Overview of commands
+## 2. Quick start
+
+
+## 3. Overview of commands
 
 `KPop` comes as a number of different programs, which can be combined into complex workflows in a modular fashion. They are:
-* [`KPopCount`](#31-kpopcount). It implements extraction of *k*-mer spectra from files containing sequences or sequencing reads (in FASTA format; and both single- and paired-end FASTQ format)
-* [`KPopCountDB`](#32-kpopcountdb). It implements collection of *k*-mer spectra into binary databases, allowing the user to export the resulting objects as either binary files or text tables. Spectra can be transformed before export
-* [`KPopTwist`](#33-kpoptwist). It implements the unsupervised generation of coordinate transformations (or "twisters") from databases of *k*-mer spectra. Each transformation is optimised for the database at hand, and turns ("twists") *k*-mer spectra into numerical vectors of a typically very much reduced dimensionality. The transformation can be stored as a binary object for future use
-* [`KPopTwistDB`](#34-kpoptwistdb). It implements a number of operations on twisted spectra. It can: use an existing twister to twist *k*-mer spectra; generate databases of twisted spectra and output/input them as binary files or text tables; compute and summarise distances between twisted spectra; and more.
+* [`KPopCount`](#41-kpopcount). It implements extraction of *k*-mer spectra from files containing sequences or sequencing reads (in FASTA format; and both single- and paired-end FASTQ format)
+* [`KPopCountDB`](#42-kpopcountdb). It implements collection of *k*-mer spectra into binary databases, allowing the user to export the resulting objects as either binary files or text tables. Spectra can be transformed before export
+* [`KPopTwist`](#43-kpoptwist). It implements the unsupervised generation of coordinate transformations (or "twisters") from databases of *k*-mer spectra. Each transformation is optimised for the database at hand, and turns ("twists") *k*-mer spectra into numerical vectors of a typically very much reduced dimensionality. The transformation can be stored as a binary object for future use
+* [`KPopTwistDB`](#44-kpoptwistdb). It implements a number of operations on twisted spectra. It can: use an existing twister to twist *k*-mer spectra; generate databases of twisted spectra and output/input them as binary files or text tables; compute and summarise distances between twisted spectra; and more.
 
-## 3. Command line syntax
+## 4. Command line syntax
 
-### 3.1. `KPopCount`
+### 4.1. `KPopCount`
 
 This is the list of command line options available for the program `KPopCount`. You can visualise the list by typing
 ```bash
@@ -121,7 +125,7 @@ KPopCount -l|--label <output_vector_label> [OPTIONS]
 | `-v`<br>`--verbose` |  |  set verbose execution | <ins>default=<mark>_false_</mark></ins> |
 | `-h`<br>`--help` |  |  print syntax and exit |  |
 
-### 3.2. `KPopCountDB`
+### 4.2. `KPopCountDB`
 
 This is the list of command line options available for the program `KPopCountDB`. You can visualise the list by typing
 ```bash
@@ -185,7 +189,7 @@ They are set immediately
 | `-v`<br>`--verbose` |  |  set verbose execution | <ins>default=<mark>_false_</mark></ins> |
 | `-h`<br>`--help` |  |  print syntax and exit |  |
 
-### 3.3. `KPopTwist`
+### 4.3. `KPopTwist`
 
 This is the list of command line options available for the program `KPopTwist`. You can visualise the list by typing
 ```bash
@@ -224,7 +228,7 @@ KPopTwist -i|--input <input_table_prefix> [OPTIONS]
 | `-v`<br>`--verbose` |  |  set verbose execution | <ins>default=<mark>_false_</mark></ins> |
 | `-h`<br>`--help` |  |  print syntax and exit |  |
 
-### 3.4. `KPopTwistDB`
+### 4.4. `KPopTwistDB`
 
 This is the list of command line options available for the program `KPopTwistDB`. You can visualise the list by typing
 ```bash
@@ -269,11 +273,11 @@ They are set immediately.
 | `-v`<br>`--verbose` |  |  set verbose execution | <ins>default=<mark>_false_</mark></ins> |
 | `-h`<br>`--help` |  |  print syntax and exit |  |
 
-## 4. Examples
+## 5. Examples
 
 By using the programs just described, it is possible to implement a number of interesting high-throughput workflows. We illustrate some examples here - for a more general description, please refer to our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v1).
 
-### 4.1. Sequence classification
+### 5.1. Sequence classification
 
 One can implement a sequence classifier, starting from either a set of genomic sequences or a deep-sequencing dataset containing multiple samples, by using the following strategy:
 
@@ -283,11 +287,11 @@ Shortly, one first generates a collection of spectra that describe the "classes"
 
 Note that the classifier should be generated according to the data type of the input, i.e., you should not use a classifier trained on genomic sequences to process NGS samples or vice-versa. Doing so might occasionally work if contaminations are low and the sequencing bias is reasonably flat along the sequence, but in order to get consistent results significant post-processing might be needed.
 
-#### 4.1.1. Classifier for simulated *M.tuberculosis* sequencing reads
+#### 5.1.1. Classifier for simulated *M.tuberculosis* sequencing reads
 
 As described in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v1), we simulated sequencing reads for 1,000 *M.tuberculosis* genomes. The data thus generated is large (~127 GB) and hence we are not making it directly available for download. However, the scripts used to (re-)generate it can be found in the [`test`](https://github.com/PaoloRibeca/KPop/tree/main/test) directory of this repository.
 
-##### 4.1.1.1. Data preparation
+##### 5.1.1.1. Data preparation
 
 In the following, we assume that the input files derived from the simulation have been organised into directories relative to your current location, and their placement reflects the set (training/test) and sequence cluster each sample belongs to.
 
@@ -324,7 +328,7 @@ will return
 ```
 A similar structure will have been put in place for test data under the `Test/` directory, with files equally split under `Train/` and `Test/` for cross-validation purposes (however, different choices would be possible). This conventional arrangement will be assumed in the rest of this document for all the examples involving `KPop`-based classifiers.
 
-##### 4.1.1.2. Data analysis
+##### 5.1.1.2. Data analysis
 
 In order to analyse sequences in parallel fashion and decrease waiting times, we first prepare a short `bash` script named `process_classes`, as follows:
 ```bash
@@ -433,11 +437,11 @@ The groups list the classes closest to the sequence (2 by default). They are sor
 
 For instance, in the [example line shown above](#distance-summary-line) the summary examines sequence `121`, revealing that its mean distance from classes is 3.18; the closest class is `2`, at a distance of 1.85 (corresponding to a _z_-score of -2.84) while the second closest class is `10`, at a distance of 3.30 (corresponding to a _z_-score of 0.25). This line confirms in a statistically more sound way what we had glimpsed by eye above from the complete list of distances.
 
-#### 4.1.2. Classifier for deep-sequencing *M.tuberculosis* samples
+#### 5.1.2. Classifier for deep-sequencing *M.tuberculosis* samples
 
 This example requires a large sequencing dataset available from the [Short Read Archive](https://www.ncbi.nlm.nih.gov/sra) (\~1300 samples) to be downloaded and processed. As before, the data is too large to be stored for direct download; however, the lists of SRA identifiers used as a starting point for this experiment can be found in the [`test`](https://github.com/PaoloRibeca/KPop/tree/main/test) directory of this repository.
 
-##### 4.1.2.1. Data preparation
+##### 5.1.2.1. Data preparation
 
 As described in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v1), one of the advantages offered by `KPop` is its versatility. In particular, by pre-processing reads one can easily have the method focus on particular regions or features of the genome of interest, as shown in the following figure:
 
@@ -483,9 +487,9 @@ and the second `awk` commands counts the sum of aligned segments and decides whe
 
 However, equivalent techniques that discard extraneous reads using different approaches or programs would also be acceptable.
 
-##### 4.1.2.2. Data analysis
+##### 5.1.2.2. Data analysis
 
-Once reads have been pre-processed and their *k*-mer spectrum generated for each sample, data analysis proceeds along the lines of the [simulated *M.tuberculosis* example above](#4112-data-analysis) &mdash; we assume that the spectra have been placed in a `Train` and `Test` directory and separated into subdirectory according to their class, as per the convention previously described. We then generate representative spectra for the classes; twist them; and use the resulting transformation to twist the test sequences, processing each directory in parallel. The results are then collected in the database `Test.KPopTwisted`.
+Once reads have been pre-processed and their *k*-mer spectrum generated for each sample, data analysis proceeds along the lines of the [simulated *M.tuberculosis* example above](#5112-data-analysis) &mdash; we assume that the spectra have been placed in a `Train` and `Test` directory and separated into subdirectory according to their class, as per the convention previously described. We then generate representative spectra for the classes; twist them; and use the resulting transformation to twist the test sequences, processing each directory in parallel. The results are then collected in the database `Test.KPopTwisted`.
 
 ```bash
 $ ls -d Train/*/ | awk '{print substr(gensub("Train/","",1),1,length($0)-7)}' | Parallel -l 1 -t 4 -- awk '{CLASS=$0; system("cat Train/"CLASS"/*.txt | KPopCountDB -f /dev/stdin -R \"~.\" -A "CLASS" -L "CLASS" -N -D -v --table-transform none -t "CLASS)}'
@@ -500,7 +504,7 @@ As detailed in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/20
 
 ###### Two-class workflow
 
-This approach works exactly as in the [simulated *M.tuberculosis* example above](#4112-data-analysis):
+This approach works exactly as in the [simulated *M.tuberculosis* example above](#5112-data-analysis):
 ```bash
 $ KPopTwistDB -i t Test -d Classes -o d Test-vs-Classes -s Test-vs-Classes -v
 $ cat Test-vs-Classes.KPopSummary.txt | awk '{print gensub("\001","\"\t\"","g")}' > RESULTS-2C.txt
@@ -566,11 +570,11 @@ It should be noted that the structure of `RESULTS-RF.txt` is simpler than that o
 ```
 each one reporting samples name, original class, and classification generated by random forest &mdash; there is no additional statistical information reported in the default output generated by `randomForest`.
 
-#### 4.1.3. Classifier for COVID-19 sequences (Hyena)
+#### 5.1.3. Classifier for COVID-19 sequences (Hyena)
 
 This is a rather more complex example, that showcases many of the good qualities of `KPop` (mainly its being high-throughput and accurate). It's also not for the faint of heart, in that it requires large amounts of disk space and computing time (at the time of this writing, the file containing all COVID-19 sequences made available on [GISAID](https://www.gisaid.org/) has an uncompressed size of ~303 GB, and counting). In fact, most of the needed preprocessing does not really have much to do with `KPop`, but we work out the complete example anyway for clarity's sake.
 
-##### 4.1.3.1. Data preparation
+##### 5.1.3.1. Data preparation
 
 We assume as a starting point that you have downloaded from [GISAID](https://www.gisaid.org/) and decompressed in your current directory the `sequences.fasta` file containing all the sequences available until that moment (note that the file is _not_ publicly available &mdash; you'll have to obtain access to GISAID if you want to be able to download it). We'll also assume you have downloaded to your local directory the [file `lineages.csv` containing the Pangolin designations of COVID-19 lineages](https://raw.githubusercontent.com/cov-lineages/pango-designation/master/lineages.csv). There are some \~1600 lineages &mdash; i.e., classes to recognise &mdash; that are currently in use.
 
@@ -759,9 +763,9 @@ $ rm -rf Train Test; mkdir Train Test; for FILE in Split/*.fasta; do BASE=$(base
 ```
 suitably populating the subdirectories `Test` and `Train`. As in most of the examples so far, we use `Parallel` to perform the splitting on many files in parallel and hence reduce the overall wallclock time taken by the command.
 
-##### 4.1.3.2. Data analysis
+##### 5.1.3.2. Data analysis
 
-Once the preparation stage has been completed, the analysis proceeds exactly as in the [*M.tuberculosis* example above](#4112-data-analysis).
+Once the preparation stage has been completed, the analysis proceeds exactly as in the [*M.tuberculosis* example above](#5112-data-analysis).
 
 First, we compute the spectra for the class representatives using `KPopCount` and `KPopCountDB`:
 ```bash
@@ -801,7 +805,7 @@ $ KPopTwistDB -a t Test.aa -a t Test.ab ... -o t Test -v
 
 The final size of the file `Test.KPopTwisted` containing all the \~650K twisted COVID-19 sequences in the test set is \~8.4 GB.
 
-At this point, the analysis proceeds exactly as in the case of [the previous section](#4112-data-analysis), with a command<a name="compute-distances"></a> such as
+At this point, the analysis proceeds exactly as in the case of [the previous section](#5112-data-analysis), with a command<a name="compute-distances"></a> such as
 ```bash
 $ KPopTwistDB -i t Test -d Classes -o d Test-vs-Classes -v
 ```
@@ -841,7 +845,7 @@ $ KPopTwistDB -m "sigmoid(1,1,5,5)" -i T Classes -i t Test -d Classes -o d Test-
 
 That takes into account in a different way the estimated importance of the different directions in twisted space, resulting in slightly better overall predictions.
 
-### 4.2. Relatedness engine
+### 5.2. Relatedness engine
 
 The previous examples have all showcased `KPop`'s capability to encode sequences as vectors in twisted space and find the closest neighbours there. This correctly suggests that by using `KPop` one can also easily generate a "relatedness engine" out of a classification &mdash; i.e., a system finding the most similar sequences in a large database.
 
@@ -851,13 +855,13 @@ The overall strategy is illustrated in the following figure, which assumes that 
 
 Briefly, we can generate and twist new spectra (top left), find out their nearest neighbours in the database of twisted sequences (central line and bottom left), and add the new twisted spectra to the database (bottom right).
 
-Here we illustrate the approach taking the previous exercise on COVID-19 as a starting point. For the sake of simplicity, we'll take as existing database the twisted test sequences (half of the GISAID database) in the file `Test.KPopTwisted`. The classifier will be the one we generated in [the previous section](#412-classifier-for-covid-19-sequences-hyena) and contained in the file `Classes.KPopTwister`. The command
+Here we illustrate the approach taking the previous exercise on COVID-19 as a starting point. For the sake of simplicity, we'll take as existing database the twisted test sequences (half of the GISAID database) in the file `Test.KPopTwisted`. The classifier will be the one we generated in [the previous section](#512-classifier-for-covid-19-sequences-hyena) and contained in the file `Classes.KPopTwister`. The command
 ```bash
 cat Train/C.36.3.fasta | fasta-tabular | shuf | head -1 | tawk '{print $1 > "/dev/stderr"; print ">"$1"\n"$2}' | KPopCount -k 10 -f /dev/stdin -l "C.36.3" | KPopTwistDB -i T Classes -k /dev/stdin -d Test --keep-at-most 300 -s Related
 ```
 will then randomly select one sequence from the `C.36.3` lineage and find the 300 sequences closest to it. A summary in the usual format will be output to file `Related.KPopSummary.txt`. Note that loading this specific database in memory is going to take long as the file is \~8.4 G, but one only needs to do it once when sequences are processed in batches.
 
-### 4.3. Pseudo-phylogenetic trees
+### 5.3. Pseudo-phylogenetic trees
 
 > :construction: Coming soon! :construction:
 
