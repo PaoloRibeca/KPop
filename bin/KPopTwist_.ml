@@ -24,12 +24,12 @@ module Parameters =
     let verbose = ref Defaults.verbose
   end
 
-let version = "0.14"
+let version = "0.15"
 
 let header =
   Printf.sprintf begin
     "This is the KPopTwist program (version %s)\n%!" ^^
-    " (c) 2022 Paolo Ribeca, <paolo.ribeca@gmail.com>\n%!"
+    " (c) 2022-2023 Paolo Ribeca, <paolo.ribeca@gmail.com>\n%!"
   end version
 
 let _ =
@@ -68,7 +68,8 @@ let _ =
         "File extension is automatically determined";
         " (will be .KPopCounter).";
         "The prefix is then re-used for output";
-        " (and the output file will be given prefix .KPopTwisted)" ],
+        " (and the output files will be given extensions";
+        "  .KPopTwister and .KPopTwisted)" ],
       TA.Mandatory,
       (fun _ -> Parameters.input := TA.get_parameter ());
     TA.make_separator "Miscellaneous";
