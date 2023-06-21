@@ -82,6 +82,20 @@ ca
 * [`KPopTwist`](#43-kpoptwist). It implements the unsupervised generation of coordinate transformations (or "twisters") from databases of *k*-mer spectra. Each transformation is optimised for the database at hand, and turns ("twists") *k*-mer spectra into numerical vectors of a typically very much reduced dimensionality. The transformation can be stored as a binary object for future use
 * [`KPopTwistDB`](#44-kpoptwistdb). It implements a number of operations on twisted spectra. It can: use an existing twister to twist *k*-mer spectra; generate databases of twisted spectra and output/input them as binary files or text tables; compute and summarise distances between twisted spectra; and more.
 
+The following figure summarises the main typical data transformations that are possible and the file formats used to encode inputs and outputs in each case:
+
+![KPop-main-data-formats](images/KPop-DataFormats-RR.png)
+
+It should be noted that there are many more possible ways of using `KPopCountDB` and `KPopTwistDB`. For instance, with `KPopCountDB` it is possible to compute distances between untwisted *k*-mer spectra; with `KPopTwistDB` one can accumulate twisted *k*-mer spectra or distances into existing databases, and convert binary files from/to plain-text tab-separated tables. In the latter case, automatic naming rules are applied &mdash; for example, a command such as
+```bash
+$ KPopTwistDB ... -o t Classes
+```
+would result in the production of a binary file named `Classes.KPopTwisted` containing twisted *k*-mer spectra, while the command
+```bash
+$ KPopTwistDB ... -O t Classes
+```
+will produce the same results but output them to a tab-separated tabular file named `Classes.KPopTwisted.txt`. In general, in the style of BLAST indices, you do not have to worry about formats or extensions as long as you consistently use the same prefix (in this case, `Classes`) to indicate logically related files.
+
 ## 4. Command line syntax
 
 ### 4.1. `KPopCount`
