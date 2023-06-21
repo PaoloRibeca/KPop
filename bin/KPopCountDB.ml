@@ -1160,15 +1160,16 @@ let _ =
         "The parameter for Minkowski is the power" ],
       TA.Default (fun () -> Space.Distance.to_string Defaults.distance),
       (fun _ -> Distance_set (TA.get_parameter () |> Space.Distance.of_string) |> Tools.List.accum Parameters.program);
-    [ "--distance-normalize"; "--normalize-distances"; "--distance-normalization"; "--set-distance-normalization" ],
+    [ "--distance-normalize"; "--normalize-distances"; "--distance-normalization" ],
       Some "'true'|'false'",
       [ "whether spectra should be normalized prior to computing distances" ],
       TA.Optional,
       (fun _ -> Distance_normalisation_set (TA.get_parameter_boolean ()) |> Tools.List.accum Parameters.program);
-    [ "-d"; "--distances"; "--compute-distances"; "--compute-distances-spectral"; "--compute-spectral-distances" ],
+    [ "-d"; "--distances"; "--compute-distances"; "--compute-spectral-distances" ],
       Some "REGEXP_SELECTOR REGEXP_SELECTOR <binary_file_prefix>",
       [ "where REGEXP_SELECTOR :=";
-        " <metadata_field>'~'<regexp>[','...','<metadata_field>'~'<regexp>] :";
+        " <metadata_field>'~'<regexp>[','...','<metadata_field>'~'<regexp>]";
+        "and regexps are defined as in <https://ocaml.org/api/Str.html>:";
         "select two sets of spectra from the register";
         "and compute and output distances between all possible pairs";
         " (metadata fields must match the regexps specified in the selector;";
@@ -1260,7 +1261,8 @@ let _ =
     [ "-R"; "--regexps"; "--selection-from-regexps" ],
       Some "<metadata_field>'~'<regexp>[','...','<metadata_field>'~'<regexp>]",
       [ "put into the selection register the labels of the spectra";
-        "whose metadata fields match the specified regexps.";
+        "whose metadata fields match the specified regexps";
+        "and regexps are defined as in <https://ocaml.org/api/Str.html>.";
         "An empty metadata field makes the regexp match labels" ],
       TA.Optional,
       (fun _ ->

@@ -474,7 +474,8 @@ let _ =
     [ "--keep-at-most"; "--set-keep-at-most"; "--summary-keep-at-most" ],
       Some "<positive_integer>|all",
       [ "set the maximum number of closest target sequences";
-        "to be kept when summarizing distances" ],
+        "to be kept when summarizing distances.";
+        "Note that more might be printed anyway in case of ties" ],
       TA.Default
         (fun () -> KeepAtMost.to_string Defaults.keep_at_most),
       (fun _ -> Set_keep_at_most (TA.get_parameter () |> KeepAtMost.of_string) |> Tools.List.accum Parameters.program);
