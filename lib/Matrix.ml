@@ -243,7 +243,7 @@ module Base:
       let row_num = Array.length m.idx_to_col_names and col_num = Array.length m.idx_to_row_names in
       let storage = Array.init row_num (fun _ -> Float.Array.create 0) in
       (* Generate points to be computed by the parallel processs *)
-      let i = ref 0 and end_reached = ref false and elts_done = ref 0 in
+      let i = ref 0 and elts_done = ref 0 and end_reached = ref (row_num = 0) in
       Processes.Parallel.process_stream_chunkwise
         (fun () ->
           if !end_reached then
@@ -372,7 +372,7 @@ module Base:
         Incompatible_geometries (m.idx_to_col_names, Array.make (Float.Array.length v) "") |> raise;
       let d = Array.length m.idx_to_row_names in
       (* We immediately allocate all the needed memory, as we already know how much we will need *)
-      let res = Float.Array.create d and i = ref 0 and end_reached = ref false and elts_done = ref 0 in
+      let res = Float.Array.create d and i = ref 0 and elts_done = ref 0 and end_reached = ref (d = 0) in
       Processes.Parallel.process_stream_chunkwise
         (fun () ->
           if !end_reached then
@@ -420,8 +420,8 @@ module Base:
       (* We immediately allocate all the needed memory, as we already know how much we will need *)
       let storage = Array.init row_num (fun _ -> Float.Array.create col_num) in
       (* Generate points to be computed by the parallel processs *)
-      let i = ref 0 and j = ref 0 and end_reached = ref false
-      and prod = row_num * col_num and elts_done = ref 0 in
+      let prod = row_num * col_num in
+      let i = ref 0 and j = ref 0 and elts_done = ref 0 and end_reached = ref (prod = 0) in
       Processes.Parallel.process_stream_chunkwise
         (fun () ->
           if !end_reached then
@@ -474,8 +474,7 @@ module Base:
       (* We immediately allocate all the needed memory, as we already know how much we will need *)
       let storage = Array.init d (fun _ -> Float.Array.create d) in
       (* Generate points to be computed by the parallel processs *)
-      let i = ref 0 and j = ref 0 and end_reached = ref false
-      and total = (d * (d + 1)) / 2 and elts_done = ref 0 in
+      let total = (d * (d + 1)) / 2 and i = ref 0 and j = ref 0 and elts_done = ref 0 and end_reached = ref (d = 0) in
       Processes.Parallel.process_stream_chunkwise
         (fun () ->
           if !end_reached then
@@ -509,23 +508,14 @@ module Base:
           (fun (i, j, dist) ->
             (* Only here do we actually fill out the memory for the result *)
             Float.Array.set storage.(i) j dist;
+            (* We symmetrise the matrix *)
+            Float.Array.set storage.(j) i dist;
             incr elts_done;
             if verbose && !elts_done mod elements_per_step = 0 then
               Printf.eprintf "\r(%s): Done %d/%d elements%!            \r" __FUNCTION__ !elts_done total))
         threads;
-      if verbose then begin
-        Printf.eprintf "\r(%s): Done %d/%d elements.            \n%!" __FUNCTION__ !elts_done total;
-        Printf.eprintf "(%s): Symmetrizing...%!" __FUNCTION__
-      end;
-      (* We symmetrise the matrix *)
-      let red_d = d - 1 in
-      for i = 0 to red_d do
-        for j = i + 1 to red_d do
-          Float.Array.get storage.(j) i |> Float.Array.set storage.(i) j
-        done
-      done;
       if verbose then
-        Printf.eprintf " done.\n%!";
+        Printf.eprintf "\r(%s): Done %d/%d elements.            \n%!" __FUNCTION__ !elts_done total;
       { idx_to_col_names = m.idx_to_row_names;
         idx_to_row_names = m.idx_to_row_names;
         storage = storage }
@@ -537,8 +527,8 @@ module Base:
       (* We immediately allocate all the needed memory, as we already know how much we will need *)
       let storage = Array.init r1 (fun _ -> Float.Array.create r2) in
       (* Generate points to be computed by the parallel processs *)
-      let i = ref 0 and j = ref 0 and end_reached = ref false
-      and prod = r1 * r2 and elts_done = ref 0 in
+      let prod = r1 * r2 in
+      let i = ref 0 and j = ref 0 and elts_done = ref 0 and end_reached = ref (prod = 0) in
       Processes.Parallel.process_stream_chunkwise
         (fun () ->
           if !end_reached then
