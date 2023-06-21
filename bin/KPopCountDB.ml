@@ -30,7 +30,7 @@ Tools.BA.Vector (
   end
 )
 
-(* For normalisations and combined vectors. We assume normalisations might be > 2^31 *)
+(* For normalisations and combined spectra. We assume normalisations might be > 2^31 *)
 module FBAVector =
 Tools.BA.Vector (
   struct
@@ -279,7 +279,7 @@ and KMerDB:
   (* Conceptually, each k-mer spectrum is stored as a column, even though in practice we store the transposed matrix *)
   sig
     type marshalled_t = {
-      n_cols: int; (* The number of vectors *)
+      n_cols: int; (* The number of spectra *)
       n_rows: int; (* The number of k-mers *)
       n_meta: int; (* The number of metadata fields *)
       (* We number rows, columns and metadata fields starting from 0 *)
@@ -310,10 +310,10 @@ and KMerDB:
     (* Select column names identified by regexps on metadata fields *)
     val selected_from_regexps: ?verbose:bool -> t -> (string * Str.regexp) list -> StringSet.t
     val selected_negate: t -> StringSet.t -> StringSet.t
-    (* Add a linear combination of the vectors having the given labels,
+    (* Add a linear combination of the spectra having the given labels,
         and name it as directed *)
     val add_sum_selected: ?threads:int -> ?verbose:bool -> t -> string -> StringSet.t -> t
-    (* Remove the vectors with the given labels *)
+    (* Remove spectra with the given labels *)
     val remove_selected: t -> StringSet.t -> t
     (* Output information about the contents *)
     val output_summary: ?verbose:bool -> t -> unit
@@ -342,7 +342,8 @@ and KMerDB:
     val make_filename_table: string -> string
     (* Spectral distance matrix *)
     val to_distances:
-      ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Space.Distance.t -> t -> string -> unit
+      ?normalise:bool -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
+      Space.Distance.t -> t -> StringSet.t -> StringSet.t -> string -> unit
   end
 = struct
     type marshalled_t = {
@@ -585,7 +586,7 @@ and KMerDB:
         while true do
           let line = input_line input |> Tools.Split.on_char_as_array '\t' in
           incr line_num;
-          (* A regular line. The first element is the vector name, the others the values of meta-data fields *)
+          (* A regular line. The first element is the spectrum name, the others the values of meta-data fields *)
           let l = Array.length line in
           if l <> num_header_fields then
             Wrong_number_of_columns (!line_num, l, num_header_fields) |> raise;
@@ -716,7 +717,7 @@ and KMerDB:
       let transf = Transformation.of_parameters { which = "normalize"; threshold = 1; power = 1. } in
       let stats = Statistics.table_of_db ~threads ~verbose transf db and db = ref db in
       if verbose then
-        Printf.eprintf "Adding/replacing vector '%s': [%!" new_label;
+        Printf.eprintf "Adding/replacing spectrum '%s': [%!" new_label;
       add_empty_column_if_needed db new_label;
       let num_cols = ref 0 and max_norm = ref 0. in
       StringSet.iter
@@ -735,7 +736,8 @@ and KMerDB:
       if verbose then
         Printf.eprintf " ] n=%d max_norm=%.16g [%!" num_cols max_norm;
       let red_n_rows = !db.core.n_rows - 1 and res = FBAVector.init !db.core.n_rows 0. in
-      (* We normalise columns *separately* before adding them *)
+      (* We normalise columns *separately* before adding them.
+         Remember that some labels might be invalid *)
       StringSet.iter
         (fun label ->
           match Hashtbl.find_opt !db.col_names_to_idx label with
@@ -744,9 +746,12 @@ and KMerDB:
               Printf.eprintf ".%!";
             let col = !db.core.storage.(col_idx)
             and norm = stats.col_stats.(col_idx).sum in
-            for i = 0 to red_n_rows do
-              res.FBAVector.+(i) <- IBAVector.N.to_float col.IBAVector.@(i) *. max_norm /. norm
-            done
+            (* All counts are non-negative *)
+            if norm > 0. then begin
+              for i = 0 to red_n_rows do
+                res.FBAVector.+(i) <- IBAVector.N.to_float col.IBAVector.@(i) *. max_norm /. norm
+              done
+            end
           | None -> ())
         selection;
       let new_col_idx = Hashtbl.find !db.col_names_to_idx new_label in
@@ -785,29 +790,25 @@ and KMerDB:
       end;
       !db
     let remove_selected db selected =
-      (* First, we compute the indices of the columns to be kept *)
-      let idxs = ref IntSet.empty in
+      (* First, we compute the indices of the columns to be kept.
+         We keep the same column order as in the original matrix *)
+      let idxs = ref Tools.IntSet.empty in
       Array.iteri
         (fun col_idx col_name ->
           if StringSet.mem col_name selected |> not then
-            idxs := IntSet.add col_idx !idxs)
+            idxs := Tools.IntSet.add col_idx !idxs)
         db.core.idx_to_col_names;
-      let idxs = !idxs in
-      let n = IntSet.cardinal idxs in
-      let filter_array a null =
-        let filtered = Array.make n null and i = ref 0 in
-        IntSet.iter
-          (fun col_idx ->
-            filtered.(!i) <- a.(col_idx);
-            incr i)
-          idxs;
-        filtered in
+      let idxs = Tools.IntSet.elements_array !idxs in
+      let n = Array.length idxs in
+      let filter_array a =
+        Array.init n
+          (fun i -> a.(idxs.(i))) in
       let core =
         { db.core with
           n_cols = n;
-          idx_to_col_names = filter_array db.core.idx_to_col_names "";
-          meta = filter_array db.core.meta [||];
-          storage = filter_array db.core.storage IBAVector.empty } in
+          idx_to_col_names = filter_array db.core.idx_to_col_names;
+          meta = filter_array db.core.meta;
+          storage = filter_array db.core.storage } in
       { core = core;
         col_names_to_idx = invert_table core.idx_to_col_names;
         row_names_to_idx = invert_table core.idx_to_row_names;
@@ -853,7 +854,7 @@ and KMerDB:
       Array.iteri
         (fun i row_name ->
           (* There might be additional storage.
-              Also, we only print the row if it has non-zero elements or if we are explicitly requested to do so *)
+             Also, we only print the row if it has non-zero elements or if we are explicitly requested to do so *)
           if i < db.core.n_rows && (stats.row_stats.(i).sum > 0. || filter.print_zero_rows) then
             Tools.List.accum rows (row_name, i))
         db.core.idx_to_row_names;
@@ -1005,24 +1006,45 @@ and KMerDB:
     let make_filename_table = function
       | w when String.length w >= 5 && String.sub w 0 5 = "/dev/" -> w
       | prefix -> prefix ^ ".KPopCounter.txt"
-    let to_distances ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) distance db prefix =
-      let n_r = db.core.n_rows and n_c = db.core.n_cols in
+    let to_distances
+        ?(normalise = true) ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false)
+        distance db selection_1 selection_2 prefix =
+      let transf = Transformation.of_parameters { which = "normalize"; threshold = 1; power = 1. } in
+      let stats = Statistics.table_of_db ~threads ~verbose transf db
+      and n_r = db.core.n_rows in (* Does not change *)
+      let make_submatrix selection =
+        let idxs = ref Tools.IntSet.empty in
+        Array.iteri
+          (fun col_idx col_name ->
+            if StringSet.mem col_name selection then
+              idxs := Tools.IntSet.add col_idx !idxs)
+          db.core.idx_to_col_names;
+        let idxs = Tools.IntSet.elements_array !idxs in
+        let n_c = Array.length idxs in
+        (* The distance matrix is computed rowwise, and k-mers are physically stored as rows in db:
+            we need to transpose *)
+        { Matrix.Base.idx_to_col_names = Array.sub db.core.idx_to_row_names 0 n_r;
+          idx_to_row_names = Array.init n_c (fun i -> db.core.idx_to_col_names.(idxs.(i)));
+          storage =
+            (* Here we just need to convert the counts to floats, and possibly normalise *)
+            Array.init n_c
+              (fun i ->
+                let idx = idxs.(i) in
+                let norm = stats.col_stats.(idx).sum in
+                let norm =
+                  if not normalise || norm = 0. then
+                    1.
+                  else
+                    norm in
+                Float.Array.init n_r
+                  (fun j ->
+                    IBAVector.N.to_float db.core.storage.(idx).IBAVector.@(j) /. norm)) } in
       let metric = Float.Array.make n_r 1.
-      and matrix = {
-        Matrix.Base.idx_to_col_names = Array.sub db.core.idx_to_row_names 0 n_r;
-        idx_to_row_names = Array.sub db.core.idx_to_col_names 0 n_c;
-        storage =
-          (* Matrix distance is computed rowwise, and k-mers are physically stored as rows in db:
-              geometry is fine - we just need to convert the counts to floats *)
-          Array.init n_c
-            (fun i ->
-              Float.Array.init n_r
-                (fun j ->
-                  IBAVector.N.to_float db.core.storage.(i).IBAVector.@(j)))
-      } in
+      and matrix_1 = make_submatrix selection_1 and matrix_2 = make_submatrix selection_2 in
       Matrix.to_binary ~verbose {
         which = DMatrix;
-        matrix = Matrix.Base.get_distance_matrix ~threads ~elements_per_step ~verbose distance metric matrix
+        matrix =
+          Matrix.Base.get_distance_rowwise ~threads ~elements_per_step ~verbose distance metric matrix_1 matrix_2
       } prefix
   end
 
@@ -1035,7 +1057,7 @@ type to_do_t =
   | Remove_selected
   | Summary
   | Selected_from_labels of StringSet.t
-  | Selected_from_regexps of (string * Str.regexp) list
+  | Selected_from_regexps of regexps_t
   | Selected_negate
   | Selected_print
   | Selected_clear
@@ -1050,11 +1072,14 @@ type to_do_t =
   | Table_precision of int
   | To_table of string
   | Distance_set of Space.Distance.t
-  | To_distances of string
+  | Distance_normalisation_set of bool
+  | To_distances of regexps_t * regexps_t * string
+and regexps_t = (string * Str.regexp) list
 
 module Defaults =
   struct
     let distance = Space.Distance.of_string "euclidean"
+    let distance_normalise = true
     let filter = KMerDB.TableFilter.default
     let threads = Processes.Parallel.get_nproc ()
     let verbose = false
@@ -1069,18 +1094,30 @@ module Parameters =
     let verbose = ref Defaults.verbose
   end
 
-let version = "0.30"
+let version = "0.31"
 
 let header =
   Printf.sprintf begin
     "This is the KPopCountDB program (version %s)\n%!" ^^
-    " (c) 2020-2022 Paolo Ribeca, <paolo.ribeca@gmail.com>\n%!"
+    " (c) 2020-2023 Paolo Ribeca, <paolo.ribeca@gmail.com>\n%!"
   end version
 
 let _ =
   let module TA = Tools.Argv in
   TA.set_header header;
   TA.set_synopsis "[ACTIONS]";
+  let parse_regexp_selector option s =
+    List.map
+    (fun l ->
+      let res = Tools.Split.on_char_as_list '~' l in
+      if List.length res <> 2 then begin
+        TA.usage ();
+        List.length res |>
+          Printf.sprintf "Option '%s': Wrong number of fields in list (expected 2, found %d)" option |>
+          TA.parse_error (* parse_error exits the program *)
+      end;
+      List.nth res 0, List.nth res 1 |> Str.regexp)
+    (Tools.Split.on_char_as_list ',' s) in
   TA.parse [
     TA.make_separator_multiline [ "Actions."; "They are executed delayed and in order of specification." ];
     TA.make_separator_multiline [ ""; "Actions on the database register:" ];
@@ -1123,12 +1160,25 @@ let _ =
         "The parameter for Minkowski is the power" ],
       TA.Default (fun () -> Space.Distance.to_string Defaults.distance),
       (fun _ -> Distance_set (TA.get_parameter () |> Space.Distance.of_string) |> Tools.List.accum Parameters.program);
-    [ "-d"; "--distances"; "--compute-distances"; "--compute-distances-spectral" ],
-      Some "<binary_file_prefix>",
-      [ "compute distances between all the spectra present in the register";
-        " (the result will have extension .KPopDMatrix)" ],
+    [ "--distance-normalize"; "--normalize-distances"; "--distance-normalization"; "--set-distance-normalization" ],
+      Some "'true'|'false'",
+      [ "whether spectra should be normalized prior to computing distances" ],
       TA.Optional,
-      (fun _ -> To_distances (TA.get_parameter ()) |> Tools.List.accum Parameters.program);
+      (fun _ -> Distance_normalisation_set (TA.get_parameter_boolean ()) |> Tools.List.accum Parameters.program);
+    [ "-d"; "--distances"; "--compute-distances"; "--compute-distances-spectral"; "--compute-spectral-distances" ],
+      Some "REGEXP_SELECTOR REGEXP_SELECTOR <binary_file_prefix>",
+      [ "where REGEXP_SELECTOR :=";
+        " <metadata_field>'~'<regexp>[','...','<metadata_field>'~'<regexp>] :";
+        "select two sets of spectra from the register";
+        "and compute and output distances between all possible pairs";
+        " (metadata fields must match the regexps specified in the selector;";
+        "  an empty metadata field makes the regexp match labels.";
+        "  The result will have extension .KPopDMatrix)" ],
+      TA.Optional,
+      (fun _ ->
+        let regexps_1 = TA.get_parameter () |> parse_regexp_selector "-d" in
+        let regexps_2 = TA.get_parameter () |> parse_regexp_selector "-d" in
+        To_distances (regexps_1, regexps_2, TA.get_parameter ()) |> Tools.List.accum Parameters.program);
     [ "--table-emit-row-names" ],
       Some "'true'|'false'",
       [ "whether to emit row names for the database present in the register";
@@ -1151,8 +1201,8 @@ let _ =
       Some "'true'|'false'",
       [ "whether to transpose the database present in the register";
         "before writing it as a tab-separated file";
-        " (if 'true' : rows are vector names, columns are (metadata and) k-mer names;";
-        "  if 'false': rows are (metadata and) k-mer names, columns are vector names)" ],
+        " (if 'true' : rows are spectrum names, columns are (metadata and) k-mer names;";
+        "  if 'false': rows are (metadata and) k-mer names, columns are spectrum names)" ],
       TA.Default (fun () -> string_of_bool Defaults.filter.transpose),
       (fun _ -> Table_transpose (TA.get_parameter_boolean ()) |> Tools.List.accum Parameters.program);
     [ "--table-threshold" ],
@@ -1193,13 +1243,13 @@ let _ =
     [ "-t"; "--table" ],
       Some "<file_prefix>",
       [ "write the database present in the register as a tab-separated file";
-        " (rows are k-mer names, columns are vector names;";
+        " (rows are k-mer names, columns are spectrum names;";
         "  the file will be given extension .KPopCounter.txt)" ],
       TA.Optional,
       (fun _ -> To_table (TA.get_parameter () |> KMerDB.make_filename_table) |> Tools.List.accum Parameters.program);
     TA.make_separator_multiline [ ""; "Actions involving the selection register:" ];
     [ "-L"; "--labels"; "--selection-from-labels" ],
-      Some "<vector_label>[','...','<vector_label>]",
+      Some "<spectrum_label>[','...','<spectrum_label>]",
       [ "put into the selection register the specified labels" ],
       TA.Optional,
       (fun _ ->
@@ -1209,33 +1259,22 @@ let _ =
           |> Tools.List.accum Parameters.program);
     [ "-R"; "--regexps"; "--selection-from-regexps" ],
       Some "<metadata_field>'~'<regexp>[','...','<metadata_field>'~'<regexp>]",
-      [ "put into the selection register the labels of the vectors";
+      [ "put into the selection register the labels of the spectra";
         "whose metadata fields match the specified regexps.";
-        "An empty metadata field matches the labels" ],
+        "An empty metadata field makes the regexp match labels" ],
       TA.Optional,
       (fun _ ->
-        Selected_from_regexps begin
-          List.map
-            (fun l ->
-              let res = Tools.Split.on_char_as_list '~' l in
-              if List.length res <> 2 then begin
-                TA.usage ();
-                List.length res |>
-                  Printf.sprintf "Option '-r': Wrong number of fields in list (expected 2, found %d)" |>
-                  TA.parse_error (* parse_error exits the program *)
-              end;
-              List.nth res 0, List.nth res 1 |> Str.regexp)
-            (TA.get_parameter () |> Tools.Split.on_char_as_list ',')
-        end |> Tools.List.accum Parameters.program);
+        Selected_from_regexps (TA.get_parameter () |> parse_regexp_selector "-R")
+          |> Tools.List.accum Parameters.program);
     [ "-A"; "--add-sum-selection"; "--selection-add-sum" ],
-      Some "<new_vector_label>",
+      Some "<new_spectrum_label>",
       [ "add to the database present in the register (or replace if the new label exists)";
-        "a linear combination of the vectors whose labels are in the selection register" ],
+        "a linear combination of the spectra whose labels are in the selection register" ],
       TA.Optional,
       (fun _ -> Add_sum_selected (TA.get_parameter ()) |> Tools.List.accum Parameters.program);
-    [ "-D"; "--delete"; "--selection-remove" ],
+    [ "-D"; "--delete"; "--selection-delete" ],
       None,
-      [ "remove from the table the vectors whose labels are in the selection register" ],
+      [ "drop from the table the spectra whose labels are in the selection register" ],
       TA.Optional,
       (fun _ -> Remove_selected |> Tools.List.accum Parameters.program);
     [ "-N"; "--selection-negate" ],
@@ -1255,7 +1294,7 @@ let _ =
       (fun _ -> Selected_clear |> Tools.List.accum Parameters.program);
     [ "-F"; "--selection-to-table-filter" ],
       None,
-      [ "filters out vectors whose labels are present in the selection register";
+      [ "filters out spectra whose labels are present in the selection register";
         "when writing the database as a tab-separated file" ],
       TA.Optional,
       (fun _ -> Selected_to_filter |> Tools.List.accum Parameters.program);
@@ -1288,7 +1327,8 @@ let _ =
     TA.header ();
   (* These are the registers available to the program *)
   let current = KMerDB.make_empty () |> ref and selected = ref StringSet.empty
-  and filter = ref KMerDB.TableFilter.default and distance = ref Defaults.distance in
+  and filter = ref KMerDB.TableFilter.default
+  and distance = ref Defaults.distance and distance_normalise = ref Defaults.distance_normalise in
 
   (* The addition of an exception handler would be nice *)
 
@@ -1317,7 +1357,7 @@ let _ =
       | Selected_negate ->
         selected := KMerDB.selected_negate !current !selected
       | Selected_print ->
-        Printf.eprintf "Currently selected vectors = [";
+        Printf.eprintf "Currently selected spectra = [";
         StringSet.iter (Printf.eprintf " '%s'%!") !selected;
         Printf.eprintf " ].\n%!"
       | Selected_clear ->
@@ -1344,7 +1384,12 @@ let _ =
         KMerDB.to_binary ~verbose:!Parameters.verbose !current fname
       | Distance_set dist ->
         distance := dist
-      | To_distances prefix ->
-        KMerDB.to_distances ~threads:!Parameters.threads ~verbose:!Parameters.verbose !distance !current prefix)
+      | Distance_normalisation_set normalise ->
+        distance_normalise := normalise
+      | To_distances (regexps_1, regexps_2, prefix) ->
+        let selected_1 = KMerDB.selected_from_regexps ~verbose:!Parameters.verbose !current regexps_1
+        and selected_2 = KMerDB.selected_from_regexps ~verbose:!Parameters.verbose !current regexps_2 in
+        KMerDB.to_distances ~normalise:!distance_normalise ~threads:!Parameters.threads ~verbose:!Parameters.verbose
+          !distance !current selected_1 selected_2 prefix)
     program
 
