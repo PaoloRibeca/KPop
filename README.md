@@ -105,22 +105,33 @@ Misclassified sequences: 0
 Fri 14 Jul 11:59:37 BST 2023
 ```
 
-This is an example of `KPop`-based classifier. The input FASTA file `clusters-small.fasta` contains 1000 sequences having names such as `S2-C1`, meaning "sequence 2 belonging to class 2". There are 10 different classes. We will see things in more detail in the following sections, but, to summarise:
-1. Sequences with an odd index are taken to be part of the training set, sequences with an even index are considered part of the test set.
+This is an example of `KPop`-based classifier. The input FASTA file `clusters-small.fasta` contains 1000 sequences having names such as `S2-C1`, meaning "sequence 2 belonging to class 1". There are 10 different classes. We will see things in more detail in the following sections, but, to summarise:
+1. Sequences with an odd index are taken to be part of the training set, sequences with an even index are considered part of the test set
 2. For each class `C1`, `C2`, ... `C10`, if the variable CLASS contains the name of the class, the command
    ```bash
    $ cat clusters-small.fasta | awk -v CLASS="$CLASS" '{nr=(NR-1)%4; ok=(nr==0?$0~("-"CLASS"$"):nr==1&&ok); if (ok) print}' | KPopCount -l $CLASS -f /dev/stdin -k "$K" | KPopCountDB -f /dev/stdin -R "~." -A "$CLASS" -P -L "$CLASS" -N -P -D --table-transform none -t /dev/stdout 2> /dev/null
    ```
-   runs `KPopCount` (with *k*=5) on each training sequence belonging to CLASS; the results, which are text files containing a list of *k*-mers with their frequencies, are collected and sent to `KPopCountDB` through a pipe &mdash; if you wanted to look into the format, you could do so with the command
+   runs `KPopCount` (with *k*=5) on each training sequence belonging to CLASS; the results, which are text files each one containing a list of *k*-mers with their respective frequencies, are concatenated and sent to `KPopCountDB` through a pipe &mdash; if you wanted to look into the format, you could do so with the command
    ```bash
-   cat clusters-small.fasta | awk -v CLASS="$CLASS" '{nr=(NR-1)%4; ok=(nr==0?$0~("-"CLASS"$"):nr==1&&ok); if (ok) print}' | KPopCount -l $CLASS -f /dev/stdin -k "$K" | less
+   $ cat clusters-small.fasta | awk -v CLASS="$CLASS" '{nr=(NR-1)%4; ok=(nr==0?$0~("-"CLASS"$"):nr==1&&ok); if (ok) print}' | KPopCount -l $CLASS -f /dev/stdin -k "$K" | less
    ```
-   `KPopCountDB` collects the spectra into a temporary database, replaces them with an average of the inputs named `$CLASS`, and re-outputs the averaged spectrum in the same format used before
+   After that, `KPopCountDB` collects the spectra into a temporary database, replaces them with an average of the inputs named `$CLASS`, and re-outputs the averaged spectrum in the same format used before
 3. The command
    ```bash
-   KPopCountDB -f /dev/stdin -o Classes -v
+   $ KPopCountDB -f /dev/stdin -o Classes -v
    ```
-   receives the 10 averaged spectra, one per class, and outputs them to a binary databases called 
+   receives the 10 averaged spectra, one per class, and outputs them to a binary database called `Classes` (actually that corresponds to a file, which gets automatically named `Classes.KPopCounter`)
+4. The command
+   ```bash
+   $ KPopTwist -i Classes
+   ```
+   "twists" spectra to a reduced-dimensionality space, storing the results in binary form (actually that corresponds to two files, which are automatically named `Classes.KPopTwister` and `Classes.KPopTwisted`). Both the twisted spectra and the "twister" &mdash; i.e., the operator that can be used to convert the original spectra to twisted space &mdash; are stored and can be reused later on
+5. The command
+   ```bash
+   cat clusters-small.fasta | awk -v K="$K" '{nr=(NR-1)%4; if (nr==2) split($0,s,"[>-]"); if (nr==3) {command="KPopCount -l "s[2]"-"s[3]" -f /dev/stdin -k "K; print ">"s[2]"\n"$0 | command; close(command)}}' | KPopTwistDB -i T Classes -k /dev/stdin -d Classes -s Classes -v
+   ```
+   selects test sequences, runs each of them separately through `KPopCount` to produce a spectrum, and concatenates and pipes all the spectra thus generated to `KPopTwistDB`, which twists them according to the twister generated at the previous stage (named `Classes`). The results are output to a summary text file, which gets automatically named `Classes.KPopSummary.txt`. The file contains 
+   
 
 
 ## 3. Overview of commands
