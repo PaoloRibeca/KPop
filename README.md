@@ -73,7 +73,7 @@ ca
 
 ## 2. Quick start
 
-Download file `clusters-small.fasta` from the directory `test`. Then run the following commands (excluding prompt characters `$` at the beginning of each line):
+Download file `clusters-small.fasta` from the directory `test`. Then run the following commands in `bash` (excluding prompt characters `$` at the beginning of each line):
 
 ```bash
 $ export K=5
@@ -114,7 +114,7 @@ This is an example of `KPop`-based classifier. The input FASTA file `clusters-sm
    ```bash
    $ cat clusters-small.fasta | awk -v CLASS="$CLASS" '{nr=(NR-1)%4; ok=(nr==0?$0~("-"CLASS"$"):nr==1&&ok); if (ok) print}' | KPopCount -l $CLASS -f /dev/stdin -k "$K" | less
    ```
-   After that, `KPopCountDB` collects the spectra into a temporary database, replaces them with an average of the inputs named `$CLASS`, and re-outputs the averaged spectrum in the same format used before
+   After that, `KPopCountDB` collects all the spectra for each class into a temporary database, replaces them with an average of the inputs, names the averaged spectrum `$CLASS`, and re-outputs it in the same format used before for the spectra produced by `KPopCount`
 3. The command
    ```bash
    $ KPopCountDB -f /dev/stdin -o Classes -v
