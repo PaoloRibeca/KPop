@@ -82,7 +82,6 @@ $ for CLASS in C1 C2 C3 C4 C5 C6 C7 C8 C9 C10; do cat clusters-small.fasta | awk
 $ KPopTwist -i Classes
 $ cat clusters-small.fasta | awk -v K="$K" '{nr=(NR-1)%4; if (nr==2) split($0,s,"[>-]"); if (nr==3) {command="KPopCount -l "s[2]"-"s[3]" -f /dev/stdin -k "K; print ">"s[2]"\n"$0 | command; close(command)}}' | KPopTwistDB -i T Classes -k /dev/stdin -d Classes -s Classes -v
 $ echo -n "Misclassified sequences: "; cat Classes.KPopSummary.txt | tawk 'BEGIN{OFS="\t"} {$1=gensub("-","\"\t\"",1,$1); print}' | tawk '{if ($2!=$7) print}' | wc -l
-| awk -F '\t' '{ok=1; for (i=4;i<=NF;i+=2) if ($i!=$2) ok=0; if (!ok) print}' | wc -l
 $ date
 ```
 
@@ -130,9 +129,12 @@ This is an example of `KPop`-based classifier. The input FASTA file `clusters-sm
    ```bash
    cat clusters-small.fasta | awk -v K="$K" '{nr=(NR-1)%4; if (nr==2) split($0,s,"[>-]"); if (nr==3) {command="KPopCount -l "s[2]"-"s[3]" -f /dev/stdin -k "K; print ">"s[2]"\n"$0 | command; close(command)}}' | KPopTwistDB -i T Classes -k /dev/stdin -d Classes -s Classes -v
    ```
-   selects test sequences, runs each of them separately through `KPopCount` to produce a spectrum, and concatenates and pipes all the spectra thus generated to `KPopTwistDB`, which twists them according to the twister generated at the previous stage (named `Classes`). The results are output to a summary text file, which gets automatically named `Classes.KPopSummary.txt`. The file contains 
-   
-
+   selects test sequences, runs each of them separately through `KPopCount` to produce a spectrum, and concatenates and pipes all the spectra thus generated to `KPopTwistDB`, which twists them according to the twister generated at the previous stage (named `Classes`). The results are output to a summary text file, which gets automatically named `Classes.KPopSummary.txt`. The file contains information about the two closest classes for each sequence
+6. Finally the command
+   ```bash
+   $ echo -n "Misclassified sequences: "; cat Classes.KPopSummary.txt | tawk 'BEGIN{OFS="\t"} {$1=gensub("-","\"\t\"",1,$1); print}' | tawk '{if ($2!=$7) print}' | wc -l
+   ```
+   parses the results in `Classes.KPopSummary.txt` and computes the number of misclassified sequences.
 
 ## 3. Overview of commands
 
