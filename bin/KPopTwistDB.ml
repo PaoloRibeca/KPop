@@ -330,12 +330,12 @@ module Parameters =
     let verbose = ref Defaults.verbose
   end
 
-let version = "0.18"
+let version = "0.19"
 
 let header =
   Printf.sprintf begin
     "This is the KPopTwistDB program (version %s)\n%!" ^^
-    " (c) 2022 Paolo Ribeca, <paolo.ribeca@gmail.com>\n%!"
+    " (c) 2022-2023 Paolo Ribeca, <paolo.ribeca@gmail.com>\n%!"
   end version
 
 let _ =
@@ -346,7 +346,7 @@ let _ =
     TA.make_separator_multiline [ "Actions."; "They are executed delayed and in order of specification." ];
     [ "-e"; "--empty" ],
       Some "T|t|d",
-      [ "load an empty twisted database into the specified register";
+      [ "load an empty database into the specified register";
         " (T=twister; t=twisted; d=distance)" ],
       TA.Optional,
       (fun _ ->

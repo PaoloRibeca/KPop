@@ -201,10 +201,10 @@ let _ =
     begin match !Parameters.content with
     | DNA ->
       let module KMCD = KMerCounter (KMers.DNAHashDoubleStranded (struct let value = !Parameters.k end)) in
-      KMCD.compute ~linter:(Sequences.Lint.dnaize ~keep_dashes:false)
+      KMCD.compute ~linter:(Sequences.Lint.dnaize ~keep_lowercase:false ~keep_dashes:false)
     | Protein ->
       let module KMCP = KMerCounter (KMers.ProteinHash (struct let value = !Parameters.k end)) in
-      KMCP.compute ~linter:(Sequences.Lint.proteinize ~keep_dashes:false)
+      KMCP.compute ~linter:(Sequences.Lint.proteinize ~keep_lowercase:false ~keep_dashes:false)
     end ~verbose:!Parameters.verbose !store !Parameters.max_results_size !Parameters.label !Parameters.output
   end
 

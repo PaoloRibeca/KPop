@@ -615,8 +615,8 @@ module Base:
                   end else
                     raise End_of_file)
                 (fun (processed, to_do) ->
-                  let res = ref [] and red_to_do = to_do - 1 in
-                  for i = 0 to red_to_do do
+                  let res = ref [] in
+                  for i = 0 to to_do - 1 do
                     processed + i |> compute_one |> Tools.List.accum res
                   done;
                   processed, List.rev !res)

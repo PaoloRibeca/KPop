@@ -245,8 +245,8 @@ and [@warning "-32"] Statistics:
             end else
               raise End_of_file)
           (fun (processed, to_do) ->
-            let res = ref [] and red_to_do = to_do - 1 in
-            for i = 0 to red_to_do do
+            let res = ref [] in
+            for i = 0 to to_do - 1 do
               processed + i |> compute_one what |> Tools.List.accum res
             done;
             Tools.Array.of_rlist !res)
@@ -391,94 +391,52 @@ and KMerDB:
       Array.iter (Printf.eprintf " '%s'") db.core.idx_to_meta_names;
       Printf.eprintf "\n%!"
     (* *)
-    let resize_array ?(exact = false) n null a =
-      let l = Array.length a in
-      if n > l then begin
-        let res =
-          Array.make begin
-            if exact then
-              n
-            else
-              max n (l * 14 / 10)
-          end null in
-        Array.blit a 0 res 0 l;
-        res
-      end else if n < l && exact then
-        (* We have to resize in order to honour ~exact *)
-        Array.sub a 0 n
-      else
-        a
-    let resize_string_array ?(exact = false) n a =
-      resize_array ~exact n "" a
+    let resize_string_array ?(is_buffer = true) n a =
+      Tools.Array.resize ~is_buffer n "" a
     (* *)
-    let _resize_t_array_ ?(exact = false) length resize create_null nx ny a =
+    let _resize_t_array_ ?(is_buffer = true) length resize create_null nx ny a =
       let lx = Array.length a in
       let eff_nx =
-        if exact then
-          nx
-        else if lx < nx then
-          max nx (lx * 14 / 10)
-        else
-          lx
-      and eff_ny =
-        if exact then
-          ny
-        else if lx > 0 then begin
-          (* We assume all bigarrays to have the same size *)
-          let ly = length a.(0) in
-          if ly < ny then
-            max ny (ly * 14 / 10)
+        if is_buffer then begin
+          if lx < nx then
+            max nx (lx * 14 / 10)
           else
-            ly
+            lx
+        end else
+          nx
+      and eff_ny =
+        if is_buffer then begin
+          if lx > 0 then begin
+            (* We assume all bigarrays to have the same size *)
+            let ly = length a.(0) in
+            if ly < ny then
+              max ny (ly * 14 / 10)
+            else
+              ly
+          end else
+            ny
         end else
           ny in
       (*Printf.eprintf "Resizing to (%d,%d) - asked (%d,%d)...\n%!" eff_nx eff_ny nx ny;*)
       if eff_nx > lx then
         Array.append
-          (Array.map (resize ?exact:(Some true) eff_ny) a)
+          (Array.map (resize ?is_buffer:(Some false) eff_ny) a)
           (Array.init (eff_nx - lx) (fun _ -> create_null eff_ny))
       else if eff_nx < lx then
-        Array.map (resize ?exact:(Some true) eff_ny) (Array.sub a 0 eff_nx)
+        Array.map (resize ?is_buffer:(Some false) eff_ny) (Array.sub a 0 eff_nx)
       else (* eff_nx = lx *)
         if lx > 0 && eff_ny = length a.(0) then
           a
         else
-          Array.map (resize ?exact:(Some true) eff_ny) a
-    let resize_string_array_array ?(exact = false) =
-      _resize_t_array_ ~exact Array.length resize_string_array (fun l -> Array.make l "")
+          Array.map (resize ?is_buffer:(Some false) eff_ny) a
+    let resize_string_array_array ?(is_buffer = true) =
+      _resize_t_array_ ~is_buffer Array.length resize_string_array (fun l -> Array.make l "")
     module BAVectorMisc (M: Tools.BA.Type_t) =
       struct
-        let resize ?(exact = false) n a =
-          let l = M.length a in
-          if n > l then begin
-            let res =
-              M.init begin
-                if exact then
-                  n
-                else
-                  max n (l * 14 / 10)
-              end M.N.zero in
-            M.blit a (M.sub res 0 l);
-            res
-          end else if n < l && exact then
-            (* We have to resize in order to honour ~exact *)
-            let res = M.init n M.N.zero in
-            M.blit (M.sub a 0 n) res;
-            res
-          else
-            a
-        let resize_array ?(exact = false) =
-          _resize_t_array_ ~exact M.length resize (fun l -> M.init l M.N.zero)
-        (*
-        let to_float_array a =
-          let l = M.length a in
-          let red_l = l - 1
-          and res = Float.Array.make l 0. in
-          for i = 0 to red_l do
-            M.N.to_float a.M.=(i) |> Float.Array.set res i
-          done;
-          res
-        *)
+        let resize ?(is_buffer = true) n =
+          M.resize ~is_buffer n M.N.zero
+        let resize_array ?(is_buffer = true) =
+          _resize_t_array_ ~is_buffer M.length resize (fun l -> M.init l M.N.zero)
       end
     module IBAVectorMisc = BAVectorMisc (IBAVector)
     module FBAVectorMisc = BAVectorMisc (FBAVector)
@@ -492,15 +450,17 @@ and KMerDB:
       let aug_n_cols = n_cols + 1 in
       if Hashtbl.mem !db.col_names_to_idx label |> not then begin
         Hashtbl.add !db.col_names_to_idx label n_cols; (* THIS ONE CHANGES !db *)
-        db :=
-          { !db with
-            core =
-            { !db.core with
-              n_cols = aug_n_cols;
-              (* We have to resize all the relevant containers *)
-              idx_to_col_names = Array.append !db.core.idx_to_col_names [| label |];
-              meta = resize_string_array_array aug_n_cols !db.core.n_meta !db.core.meta;
-              storage = IBAVectorMisc.resize_array aug_n_cols !db.core.n_rows !db.core.storage } }
+        db := {
+          !db with
+          core = {
+            !db.core with
+            n_cols = aug_n_cols;
+            (* We have to resize all the relevant containers *)
+            idx_to_col_names = Array.append !db.core.idx_to_col_names [| label |];
+            meta = resize_string_array_array ~is_buffer:true aug_n_cols !db.core.n_meta !db.core.meta;
+            storage = IBAVectorMisc.resize_array ~is_buffer:true aug_n_cols !db.core.n_rows !db.core.storage
+          }
+        }
       end
     (* *)
     let archive_version = "2022-04-03"
@@ -515,11 +475,11 @@ and KMerDB:
       output_value output {
         db.core with
         (* We have to truncate all the containers *)
-        idx_to_col_names = resize_string_array ~exact:true db.core.n_cols db.core.idx_to_col_names;
-        idx_to_row_names = resize_string_array ~exact:true db.core.n_rows db.core.idx_to_row_names;
-        idx_to_meta_names = resize_string_array ~exact:true db.core.n_meta db.core.idx_to_meta_names;
-        meta = resize_string_array_array ~exact:true db.core.n_cols db.core.n_meta db.core.meta;
-        storage = IBAVectorMisc.resize_array ~exact:true db.core.n_cols db.core.n_rows db.core.storage
+        idx_to_col_names = resize_string_array ~is_buffer:false db.core.n_cols db.core.idx_to_col_names;
+        idx_to_row_names = resize_string_array ~is_buffer:false db.core.n_rows db.core.idx_to_row_names;
+        idx_to_meta_names = resize_string_array ~is_buffer:false db.core.n_meta db.core.idx_to_meta_names;
+        meta = resize_string_array_array ~is_buffer:false db.core.n_cols db.core.n_meta db.core.meta;
+        storage = IBAVectorMisc.resize_array ~is_buffer:false db.core.n_cols db.core.n_rows db.core.storage
       };
       close_out output;
       if verbose then
@@ -564,14 +524,16 @@ and KMerDB:
           (fun i name -> !db.core.n_meta + i |> Hashtbl.add !db.meta_names_to_idx name)
           missing;
         let n_meta = !db.core.n_meta + missing_len in
-        db :=
-          { !db with
-            core =
-              { !db.core with
-                n_meta;
-                (* We have to resize all the relevant containers *)
-                idx_to_meta_names = Array.append !db.core.idx_to_meta_names missing;
-                meta = resize_string_array_array !db.core.n_cols n_meta !db.core.meta } }
+        db := {
+          !db with
+          core = {
+            !db.core with
+            n_meta;
+            (* We have to resize all the relevant containers *)
+            idx_to_meta_names = Array.append !db.core.idx_to_meta_names missing;
+            meta = resize_string_array_array ~is_buffer:true !db.core.n_cols n_meta !db.core.meta
+          }
+        }
       end;
       let num_header_fields = Array.length header
       and meta_indices =
@@ -640,18 +602,20 @@ and KMerDB:
                   let n_rows = !db.core.n_rows in
                   let aug_n_rows = n_rows + 1 in
                   Hashtbl.add !db.row_names_to_idx line.(0) n_rows;
-                  db :=
-                    { !db with
-                      core =
-                        { !db.core with
-                          n_rows = aug_n_rows;
-                          (* We have to resize all the relevant containers *)
-                          idx_to_row_names = begin
-                            let res = resize_string_array aug_n_rows !db.core.idx_to_row_names in
-                            res.(n_rows) <- line.(0);
-                            res
-                          end;
-                          storage = IBAVectorMisc.resize_array !db.core.n_cols aug_n_rows !db.core.storage } }
+                  db := {
+                    !db with
+                    core = {
+                      !db.core with
+                      n_rows = aug_n_rows;
+                      (* We have to resize all the relevant containers *)
+                      idx_to_row_names = begin
+                        let res = resize_string_array ~is_buffer:true aug_n_rows !db.core.idx_to_row_names in
+                        res.(n_rows) <- line.(0);
+                        res
+                      end;
+                      storage = IBAVectorMisc.resize_array ~is_buffer:true !db.core.n_cols aug_n_rows !db.core.storage
+                    }
+                  }
                 end;
                 let row_idx = Hashtbl.find !db.row_names_to_idx line.(0) in
                 let v =
@@ -772,9 +736,8 @@ and KMerDB:
           (fun label ->
             match Hashtbl.find_opt !db.col_names_to_idx label with
             | Some col_idx ->
-              let col = !db.core.meta.(col_idx)
-              and red_n_meta = !db.core.n_meta - 1 in
-              for i = 0 to red_n_meta do
+              let col = !db.core.meta.(col_idx) in
+              for i = 0 to !db.core.n_meta - 1 do
                 res.(i) <- StringSet.add col.(i) res.(i)
               done
             | None -> ())

@@ -81,7 +81,7 @@ $ date
 $ for CLASS in C1 C2 C3 C4 C5 C6 C7 C8 C9 C10; do cat clusters-small.fasta | awk -v CLASS="$CLASS" '{nr=(NR-1)%4; ok=(nr==0?$0~("-"CLASS"$"):nr==1&&ok); if (ok) print}' | KPopCount -l $CLASS -f /dev/stdin -k "$K" | KPopCountDB -f /dev/stdin -R "~." -A "$CLASS" -P -L "$CLASS" -N -P -D --table-transform none -t /dev/stdout 2> /dev/null; done | KPopCountDB -f /dev/stdin -o Classes -v
 $ KPopTwist -i Classes
 $ cat clusters-small.fasta | awk -v K="$K" '{nr=(NR-1)%4; if (nr==2) split($0,s,"[>-]"); if (nr==3) {command="KPopCount -l "s[2]"-"s[3]" -f /dev/stdin -k "K; print ">"s[2]"\n"$0 | command; close(command)}}' | KPopTwistDB -i T Classes -k /dev/stdin -d Classes -s Classes -v
-$ echo -n "Misclassified sequences: "; cat Classes.KPopSummary.txt | tawk 'BEGIN{OFS="\t"} {$1=gensub("-","\"\t\"",1,$1); print}' | tawk '{if ($2!=$7) print}' | wc -l
+$ echo -n "Misclassified sequences: "; cat Classes.KPopSummary.txt | awk -F '\t' 'BEGIN{OFS="\t"} {$1=gensub("-","\"\t\"",1,$1); print}' | awk -F '\t' '{if ($2!=$7) print}' | wc -l
 $ date
 ```
 
@@ -132,7 +132,7 @@ This is an example of `KPop`-based classifier. The input FASTA file `clusters-sm
    selects test sequences, runs each of them separately through `KPopCount` to produce a spectrum, and concatenates and pipes all the spectra thus generated to `KPopTwistDB`, which twists them according to the twister generated at the previous stage (named `Classes`). The results are output to a summary text file, which gets automatically named `Classes.KPopSummary.txt`. The file contains information about the two closest classes for each sequence
 6. Finally, the command
    ```bash
-   $ echo -n "Misclassified sequences: "; cat Classes.KPopSummary.txt | tawk 'BEGIN{OFS="\t"} {$1=gensub("-","\"\t\"",1,$1); print}' | tawk '{if ($2!=$7) print}' | wc -l
+   $ echo -n "Misclassified sequences: "; cat Classes.KPopSummary.txt | awk -F '\t' 'BEGIN{OFS="\t"} {$1=gensub("-","\"\t\"",1,$1); print}' | awk -F '\t' '{if ($2!=$7) print}' | wc -l
    ```
    parses the results in `Classes.KPopSummary.txt` and computes the number of misclassified sequences.
 
@@ -903,7 +903,7 @@ in order to produce the usual textual summary of the distances. The resulting fi
 And quite likely, one would also wish to run something like the following commands:
 ```bash
 $ cat Test-vs-Classes.KPopSummary.txt | awk 'function remove_spaces(name,     s){split(name,s,"/"); return gensub("[ _]","","g",s[1])"/"s[2]"/"s[3]} BEGIN{nr=0; while (getline < "lineages.csv") {++nr; if (nr>1) {split($0,s,","); t[remove_spaces(gensub("^BHR/","Bahrain/",1,s[1]))]=s[2]}}} {printf $1"\t\""t[substr($1,2,length($1)-2)]"\""; for (i=2;i<=NF;++i) printf "\t"$i; printf "\n"}' > Test-vs-Classes.KPopSummary.Truth.txt
-$ cat Test-vs-Classes.KPopSummary.Truth.txt | tawk 'function strip_quotes(s){return substr(s,2,length(s)-2)} {one=strip_quotes($2); two=strip_quotes($7); print one"\t"two"\t"(substr(two,1,length(one)+1)) > "/dev/null"; if ($2!=$7&&substr(two,1,length(one)+1)!=one".") ++ko; else ++ok} END{printf("%d\t%d\t%.3g%%\t%d\t%.3g%%\n",ok+ko,ok,ok/(ok+ko)*100,ko,ko/(ok+ko)*100)}'
+$ cat Test-vs-Classes.KPopSummary.Truth.txt | awk -F '\t' 'function strip_quotes(s){return substr(s,2,length(s)-2)} {one=strip_quotes($2); two=strip_quotes($7); print one"\t"two"\t"(substr(two,1,length(one)+1)) > "/dev/null"; if ($2!=$7&&substr(two,1,length(one)+1)!=one".") ++ko; else ++ok} END{printf("%d\t%d\t%.3g%%\t%d\t%.3g%%\n",ok+ko,ok,ok/(ok+ko)*100,ko,ko/(ok+ko)*100)}'
 ```
 to, first, annotate the summary with the original "true" classification of the sequences, and, second, generate a one-line summary of the results. The last command will produce something like:
 
@@ -933,7 +933,7 @@ Briefly, we can generate and twist new spectra (top left), find out their neares
 
 Here we illustrate the approach taking the previous exercise on COVID-19 as a starting point. For the sake of simplicity, we'll take as existing database the twisted test sequences (half of the GISAID database) in the file `Test.KPopTwisted`. The classifier will be the one we generated in [the previous section](#513-classifier-for-covid-19-sequences-hyena) and contained in the file `Classes.KPopTwister`. The command
 ```bash
-cat Train/C.36.3.fasta | fasta-tabular | shuf | head -1 | tawk '{print $1 > "/dev/stderr"; print ">"$1"\n"$2}' | KPopCount -k 10 -f /dev/stdin -l "C.36.3" | KPopTwistDB -i T Classes -k /dev/stdin -d Test --keep-at-most 300 -s Related
+cat Train/C.36.3.fasta | fasta-tabular | shuf | head -1 | awk -F '\t' '{print $1 > "/dev/stderr"; print ">"$1"\n"$2}' | KPopCount -k 10 -f /dev/stdin -l "C.36.3" | KPopTwistDB -i T Classes -k /dev/stdin -d Test --keep-at-most 300 -s Related
 ```
 will then randomly select one sequence from the `C.36.3` lineage and find the 300 sequences closest to it. A summary in the usual format will be output to file `Related.KPopSummary.txt`. Note that loading this specific database in memory is going to take long as the file is \~8.4 G, but one only needs to do it once when sequences are processed in batches.
 

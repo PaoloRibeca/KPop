@@ -437,8 +437,8 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
             (* If that has not worked, we proceed to the next valid interval within the same stride, if any *)
             get_minimum_opt ~max_distance_component dist sorted stride diff
         let make ?(max_distance_component = infinity) dist metr d init n =
-          let red_n = n - 1 and sorted = ref FloatIntMultimap.empty in
-          for i = 0 to red_n do
+          let sorted = ref FloatIntMultimap.empty in
+          for i = 0 to n - 1 do
             sorted := FloatIntMultimap.add (init i) i !sorted
           done;
           let res = {
