@@ -319,18 +319,16 @@ module Defaults =
     let metric = Space.Distance.Metric.of_string "sigmoid(1,3,10,10)"
     let precision = 15
     let keep_at_most = Some 2
-    let threads = Processes.Parallel.get_nproc ()
-    let verbose = false
   end
 
 module Parameters =
   struct
     let program = ref []
-    let threads = ref Defaults.threads
-    let verbose = ref Defaults.verbose
+    let threads = Processes.Parallel.get_nproc () |> ref
+    let verbose = ref false
   end
 
-let version = "0.19"
+let version = "0.20"
 
 let header =
   Printf.sprintf begin

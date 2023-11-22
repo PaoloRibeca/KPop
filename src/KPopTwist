@@ -18,7 +18,7 @@ set -e
 
 OLD_IFS="$IFS"
 IFS=$'\x1'
-read -r PREFIX TRANSFORM THRESHOLD POWER SAMPLING_FRACTION THREADS VERBOSE <<< "$(KPopTwist_ "$@")"
+read -r PREFIX TRANSFORM THRESHOLD POWER SAMPLING_FRACTION THREADS TEMPORARIES VERBOSE <<< "$(KPopTwist_ "$@")"
 IFS="$OLD_IFS"
 
 function conditional_echo {
@@ -48,7 +48,8 @@ cat <<'_____'
   if (is.na(args[4])||args[4]=="")
     args[4]<-"1."
   threads<-as.integer(args[5]) # Not really used at the moment
-  verbose<-as.logical(args[6])
+  temporaries<-as.logical(args[6]) # Not really used at the moment
+  verbose<-as.logical(args[7])
   conditional_echo<-function(s){
     if (verbose)
       cat(format(Sys.time(),paste0("%c: ",s,"...\n")))
@@ -76,7 +77,7 @@ cat <<'_____'
   conditional_echo("[10/13] Writing twister")
   data.table::fwrite(twister,paste0(args[3],".KPopTwister.txt"),row.names=TRUE,quote=TRUE,sep="\t",buffMB=64)
 _____
-) "${TMPDIR}/TABLE.txt" "${TMPDIR}/NAMES.txt" "$PREFIX" "$SAMPLING_FRACTION" "$THREADS" "$VERBOSE"
+) "${TMPDIR}/TABLE.txt" "${TMPDIR}/NAMES.txt" "$PREFIX" "$SAMPLING_FRACTION" "$THREADS" "$TEMPORARIES" "$VERBOSE"
 
 # We convert the results to binary form and remove temporary files
 conditional_echo "$(date +"%c"): [11/13] Encoding twisted..."
@@ -84,10 +85,12 @@ KPopTwistDB -I t "$PREFIX" -o t "$PREFIX" > /dev/null 2>&1
 conditional_echo "$(date +"%c"): [12/13] Encoding twister..."
 KPopTwistDB -I T "$PREFIX" -o T "$PREFIX" > /dev/null 2>&1
 conditional_echo "$(date +"%c"): [13/13] Cleaning up..."
-rm "${PREFIX}.KPopCounter.txt"
-rm "${TMPDIR}/TABLE.txt" "${TMPDIR}/NAMES.txt"
-rmdir "${TMPDIR}"
-rm "${PREFIX}.KPopTwisted.txt" "${PREFIX}.KPopInertia.txt" "${PREFIX}.KPopTwister.txt"
+if [[ "$TEMPORARIES" == "false" ]]; then
+  rm "${PREFIX}.KPopCounter.txt"
+  rm "${TMPDIR}/TABLE.txt" "${TMPDIR}/NAMES.txt"
+  rmdir "${TMPDIR}"
+  rm "${PREFIX}.KPopTwisted.txt" "${PREFIX}.KPopInertia.txt" "${PREFIX}.KPopTwister.txt"
+fi
 
 conditional_echo "$(date +"%c"): All done."
 

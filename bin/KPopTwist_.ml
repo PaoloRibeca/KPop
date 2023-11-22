@@ -1,30 +1,20 @@
 open BiOCamLib
 
-module Defaults =
-  struct
-    let input = ""
-    (* The following three are KPopCountDB.TableFilter.default *)
-    let transformation = "normalize"
-    let threshold = 1
-    let power = 1.
-    let sampling = 1.
-    (*let precision = 15*)
-    let threads = Processes.Parallel.get_nproc ()
-    let verbose = false
-  end
-
 module Parameters =
   struct
-    let input = ref Defaults.input
-    let transformation = ref Defaults.transformation
-    let threshold = ref Defaults.threshold
-    let power = ref Defaults.power
-    let sampling = ref Defaults.sampling
-    let threads = ref Defaults.threads
-    let verbose = ref Defaults.verbose
+    let input = ref ""
+    (* The following three are KPopCountDB.TableFilter.default *)
+    let transformation = ref "normalize"
+    let threshold = ref 1
+    let power = ref 1.
+    let sampling = ref 1.
+    (*let precision = 15*)
+    let threads = Processes.Parallel.get_nproc () |> ref
+    let temporaries = ref false
+    let verbose = ref false
   end
 
-let version = "0.15"
+let version = "0.16"
 
 let header =
   Printf.sprintf begin
@@ -41,25 +31,25 @@ let _ =
     [ "-f"; "-F"; "-s"; "-S"; "--fraction"; "--sampling"; "--sampling-fraction" ],
       Some "<non_negative_float>",
       [ "fraction of the rows to be considered and resampled before twisting" ],
-      TA.Default (fun () -> string_of_float Defaults.sampling),
+      TA.Default (fun () -> string_of_float !Parameters.sampling),
       (fun _ -> Parameters.sampling := TA.get_parameter_float_non_neg ());
     [ "--threshold" ],
       Some "<non_negative_integer>",
       [ "set to zero all counts that are less than this threshold";
         "before transforming them" ],
-      TA.Default (fun () -> string_of_int Defaults.threshold),
+      TA.Default (fun () -> string_of_int !Parameters.threshold),
       (fun _ -> Parameters.threshold := TA.get_parameter_int_non_neg ());
     [ "--power" ],
       Some "<non_negative_float>",
       [ "raise counts to this power before transforming them.";
         "A power of 0 when the 'pseudocount' method is used";
         "performs a logarithmic transformation" ],
-      TA.Default (fun () -> string_of_float Defaults.power),
+      TA.Default (fun () -> string_of_float !Parameters.power),
       (fun _ -> Parameters.power := TA.get_parameter_float_non_neg ());
     [ "--transform"; "--transformation" ],
       Some "'none'|'normalize'|'pseudocount'|'clr'",
       [ "transformation to apply to table elements" ],
-      TA.Default (fun () -> Defaults.transformation),
+      TA.Default (fun () -> !Parameters.transformation),
       (fun _ -> Parameters.transformation := TA.get_parameter ());
     TA.make_separator "Input/Output";
     [ "-i"; "--input" ],
@@ -79,6 +69,11 @@ let _ =
         " (default automatically detected from your configuration)" ],
       TA.Default (fun () -> string_of_int !Parameters.threads),
       (fun _ -> Parameters.threads := TA.get_parameter_int_pos ());
+    [ "--keep-temporaries" ],
+      None,
+      [ "keep temporary files rather than deleting them in the end" ],
+      TA.Default (fun () -> string_of_bool !Parameters.temporaries),
+      (fun _ -> Parameters.temporaries := true);
     [ "-v"; "--verbose" ],
       None,
       [ "set verbose execution" ],
@@ -108,7 +103,7 @@ let _ =
     TA.header ();
     raise e
   end;
-  Printf.printf "%s\001%s\001%d\001%.12g\001%.12g\001%d\001%b\n%!"
+  Printf.printf "%s\001%s\001%d\001%.12g\001%.12g\001%d\001%b\001%b\n%!"
     !Parameters.input !Parameters.transformation !Parameters.threshold !Parameters.power
-    !Parameters.sampling !Parameters.threads !Parameters.verbose
+    !Parameters.sampling !Parameters.threads !Parameters.temporaries !Parameters.verbose
 

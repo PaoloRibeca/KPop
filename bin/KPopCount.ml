@@ -85,31 +85,19 @@ module Content =
       | Protein -> "protein"
   end
 
-module Defaults =
-  struct
-    let content = Content.DNA
-    let k = 12
-    let max_results_size = 16777216 (* Or: 4^12 *)
-    let output = ""
-(*
-    let threads = Tools.Parallel.get_nproc ()
-*)
-    let verbose = false
-  end
-
 module Parameters =
   struct
-    let content = ref Defaults.content
-    let k = ref Defaults.k
-    let max_results_size = ref Defaults.max_results_size
+    let content = ref Content.DNA
+    let k = ref 12
+    let max_results_size = ref 16777216 (* Or: 4^12 *)
     let inputs = ref []
     let label = ref ""
-    let output = ref Defaults.output
-    (*let threads = ref Defaults.threads*)
-    let verbose = ref Defaults.verbose
+    let output = ref ""
+    (*let threads = Tools.Parallel.get_nproc () |> ref*)
+    let verbose = ref false
   end
 
-let version = "0.7"
+let version = "0.8"
 
 let header =
   Printf.sprintf begin

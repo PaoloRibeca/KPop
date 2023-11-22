@@ -420,6 +420,7 @@ and KMerDB:
       (*Printf.eprintf "Resizing to (%d,%d) - asked (%d,%d)...\n%!" eff_nx eff_ny nx ny;*)
       if eff_nx > lx then
         Array.append
+          (* We need to provide the is_buffer argument like this because of type resolution *)
           (Array.map (resize ?is_buffer:(Some false) eff_ny) a)
           (Array.init (eff_nx - lx) (fun _ -> create_null eff_ny))
       else if eff_nx < lx then
@@ -1044,8 +1045,6 @@ module Defaults =
     let distance = Space.Distance.of_string "euclidean"
     let distance_normalise = true
     let filter = KMerDB.TableFilter.default
-    let threads = Processes.Parallel.get_nproc ()
-    let verbose = false
   end
 
 module Parameters =
@@ -1053,11 +1052,11 @@ module Parameters =
     (* This is just to correctly propagate values in the program *)
     let transform = Transformation.to_parameters Defaults.filter.transform |> ref
     let program = ref []
-    let threads = ref Defaults.threads
-    let verbose = ref Defaults.verbose
+    let threads = Processes.Parallel.get_nproc () |> ref
+    let verbose = ref false
   end
 
-let version = "0.31"
+let version = "0.33"
 
 let header =
   Printf.sprintf begin
