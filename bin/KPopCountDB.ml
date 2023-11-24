@@ -1031,7 +1031,9 @@ type to_do_t =
   | Table_emit_col_names of bool
   | Table_emit_metadata of bool
   | Table_transpose of bool
-  | Table_transform of Transformation.parameters_t
+  | Table_transform_threshold of int
+  | Table_transform_power of float
+  | Table_transform_which of string
   | Table_emit_zero_rows of bool
   | Table_precision of int
   | To_table of string
@@ -1042,21 +1044,19 @@ and regexps_t = (string * Str.regexp) list
 
 module Defaults =
   struct
+    let filter = KMerDB.TableFilter.default
     let distance = Space.Distance.of_string "euclidean"
     let distance_normalise = true
-    let filter = KMerDB.TableFilter.default
   end
 
 module Parameters =
   struct
-    (* This is just to correctly propagate values in the program *)
-    let transform = Transformation.to_parameters Defaults.filter.transform |> ref
     let program = ref []
     let threads = Processes.Parallel.get_nproc () |> ref
     let verbose = ref false
   end
 
-let version = "0.33"
+let version = "0.34"
 
 let header =
   Printf.sprintf begin
@@ -1174,8 +1174,7 @@ let _ =
         "before transforming and outputting them" ],
       TA.Default (fun () -> (Transformation.to_parameters Defaults.filter.transform).threshold |> string_of_int),
       (fun _ ->
-         Table_transform { !Parameters.transform with threshold = TA.get_parameter_int_non_neg () }
-           |> Tools.List.accum Parameters.program);
+         Table_transform_threshold (TA.get_parameter_int_non_neg ()) |> Tools.List.accum Parameters.program);
     [ "--table-power" ],
       Some "<non_negative_float>",
       [ "raise counts to this power before transforming and outputting them.";
@@ -1183,15 +1182,13 @@ let _ =
         "performs a logarithmic transformation" ],
       TA.Default (fun () -> (Transformation.to_parameters Defaults.filter.transform).power |> string_of_float),
       (fun _ ->
-         Table_transform { !Parameters.transform with power = TA.get_parameter_float_non_neg () }
-           |> Tools.List.accum Parameters.program);
+         Table_transform_power (TA.get_parameter_float_non_neg ()) |> Tools.List.accum Parameters.program);
     [ "--table-transform"; "--table-transformation" ],
       Some "'none'|'normalize'|'pseudocount'|'clr'",
       [ "transformation to apply to table elements before outputting them" ],
       TA.Default (fun () -> (Transformation.to_parameters Defaults.filter.transform).which),
       (fun _ ->
-         Table_transform { !Parameters.transform with which = TA.get_parameter () }
-           |> Tools.List.accum Parameters.program);
+         Table_transform_which (TA.get_parameter ()) |> Tools.List.accum Parameters.program);
     [ "--table-emit-zero-rows" ],
       Some "'true'|'false'",
       [ "whether to emit rows whose elements are all zero";
@@ -1291,7 +1288,8 @@ let _ =
     TA.header ();
   (* These are the registers available to the program *)
   let current = KMerDB.make_empty () |> ref and selected = ref StringSet.empty
-  and filter = ref KMerDB.TableFilter.default
+  and transform = Transformation.to_parameters Defaults.filter.transform |> ref
+  and filter = ref Defaults.filter
   and distance = ref Defaults.distance and distance_normalise = ref Defaults.distance_normalise in
 
   (* The addition of an exception handler would be nice *)
@@ -1336,8 +1334,15 @@ let _ =
         filter := { !filter with print_metadata }
       | Table_transpose transpose ->
         filter := { !filter with transpose }
-      | Table_transform transform ->
-        filter := { !filter with transform = Transformation.of_parameters transform }
+      | Table_transform_threshold threshold ->
+        transform := { !transform with threshold };
+        filter := { !filter with transform = Transformation.of_parameters !transform }
+      | Table_transform_power power ->
+        transform := { !transform with power };
+        filter := { !filter with transform = Transformation.of_parameters !transform }
+      | Table_transform_which which ->
+        transform := { !transform with which };
+        filter := { !filter with transform = Transformation.of_parameters !transform }
       | Table_emit_zero_rows print_zero_rows ->
         filter := { !filter with print_zero_rows }
       | Table_precision precision ->
