@@ -809,7 +809,7 @@ AY.4.2.fasta
 BA.1.15.1.fasta
 ```
 
-Each file contains (almost) all the sequences used as the ground truth for that lineage. Note that the procedure we used does not retreive all sequences because some of the ones used to train Pangolin are not in GISAID. In particular, the following command:
+Each file contains (almost) all the sequences used as the ground truth for that lineage. Note that the procedure we used does not retrieve all sequences because some of the ones used to train Pangolin are not in GISAID. In particular, the following command:
 ```bash
 $ awk -F '\t' 'BEGIN{nr=0; while (getline < "lineages.csv") {++nr; if (nr>1&&$0~",") {split($0,s,","); found[s[2]]; ++lineages[s[2]]}} while (getline < "Stats.txt") {found[$1]; stats[$1]=$2} for (i in found) {print i"\t"(i in lineages?lineages[i]:0)"\t"(i in stats?stats[i]:0)}}' | awk -F '\t' '{if (($3<0.9*$2&&$3<20)||$2<10&&$3!=$2) print}'
 ```
