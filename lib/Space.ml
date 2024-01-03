@@ -33,20 +33,21 @@ module Distance:
         val to_string: t -> string
       end
     type t (* We hide the type to implement constraints *)
-    (* Arguments are distance function, metric, a, b.
-       Rather than having a hardcoded difference function between a and b,
-        we parameterise the computation with an arbitrary combinator function,
-        which allows, for instance, to implement normalised differences *)
-    val compute_unscaled_component: ?combinator:(float -> float -> float) -> t -> float -> float -> float -> float
     exception Incompatible_vector_lengths of int * int * int
     (* What happens when argument vectors have incompatible lengths *)
     type mode_t =
       | Fail
       | Infinity
     val set_mode: mode_t -> unit
-    val compute_unscaled: ?combinator:(float -> float -> float) ->
-                          t -> Float.Array.t -> Float.Array.t -> Float.Array.t -> float
-    val compute: ?combinator:(float -> float -> float) -> t -> Float.Array.t -> Float.Array.t -> Float.Array.t -> float
+    (* Arguments are distance function, metric, v *)
+    val compute_norm: t -> Float.Array.t -> Float.Array.t -> float
+    (* Arguments are distance function, metric, a, b.
+       We also parameterise the computation with two arbitrary adaptor functions for a and b,
+        which allow, for instance, to implement normalised differences *)
+    (*val compute_unscaled: ?adaptor_a:(float -> float) -> ?adaptor_b:(float -> float) ->
+                 t -> Float.Array.t -> Float.Array.t -> Float.Array.t -> float*)
+    val compute: ?adaptor_a:(float -> float) -> ?adaptor_b:(float -> float) ->
+                 t -> Float.Array.t -> Float.Array.t -> Float.Array.t -> float
     exception Unknown_distance of string
     exception Negative_power of float
     val of_string: string -> t
@@ -209,9 +210,31 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
         diff *. diff *. metr
       | Minkowski power ->
         ((abs_float diff) ** power) *. metr
-    let compute_unscaled_component ?(combinator = (-.)) f m a b =
-      compute_norm_unscaled_component f m (combinator a b)
-    let compute_unscaled ?(combinator = (-.)) f m a b =
+    let [@warning "-32"] compute_unscaled_component ?(adaptor_a = (fun x -> x)) ?(adaptor_b = (fun x -> x)) f m a b =
+      compute_norm_unscaled_component f m (adaptor_a a -. adaptor_b b)
+    (* Unclear whether we really need to keep the unscaled versions *)
+    let scale = function
+      | Euclidean ->
+        sqrt
+      | Minkowski power ->
+        fun x -> x ** (1. /. power)
+    let compute_norm_unscaled f m v =
+      (* We could define everything in terms of compute_unscaled_component,
+            but we rewrite things in order to optimise the switch out of the cycle *)
+      let acc = ref 0. in
+      Float.Array.iteri begin
+        match f with
+        | Euclidean ->
+          (fun i el ->
+            acc := !acc +. (el *. el *. Float.Array.get m i))
+        | Minkowski power ->
+          (fun i el ->
+            acc := !acc +. (((abs_float el) ** power) *. Float.Array.get m i))
+      end v;
+      !acc
+    let compute_norm f m v =
+      compute_norm_unscaled f m v |> scale f
+    let compute_unscaled ?(adaptor_a = (fun x -> x)) ?(adaptor_b = (fun x -> x)) f m a b =
       let length_a = Float.Array.length a and length_m = Float.Array.length m and length_b = Float.Array.length b in
       if length_a <> length_m || length_m <> length_b then begin
         match !mode with
@@ -225,20 +248,16 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
           match f with
           | Euclidean ->
             (fun i el_a ->
-              let diff = Float.Array.get b i |> combinator el_a in
+              let diff = adaptor_a el_a -. (Float.Array.get b i |> adaptor_b) in
               acc := !acc +. (diff *. diff *. Float.Array.get m i))
           | Minkowski power ->
             (fun i el_a ->
-              let diff = Float.Array.get b i |> combinator el_a |> abs_float in
+              let diff = abs_float (adaptor_a el_a -. (Float.Array.get b i |> adaptor_b)) in
               acc := !acc +. ((diff ** power) *. Float.Array.get m i))
         end a;
         !acc
-    let compute ?(combinator = (-.)) f m a b =
-      match f with
-      | Euclidean ->
-        compute_unscaled ~combinator f m a b |> sqrt
-      | Minkowski power ->
-        (compute_unscaled ~combinator f m a b) ** (1. /. power)
+    let compute ?(adaptor_a = (fun x -> x)) ?(adaptor_b = (fun x -> x)) f m a b =
+      compute_unscaled ~adaptor_a ~adaptor_b f m a b |> scale f
     exception Unknown_distance of string
     exception Negative_power of float
     let of_string_re = Str.regexp "[()]"

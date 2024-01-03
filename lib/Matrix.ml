@@ -47,13 +47,12 @@ module Base:
       elements: float Tools.IntMap.t
     }
     val multiply_matrix_sparse_vector_single_threaded: ?verbose:bool -> t -> sparse_vector_t -> Float.Array.t
-    val multiply_matrix_matrix:
-      ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> t -> t
-    val get_distance_matrix:
-      ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Space.Distance.t -> Float.Array.t -> t -> t
+    val multiply_matrix_matrix: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> t -> t
+    val get_distance_matrix: ?normalize:bool -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
+                             Space.Distance.t -> Float.Array.t -> t -> t
     (* Compute distances between the rows of two matrices - more general version of the previous one *)
-    val get_distance_rowwise:
-      ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Space.Distance.t -> Float.Array.t -> t -> t -> t
+    val get_distance_rowwise: ?normalize:bool -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
+                              Space.Distance.t -> Float.Array.t -> t -> t -> t
     module NearestNeighbor:
       sig
         type tt = t
@@ -226,7 +225,7 @@ module Base:
             (fun old_col ->
               Float.Array.init (Array.length m.idx_to_row_names)
                 (fun old_row -> Float.Array.get m.storage.(old_row) old_col)) }
-    let transpose ?(threads = 1) ?(elements_per_step = 1) ?(verbose = false) m =
+    let transpose ?(threads = 1) ?(elements_per_step = 10) ?(verbose = false) m =
       let row_num = Array.length m.idx_to_col_names and col_num = Array.length m.idx_to_row_names in
       let storage = Array.init row_num (fun _ -> Float.Array.create 0) in
       (* Generate points to be computed by the parallel processs *)
@@ -455,9 +454,55 @@ module Base:
       { idx_to_col_names = m2.idx_to_col_names;
         idx_to_row_names = m1.idx_to_row_names;
         storage = storage }
+    (* Compute normalisations for rows *)
+    let get_normalizations ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) distance metric m =
+      let row_num = Array.length m.idx_to_row_names in
+      let res = Float.Array.create row_num in
+      (* Generate points to be computed by the parallel processs *)
+      let i = ref 0 and elts_done = ref 0 and end_reached = ref (row_num = 0) in
+      Processes.Parallel.process_stream_chunkwise
+        (fun () ->
+          if !end_reached then
+            raise End_of_file
+          else begin
+            let res = ref [] and cntr = ref 0 in
+            begin try
+              while !cntr < elements_per_step do
+                Tools.List.accum res !i;
+                incr i;
+                if !i = row_num then begin (* The original columns *)
+                  end_reached := true;
+                  raise Exit
+                end;
+                incr cntr
+              done
+            with Exit -> ()
+            end;
+            List.rev !res
+          end)
+        (List.map
+          (fun i ->
+            i, Space.Distance.compute_norm distance metric m.storage.(i)))
+        (List.iter
+          (fun (i, norm_i) ->
+            Float.Array.set res i (if norm_i = 0. then 1. else norm_i);
+            incr elts_done;
+            if verbose && !elts_done mod elements_per_step = 0 then
+              Printf.eprintf "%s\r(%s): Done %d/%d rows%!" Tools.String.TermIO.clear __FUNCTION__ !elts_done row_num))
+        threads;
+      if verbose then
+        Printf.eprintf "%s\r(%s): Done %d/%d rows.\n%!" Tools.String.TermIO.clear __FUNCTION__ !elts_done row_num;
+      res
     (* Compute rowwise distance *)
-    let get_distance_matrix ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) distance metric m =
-      let distance = Space.Distance.compute distance metric and d = Array.length m.idx_to_row_names in
+    let get_distance_matrix ?(normalize = true) ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false)
+          distance metric m =
+      let d = Array.length m.idx_to_row_names in
+      (* We compute normalisations *)
+      let norms =
+        if normalize then
+          get_normalizations ~threads ~elements_per_step ~verbose distance metric m
+        else
+          Float.Array.make d 1. in
       (* We immediately allocate all the needed memory, as we already know how much we will need *)
       let storage = Array.init d (fun _ -> Float.Array.create d) in
       (* Generate points to be computed by the parallel processs *)
@@ -490,7 +535,11 @@ module Base:
         (List.map
           (* We decorate each matrix element coordinate with the respective distance *)
           (fun (i, j) ->
-            i, j, distance m.storage.(i) m.storage.(j)))
+            i, j, begin
+              Space.Distance.compute
+                ~adaptor_a:(fun a -> a /. Float.Array.get norms i) ~adaptor_b:(fun b -> b /. Float.Array.get norms j)
+                distance metric m.storage.(i) m.storage.(j)
+            end))
         (List.iter
           (fun (i, j, dist) ->
             (* Only here do we actually fill out the memory for the result *)
@@ -507,11 +556,18 @@ module Base:
       { idx_to_col_names = m.idx_to_row_names;
         idx_to_row_names = m.idx_to_row_names;
         storage = storage }
-    let get_distance_rowwise ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) distance metric m1 m2 =
-      let distance = Space.Distance.compute distance metric in
+    let get_distance_rowwise ?(normalize = true) ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false)
+          distance metric m1 m2 =
       if m1.idx_to_col_names <> m2.idx_to_col_names then
         Incompatible_geometries (m1.idx_to_col_names, m2.idx_to_col_names) |> raise;
       let r1 = Array.length m1.idx_to_row_names and r2 = Array.length m2.idx_to_row_names in
+      (* We compute normalisations *)
+      let n1, n2 =
+        if normalize then
+          get_normalizations ~threads ~elements_per_step ~verbose distance metric m1,
+          get_normalizations ~threads ~elements_per_step ~verbose distance metric m2
+        else
+          Float.Array.make r1 1., Float.Array.make r2 1. in
       (* We immediately allocate all the needed memory, as we already know how much we will need *)
       let storage = Array.init r1 (fun _ -> Float.Array.create r2) in
       (* Generate points to be computed by the parallel processs *)
@@ -544,7 +600,11 @@ module Base:
         (List.map
           (* We decorate each matrix element coordinate with the respective distance *)
           (fun (i, j) ->
-            i, j, distance m1.storage.(i) m2.storage.(j)))
+            i, j, begin
+              Space.Distance.compute
+                ~adaptor_a:(fun a -> a /. Float.Array.get n1 i) ~adaptor_b:(fun b -> b /. Float.Array.get n2 j)
+                distance metric m1.storage.(i) m2.storage.(j)
+            end))
         (List.iter
           (fun (i, j, dist) ->
             Float.Array.set storage.(i) j dist;
@@ -713,13 +773,17 @@ include [@warning "-32"] (
       Base.multiply_matrix_vector ~threads ~elements_per_step ~verbose m.matrix v
     let multiply_matrix_matrix ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) which m1 m2 =
       { which; matrix = Base.multiply_matrix_matrix ~threads ~elements_per_step ~verbose m1.matrix m2.matrix }
-    let get_distance_matrix ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) distance metric m =
+    let get_distance_matrix ?(normalize = true) ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false)
+          distance metric m =
       { which = DMatrix;
-        matrix = Base.get_distance_matrix ~threads ~elements_per_step ~verbose distance metric m.matrix }
+        matrix = Base.get_distance_matrix ~normalize ~threads ~elements_per_step ~verbose distance metric m.matrix }
     (* Compute distances between the rows of two matrices - more general version of the previous one *)
-    let get_distance_rowwise ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) distance metric m1 m2 =
+    let get_distance_rowwise ?(normalize = true) ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false)
+          distance metric m1 m2 =
       { which = DMatrix;
-        matrix = Base.get_distance_rowwise ~threads ~elements_per_step ~verbose distance metric m1.matrix m2.matrix }
+        matrix =
+          Base.get_distance_rowwise ~normalize ~threads ~elements_per_step ~verbose
+            distance metric m1.matrix m2.matrix }
     exception Unexpected_type of Type.t * Type.t
     module FloatIntMultimap = Tools.Multimap (Tools.ComparableFloat) (Tools.ComparableInt)
     let summarize_distance
@@ -887,18 +951,18 @@ include [@warning "-32"] (
     val merge_rowwise: ?verbose:bool -> t -> t -> t
     val multiply_matrix_vector_single_threaded: ?verbose:bool -> t -> Float.Array.t -> Float.Array.t
     val multiply_matrix_sparse_vector_single_threaded: ?verbose:bool -> t -> Base.sparse_vector_t -> Float.Array.t
-    val multiply_matrix_vector:
-      ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> Float.Array.t -> Float.Array.t
+    val multiply_matrix_vector: ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
+                                t -> Float.Array.t -> Float.Array.t
     val multiply_matrix_matrix: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Type.t -> t -> t -> t
     (* Compute distances between the rows of a matrix *)
-    val get_distance_matrix:
-      ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Space.Distance.t -> Float.Array.t -> t -> t
+    val get_distance_matrix: ?normalize:bool -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
+                             Space.Distance.t -> Float.Array.t -> t -> t
     (* Compute distances between the rows of two matrices - more general version of the previous one *)
-    val get_distance_rowwise:
-      ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Space.Distance.t -> Float.Array.t -> t -> t -> t
+    val get_distance_rowwise: ?normalize:bool -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
+                              Space.Distance.t -> Float.Array.t -> t -> t -> t
     exception Unexpected_type of Type.t * Type.t
-    val summarize_distance:
-      ?keep_at_most:int option -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> string -> unit
+    val summarize_distance: ?keep_at_most:int option -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
+                            t -> string -> unit
     (* Binary marshalling of the matrix *)
     val to_channel: out_channel -> t -> unit
     exception Incompatible_archive_version of string * string

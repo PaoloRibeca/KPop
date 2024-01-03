@@ -308,6 +308,7 @@ type to_do_t =
   | Set_precision of int
   | Register_to_tables of RegisterType.t * string
   | Set_distance of Space.Distance.t
+  | Set_distance_normalize of bool
   | Set_metric of Space.Distance.Metric.t
   | Distances_from_twisted_binary of string
   | Set_keep_at_most of KeepAtMost.t
@@ -316,6 +317,7 @@ type to_do_t =
 module Defaults =
   struct
     let distance = Space.Distance.of_string "euclidean"
+    let distance_normalize = true
     let metric = Space.Distance.Metric.of_string "sigmoid(1,3,10,10)"
     let precision = 15
     let keep_at_most = Some 2
@@ -330,8 +332,8 @@ module Parameters =
 
 let info = {
   Tools.Info.name = "KPopTwistDB";
-  version = "21";
-  date = "02-Jan-2024"
+  version = "22";
+  date = "03-Jan-2024"
 } and authors = [
   "2022-2024", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
@@ -421,6 +423,11 @@ let () =
         "The parameter for Minkowski is the power" ],
       TA.Default (fun () -> Space.Distance.to_string Defaults.distance),
       (fun _ -> Set_distance (TA.get_parameter () |> Space.Distance.of_string) |> Tools.List.accum Parameters.program);
+    [ "--distance-normalize"; "--distance-normalization"; "--set-distance-normalize"; "--set-distance-normalization" ],
+      Some "'true'|'false'",
+      [ "set whether twisted vectors should be normalized prior to computing distances" ],
+      TA.Default (fun () -> string_of_bool Defaults.distance_normalize),
+      (fun _ -> Set_distance_normalize (TA.get_parameter_boolean ()) |> Tools.List.accum Parameters.program);
     [ "-m"; "--metric"; "--metric-function"; "--set-metric"; "--set-metric-function" ],
       Some "'flat'|'power('<non_negative_float>')'|'sigmoid('SIGMOID_PARAMETERS')'",
       [ "where SIGMOID_PARAMETERS :=";
@@ -520,6 +527,7 @@ let () =
   (* These are the registers available to the program *)
   let twister = ref Twister.empty and twisted = Matrix.empty Twisted |> ref
   and distance = ref Defaults.distance
+  and distance_normalize = ref Defaults.distance_normalize
   and metric = Space.Distance.Metric.compute Defaults.metric |> ref
   and distances = Matrix.empty DMatrix |> ref and precision = ref Defaults.precision
   and keep_at_most = ref Defaults.keep_at_most in
@@ -632,6 +640,8 @@ let () =
           } prefix
       | Set_distance dist ->
         distance := dist
+      | Set_distance_normalize norm ->
+        distance_normalize := norm
       | Set_metric metr ->
         metric := Space.Distance.Metric.compute metr
       | Distances_from_twisted_binary prefix ->
@@ -639,7 +649,7 @@ let () =
         if !twisted.which <> Twisted then
           Matrix.Unexpected_type (!twisted.which, Twisted) |> raise;
         distances :=
-          Matrix.get_distance_rowwise ~threads:!Parameters.threads ~verbose:!Parameters.verbose
+          Matrix.get_distance_rowwise ~normalize:!distance_normalize ~threads:!Parameters.threads ~verbose:!Parameters.verbose
             !distance (compute_metrics ()).storage.(0) !twisted twisted_db
       | Set_keep_at_most kam ->
         keep_at_most := kam
