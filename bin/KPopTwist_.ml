@@ -1,3 +1,18 @@
+(*
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*)
+
 open BiOCamLib
 
 module Parameters =
@@ -14,17 +29,17 @@ module Parameters =
     let verbose = ref false
   end
 
-let version = "0.16"
+let info = {
+  Tools.Info.name = "KPopTwist";
+  version = "17";
+  date = "02-Jan-2024"
+} and authors = [
+  "2022-2024", "Paolo Ribeca", "paolo.ribeca@gmail.com"
+]
 
-let header =
-  Printf.sprintf begin
-    "This is the KPopTwist program (version %s)\n%!" ^^
-    " (c) 2022-2023 Paolo Ribeca, <paolo.ribeca@gmail.com>\n%!"
-  end version
-
-let _ =
+let () =
   let module TA = Tools.Argv in
-  TA.set_header header;
+  TA.make_header info authors [ BiOCamLib.Info.info; KPop.Info.info ] |> TA.set_header;
   TA.set_synopsis "-i|--input <input_table_prefix> [OPTIONS]";
   TA.parse [
     TA.make_separator "Algorithmic parameters";
@@ -79,6 +94,11 @@ let _ =
       [ "set verbose execution" ],
       TA.Default (fun () -> string_of_bool !Parameters.verbose),
       (fun _ -> Parameters.verbose := true);
+    [ "-V"; "--version" ],
+      None,
+      [ "print version and exit" ],
+      TA.Optional,
+      (fun _ -> Printf.printf "%s\n%!" info.version; exit 0);
     (* Hidden option to emit help in markdown format *)
     [ "--markdown" ], None, [], TA.Optional, (fun _ -> TA.markdown (); exit 0);
     [ "-h"; "--help" ],

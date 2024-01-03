@@ -328,17 +328,17 @@ module Parameters =
     let verbose = ref false
   end
 
-let version = "0.20"
+let info = {
+  Tools.Info.name = "KPopTwistDB";
+  version = "21";
+  date = "02-Jan-2024"
+} and authors = [
+  "2022-2024", "Paolo Ribeca", "paolo.ribeca@gmail.com"
+]
 
-let header =
-  Printf.sprintf begin
-    "This is the KPopTwistDB program (version %s)\n%!" ^^
-    " (c) 2022-2023 Paolo Ribeca, <paolo.ribeca@gmail.com>\n%!"
-  end version
-
-let _ =
+let () =
   let module TA = Tools.Argv in
-  TA.set_header header;
+  TA.make_header info authors [ BiOCamLib.Info.info; KPop.Info.info ] |> TA.set_header;
   TA.set_synopsis "[ACTIONS]";
   TA.parse [
     TA.make_separator_multiline [ "Actions."; "They are executed delayed and in order of specification." ];
@@ -497,6 +497,11 @@ let _ =
       [ "set verbose execution" ],
       TA.Default (fun () -> string_of_bool !Parameters.verbose),
       (fun _ -> Parameters.verbose := true);
+    [ "-V"; "--version" ],
+      None,
+      [ "print version and exit" ],
+      TA.Optional,
+      (fun _ -> Printf.printf "%s\n%!" info.version; exit 0);
     (* Hidden option to emit help in markdown format *)
     [ "--markdown" ], None, [], TA.Optional, (fun _ -> TA.markdown (); exit 0);
     [ "-h"; "--help" ],
