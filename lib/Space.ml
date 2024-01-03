@@ -33,16 +33,20 @@ module Distance:
         val to_string: t -> string
       end
     type t (* We hide the type to implement constraints *)
-    exception Invalid_dimension of int
-    val compute_component: t -> Float.Array.t -> int -> float -> float
-    val compute_components: t -> Float.Array.t -> Float.Array.t -> Float.Array.t -> float
-    exception Incompatible_lengths of int * int * int
-    (* What happens when the vectors have incompatible lengths *)
+    (* Arguments are distance function, metric, a, b.
+       Rather than having a hardcoded difference function between a and b,
+        we parameterise the computation with an arbitrary combinator function,
+        which allows, for instance, to implement normalised differences *)
+    val compute_unscaled_component: ?combinator:(float -> float -> float) -> t -> float -> float -> float -> float
+    exception Incompatible_vector_lengths of int * int * int
+    (* What happens when argument vectors have incompatible lengths *)
     type mode_t =
       | Fail
       | Infinity
     val set_mode: mode_t -> unit
-    val compute: t -> Float.Array.t -> Float.Array.t -> Float.Array.t -> float
+    val compute_unscaled: ?combinator:(float -> float -> float) ->
+                          t -> Float.Array.t -> Float.Array.t -> Float.Array.t -> float
+    val compute: ?combinator:(float -> float -> float) -> t -> Float.Array.t -> Float.Array.t -> Float.Array.t -> float
     exception Unknown_distance of string
     exception Negative_power of float
     val of_string: string -> t
@@ -52,7 +56,7 @@ module Distance:
         type distance_t = t
         type t (* Mutable *)
         val range: t -> float * float
-        val make: ?max_distance_component:float -> distance_t -> Float.Array.t -> int -> (int -> float) -> int -> t
+        val make: ?max_distance_component:float -> distance_t -> float -> (int -> float) -> int -> t
         (* Returns indices and 1D-component of the distance *)
         val get_opt: t -> (int * int * float) option
         val incr: ?max_distance_component:float -> t -> unit (* The operator is mutable *)
@@ -60,6 +64,7 @@ module Distance:
       end
   end
 = struct
+    (* Metric *)
     module Metric =
       struct
         type t =
@@ -188,57 +193,52 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
           | Sigmoid (power, thresh, l_tight, r_tight) ->
             Printf.sprintf "sigmoid(%.15g,%.15g,%.15g,%.15g)" power thresh l_tight r_tight
       end
+    (* Distance *)
     type t =
       | Euclidean
       | Minkowski of float (* Theoretically speaking, the parameter should be an integer *)
-    exception Incompatible_lengths of int * int * int
+    exception Incompatible_vector_lengths of int * int * int
     type mode_t =
       | Fail
       | Infinity
     let mode = ref Fail
     let set_mode new_mode = mode := new_mode
-    let _compute_ ~compute_components f m a b =
+    let compute_norm_unscaled_component f metr diff =
+      match f with
+      | Euclidean ->
+        diff *. diff *. metr
+      | Minkowski power ->
+        ((abs_float diff) ** power) *. metr
+    let compute_unscaled_component ?(combinator = (-.)) f m a b =
+      compute_norm_unscaled_component f m (combinator a b)
+    let compute_unscaled ?(combinator = (-.)) f m a b =
       let length_a = Float.Array.length a and length_m = Float.Array.length m and length_b = Float.Array.length b in
       if length_a <> length_m || length_m <> length_b then begin
         match !mode with
-        | Fail -> Incompatible_lengths (length_a, length_m, length_b) |> raise
+        | Fail -> Incompatible_vector_lengths (length_a, length_m, length_b) |> raise
         | Infinity -> infinity
       end else
-        match f with
-        | Euclidean ->
-          let acc = ref 0. in
-          Float.Array.iteri
+        (* We could define everything in terms of compute_unscaled_component,
+            but we rewrite things in order to optimise the switch out of the cycle *)
+        let acc = ref 0. in
+        Float.Array.iteri begin
+          match f with
+          | Euclidean ->
             (fun i el_a ->
-              let diff = el_a -. Float.Array.get b i in
+              let diff = Float.Array.get b i |> combinator el_a in
               acc := !acc +. (diff *. diff *. Float.Array.get m i))
-            a;
-          if compute_components then
-            !acc
-          else
-            sqrt !acc
-        | Minkowski power ->
-          let acc = ref 0. in
-          Float.Array.iteri
+          | Minkowski power ->
             (fun i el_a ->
-              let diff = el_a -. Float.Array.get b i |> abs_float in
+              let diff = Float.Array.get b i |> combinator el_a |> abs_float in
               acc := !acc +. ((diff ** power) *. Float.Array.get m i))
-            a;
-          if compute_components then
-            !acc
-          else
-            !acc ** (1. /. power)
-    let compute = _compute_ ~compute_components:false
-    let compute_components = _compute_ ~compute_components:true
-    exception Invalid_dimension of int
-    let compute_component f m dim diff =
-      let length_m = Float.Array.length m in
-      if dim >= length_m then
-        Invalid_dimension dim |> raise;
+        end a;
+        !acc
+    let compute ?(combinator = (-.)) f m a b =
       match f with
       | Euclidean ->
-        diff *. diff *. Float.Array.get m dim
+        compute_unscaled ~combinator f m a b |> sqrt
       | Minkowski power ->
-        (diff ** power) *. Float.Array.get m dim
+        (compute_unscaled ~combinator f m a b) ** (1. /. power)
     exception Unknown_distance of string
     exception Negative_power of float
     let of_string_re = Str.regexp "[()]"
@@ -266,7 +266,7 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
         module FloatIntMultimap = Tools.Multimap (Tools.ComparableFloat) (Tools.ComparableInt)
         type distance_t = t
         type t = {
-          (* Function of the _difference_ between components *)
+          (* Function of the _difference_ between components of the same vector *)
           compute_distance_component: float -> float;
           n: int;
           sorted: FloatIntMultimap.t;
@@ -436,13 +436,13 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
           with Exit ->
             (* If that has not worked, we proceed to the next valid interval within the same stride, if any *)
             get_minimum_opt ~max_distance_component dist sorted stride diff
-        let make ?(max_distance_component = infinity) dist metr d init n =
+        let make ?(max_distance_component = infinity) dist metr init n =
           let sorted = ref FloatIntMultimap.empty in
           for i = 0 to n - 1 do
             sorted := FloatIntMultimap.add (init i) i !sorted
           done;
           let res = {
-            compute_distance_component = compute_component dist metr d;
+            compute_distance_component = compute_norm_unscaled_component dist metr;
             n;
             sorted = !sorted;
             state = Tools.IntMap.empty
@@ -519,21 +519,4 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
           end
     end
   end
-
-(*
-(* Some test *)
-let () =
-  let distance = Distance.of_string "minkowski(1)"
-  and init = [| 0.1; 0.1; 0.2; 0.2; 0.2; 0.7; 0.5; 0.99; 0.999; 0.05; 0.4; 0.05 |] in
-  let len = Array.length init in
-  let it = Distance.Iterator.make ~max_distance_component:0.3 distance (Float.Array.make len 1.) 1 (fun i -> init.(i)) len in
-  let res = Distance.Iterator.get_opt it |> ref in
-  while !res <> None do
-    let idx_lo, idx_hi, comp = Tools.Option.unbox !res in
-    Printf.printf "(%d, %d): %.15g\n" idx_lo idx_hi comp;
-    Distance.Iterator.output_summary it;
-    Distance.Iterator.incr ~max_distance_component:0.3 it;
-    res := Distance.Iterator.get_opt it
-  done
-*)
 
