@@ -15,19 +15,6 @@
 
 open BiOCamLib
 
-module Misc =
-  struct
-    let _resize_array_ length make blit a idx =
-      let l = length a and aug_idx = idx + 1 in
-      if l < aug_idx then begin
-        let res = make (max aug_idx (l * 14 / 10)) in
-        blit a 0 res 0 l;
-        res
-      end else
-        a
-    let resize_array make = _resize_array_ Array.length make Array.blit
-  end
-
 (* General matrix class *)
 module Base:
   sig
@@ -216,14 +203,14 @@ module Base:
               Tools.List.accum storage numbers;
               let new_elts_read = !elts_read + num_cols in
               if verbose && new_elts_read / 100000 > !elts_read / 100000 then
-                Printf.eprintf "\r(%s): On line %d of file '%s': Read %d elements%!            \r"
-                  __FUNCTION__ !line_num filename !elts_read;
+                Printf.eprintf "%s\r(%s): On line %d of file '%s': Read %d elements%!"
+                  Tools.String.TermIO.clear __FUNCTION__ !line_num filename !elts_read;
               elts_read := new_elts_read))
           threads;
         close_in input;
         if verbose then
-          Printf.eprintf "\r(%s): On line %d of file '%s': Read %d elements.            \n%!"
-            __FUNCTION__ !line_num filename !elts_read
+          Printf.eprintf "%s\r(%s): On line %d of file '%s': Read %d elements.\n%!"
+            Tools.String.TermIO.clear __FUNCTION__ !line_num filename !elts_read
       with End_of_file ->
         (* Empty file *)
         close_in input
@@ -273,10 +260,10 @@ module Base:
             storage.(i) <- row_i;
             incr elts_done;
             if verbose && !elts_done mod elements_per_step = 0 then
-              Printf.eprintf "\r(%s): Done %d/%d rows%!            \r" __FUNCTION__ !elts_done row_num))
+              Printf.eprintf "%s\r(%s): Done %d/%d rows%!" Tools.String.TermIO.clear __FUNCTION__ !elts_done row_num))
         threads;
       if verbose then
-        Printf.eprintf "\r(%s): Done %d/%d rows.            \n%!" __FUNCTION__ !elts_done row_num;
+        Printf.eprintf "%s\r(%s): Done %d/%d rows.\n%!" Tools.String.TermIO.clear __FUNCTION__ !elts_done row_num;
       { idx_to_col_names = m.idx_to_row_names;
         idx_to_row_names = m.idx_to_col_names;
         storage = storage }
@@ -336,10 +323,10 @@ module Base:
           Float.Array.set res i !acc;
           incr elts_done;
           if verbose && !elts_done mod 100 = 0 then
-            Printf.eprintf "\r(%s): Done %d/%d elements%!            \r" __FUNCTION__ !elts_done d)
+            Printf.eprintf "%s\r(%s): Done %d/%d elements%!" Tools.String.TermIO.clear __FUNCTION__ !elts_done d)
         m.storage;
       if verbose then
-        Printf.eprintf "\r(%s): Done %d/%d elements.            \n%!" __FUNCTION__ !elts_done d;
+        Printf.eprintf "%s\r(%s): Done %d/%d elements.\n%!" Tools.String.TermIO.clear __FUNCTION__ !elts_done d;
       res
     type sparse_vector_t = {
       length: int;
@@ -362,10 +349,10 @@ module Base:
           Float.Array.set res i !acc;
           incr elts_done;
           if verbose && !elts_done mod 100 = 0 then
-            Printf.eprintf "\r(%s): Done %d/%d elements%!            \r" __FUNCTION__ !elts_done d)
+            Printf.eprintf "%s\r(%s): Done %d/%d elements%!" Tools.String.TermIO.clear __FUNCTION__ !elts_done d)
         m.storage;
       if verbose then
-        Printf.eprintf "\r(%s): Done %d/%d elements.            \n%!" __FUNCTION__ !elts_done d;
+        Printf.eprintf "%s\r(%s): Done %d/%d elements.\n%!" Tools.String.TermIO.clear __FUNCTION__ !elts_done d;
       res
     let multiply_matrix_vector ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) m v =
       if Array.length m.idx_to_col_names <> Float.Array.length v then
@@ -408,10 +395,10 @@ module Base:
             Float.Array.set res i el;
             incr elts_done;
             if verbose && !elts_done mod elements_per_step = 0 then
-              Printf.eprintf "\r(%s): Done %d/%d elements%!            \r" __FUNCTION__ !elts_done d))
+              Printf.eprintf "%s\r(%s): Done %d/%d elements%!" Tools.String.TermIO.clear __FUNCTION__ !elts_done d))
         threads;
       if verbose then
-        Printf.eprintf "\r(%s): Done %d/%d elements.            \n%!" __FUNCTION__ !elts_done d;
+        Printf.eprintf "%s\r(%s): Done %d/%d elements.\n%!" Tools.String.TermIO.clear __FUNCTION__ !elts_done d;
       res
     let multiply_matrix_matrix ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) m1 m2 =
       if m1.idx_to_col_names <> m2.idx_to_row_names then
@@ -461,10 +448,10 @@ module Base:
             Float.Array.set storage.(i) j el;
             incr elts_done;
             if verbose && !elts_done mod elements_per_step = 0 then
-              Printf.eprintf "\r(%s): Done %d/%d elements%!            \r" __FUNCTION__ !elts_done prod))
+              Printf.eprintf "%s\r(%s): Done %d/%d elements%!" Tools.String.TermIO.clear __FUNCTION__ !elts_done prod))
         threads;
       if verbose then
-        Printf.eprintf "\r(%s): Done %d/%d elements.            \n%!" __FUNCTION__ !elts_done prod;
+        Printf.eprintf "%s\r(%s): Done %d/%d elements.\n%!" Tools.String.TermIO.clear __FUNCTION__ !elts_done prod;
       { idx_to_col_names = m2.idx_to_col_names;
         idx_to_row_names = m1.idx_to_row_names;
         storage = storage }
@@ -512,10 +499,11 @@ module Base:
             Float.Array.set storage.(j) i dist;
             incr elts_done;
             if verbose && !elts_done mod elements_per_step = 0 then
-              Printf.eprintf "\r(%s): Done %d/%d elements%!            \r" __FUNCTION__ !elts_done total))
+              Printf.eprintf "%s\r(%s): Done %d/%d elements%!"
+                Tools.String.TermIO.clear __FUNCTION__ !elts_done total))
         threads;
       if verbose then
-        Printf.eprintf "\r(%s): Done %d/%d elements.            \n%!" __FUNCTION__ !elts_done total;
+        Printf.eprintf "%s\r(%s): Done %d/%d elements.\n%!" Tools.String.TermIO.clear __FUNCTION__ !elts_done total;
       { idx_to_col_names = m.idx_to_row_names;
         idx_to_row_names = m.idx_to_row_names;
         storage = storage }
@@ -562,12 +550,14 @@ module Base:
             Float.Array.set storage.(i) j dist;
             incr elts_done;
             if verbose && !elts_done mod elements_per_step = 0 then
-              Printf.eprintf "\r(%s): Done %d/%d elements=%.3g%%%!            \r"
-                __FUNCTION__ !elts_done prod (100. *. float_of_int !elts_done /. float_of_int prod)))
+              Printf.eprintf "%s\r(%s): Done %d/%d elements=%.3g%%%!"
+                Tools.String.TermIO.clear __FUNCTION__
+                !elts_done prod (100. *. float_of_int !elts_done /. float_of_int prod)))
         threads;
       if verbose then
-        Printf.eprintf "\r(%s): Done %d/%d elements=%.3g%%.            \n%!"
-          __FUNCTION__ !elts_done prod (100. *. float_of_int !elts_done /. float_of_int prod);
+        Printf.eprintf "%s\r(%s): Done %d/%d elements=%.3g%%.\n%!"
+          Tools.String.TermIO.clear __FUNCTION__
+          !elts_done prod (100. *. float_of_int !elts_done /. float_of_int prod);
       { idx_to_col_names = m2.idx_to_row_names;
         idx_to_row_names = m1.idx_to_row_names;
         storage = storage }
