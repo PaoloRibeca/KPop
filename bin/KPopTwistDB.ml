@@ -332,7 +332,7 @@ module Parameters =
 
 let info = {
   Tools.Info.name = "KPopTwistDB";
-  version = "22";
+  version = "23";
   date = "03-Jan-2024"
 } and authors = [
   "2022-2024", "Paolo Ribeca", "paolo.ribeca@gmail.com"
@@ -418,9 +418,10 @@ let () =
         Add_kmer_files_to_twisted
           (TA.get_parameter () |> Tools.Split.on_char_as_list ',') |> Tools.List.accum Parameters.program);
     [ "--distance"; "--distance-function"; "--set-distance"; "--set-distance-function" ],
-      Some "'euclidean'|'minkowski(<non_negative_float>)'",
+      Some "'euclidean'|'cosine'|'minkowski(<non_negative_float>)'",
       [ "set the function to be used when computing distances.";
-        "The parameter for Minkowski is the power" ],
+        "The parameter for Minkowski is the power.";
+        "Euclidean is the same as Minkowski(2); Cosine is the same as (Euclidean^2)/2" ],
       TA.Default (fun () -> Space.Distance.to_string Defaults.distance),
       (fun _ -> Set_distance (TA.get_parameter () |> Space.Distance.of_string) |> Tools.List.accum Parameters.program);
     [ "--distance-normalize"; "--distance-normalization"; "--set-distance-normalize"; "--set-distance-normalization" ],

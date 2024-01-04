@@ -197,6 +197,7 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
     (* Distance *)
     type t =
       | Euclidean
+      | Cosine (* Same as Euclidean^2 / 2 *)
       | Minkowski of float (* Theoretically speaking, the parameter should be an integer *)
     exception Incompatible_vector_lengths of int * int * int
     type mode_t =
@@ -206,7 +207,7 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
     let set_mode new_mode = mode := new_mode
     let compute_norm_unscaled_component f metr diff =
       match f with
-      | Euclidean ->
+      | Euclidean | Cosine ->
         diff *. diff *. metr
       | Minkowski power ->
         ((abs_float diff) ** power) *. metr
@@ -216,6 +217,8 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
     let scale = function
       | Euclidean ->
         sqrt
+      | Cosine ->
+        fun x -> x /. 2.
       | Minkowski power ->
         fun x -> x ** (1. /. power)
     let compute_norm_unscaled f m v =
@@ -224,7 +227,7 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
       let acc = ref 0. in
       Float.Array.iteri begin
         match f with
-        | Euclidean ->
+        | Euclidean | Cosine ->
           (fun i el ->
             acc := !acc +. (el *. el *. Float.Array.get m i))
         | Minkowski power ->
@@ -246,7 +249,7 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
         let acc = ref 0. in
         Float.Array.iteri begin
           match f with
-          | Euclidean ->
+          | Euclidean | Cosine ->
             (fun i el_a ->
               let diff = adaptor_a el_a -. (Float.Array.get b i |> adaptor_b) in
               acc := !acc +. (diff *. diff *. Float.Array.get m i))
@@ -264,6 +267,8 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
     let of_string = function
       | "euclidean" ->
         Euclidean
+      | "cosine" ->
+        Cosine
       | s ->
         match Str.full_split of_string_re s with
         | [ Text "minkowski"; Delim "("; Text power; Delim ")" ] ->
@@ -279,6 +284,7 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
           Unknown_distance s |> raise
     let to_string = function
       | Euclidean -> "euclidean"
+      | Cosine -> "cosine"
       | Minkowski power -> Printf.sprintf "minkowski(%.15g)" power
     module Iterator =
       struct

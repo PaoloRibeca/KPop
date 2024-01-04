@@ -161,23 +161,22 @@ module Base:
         Processes.Parallel.process_stream_chunkwise
           (fun () ->
             if !end_reached then
-              raise End_of_file
-            else begin
-              let res = ref [] and cntr = ref 0 in
-              begin try
-                while !cntr < bytes_per_step do
-                  let line = input_line input in
-                  incr line_num;
-                  Tools.List.accum res (!line_num, line);
-                  cntr := !cntr + String.length line
-                done
-              with End_of_file ->
-                end_reached := true;
-                if !res = [] then
-                  raise End_of_file
-              end;
-              List.rev !res
-            end)
+              raise End_of_file;
+            let res = ref [] in
+            begin try
+              let cntr = ref 0 in
+              while !cntr < bytes_per_step do
+                let line = input_line input in
+                incr line_num;
+                Tools.List.accum res (!line_num, line);
+                cntr := !cntr + String.length line
+              done
+            with End_of_file ->
+              end_reached := true;
+              if !res = [] then
+                raise End_of_file
+            end;
+            List.rev !res)
           (List.map
             (fun (line_num, line) ->
               (* We decorate the line number with the results of parsing the line *)
@@ -233,23 +232,22 @@ module Base:
       Processes.Parallel.process_stream_chunkwise
         (fun () ->
           if !end_reached then
-            raise End_of_file
-          else begin
-            let res = ref [] and cntr = ref 0 in
-            begin try
-              while !cntr < elements_per_step do
-                Tools.List.accum res !i;
-                incr i;
-                if !i = row_num then begin (* The original columns *)
-                  end_reached := true;
-                  raise Exit
-                end;
-                incr cntr
-              done
-            with Exit -> ()
-            end;
-            List.rev !res
-          end)
+            raise End_of_file;
+          let res = ref [] in
+          begin try
+            let cntr = ref 0 in
+            while !cntr < elements_per_step do
+              Tools.List.accum res !i;
+              incr i;
+              if !i = row_num then begin (* The original columns *)
+                end_reached := true;
+                raise Exit
+              end;
+              incr cntr
+            done
+          with Exit -> ()
+          end;
+          List.rev !res)
         (List.map
           (* The new row is the original column *)
           (fun i ->
@@ -362,23 +360,22 @@ module Base:
       Processes.Parallel.process_stream_chunkwise
         (fun () ->
           if !end_reached then
-            raise End_of_file
-          else begin
-            let res = ref [] and cntr = ref 0 in
-            begin try
-              while !cntr < elements_per_step do
-                Tools.List.accum res !i;
-                incr i;
-                if !i = d then begin
-                  end_reached := true;
-                  raise Exit
-                end;
-                incr cntr
-              done
-            with Exit -> ()
-            end;
-            List.rev !res
-          end)
+            raise End_of_file;
+          let res = ref [] in
+          begin try
+            let cntr = ref 0 in
+            while !cntr < elements_per_step do
+              Tools.List.accum res !i;
+              incr i;
+              if !i = d then begin
+                end_reached := true;
+                raise Exit
+              end;
+              incr cntr
+            done
+          with Exit -> ()
+          end;
+          List.rev !res)
         (List.map
           (* We decorate each vector element coordinate with the respective value *)
           (fun i ->
@@ -411,27 +408,26 @@ module Base:
       Processes.Parallel.process_stream_chunkwise
         (fun () ->
           if !end_reached then
-            raise End_of_file
-          else begin
-            let res = ref [] and cntr = ref 0 in
-            begin try
-              while !cntr < elements_per_step do
-                Tools.List.accum res (!i, !j);
-                incr j;
-                if !j = col_num then begin
-                  incr i;
-                  if !i = row_num then begin
-                    end_reached := true;
-                    raise Exit
-                  end;
-                  j := 0
+            raise End_of_file;
+          let res = ref [] in
+          begin try
+            let cntr = ref 0 in
+            while !cntr < elements_per_step do
+              Tools.List.accum res (!i, !j);
+              incr j;
+              if !j = col_num then begin
+                incr i;
+                if !i = row_num then begin
+                  end_reached := true;
+                  raise Exit
                 end;
-                incr cntr
-              done
-            with Exit -> ()
-            end;
-            List.rev !res
-          end)
+                j := 0
+              end;
+              incr cntr
+            done
+          with Exit -> ()
+          end;
+          List.rev !res)
         (List.map
           (* We decorate each matrix element coordinate with the respective value *)
           (fun (i, j) ->
@@ -463,23 +459,22 @@ module Base:
       Processes.Parallel.process_stream_chunkwise
         (fun () ->
           if !end_reached then
-            raise End_of_file
-          else begin
-            let res = ref [] and cntr = ref 0 in
-            begin try
-              while !cntr < elements_per_step do
-                Tools.List.accum res !i;
-                incr i;
-                if !i = row_num then begin (* The original columns *)
-                  end_reached := true;
-                  raise Exit
-                end;
-                incr cntr
-              done
-            with Exit -> ()
-            end;
-            List.rev !res
-          end)
+            raise End_of_file;
+          let res = ref [] in
+          begin try
+            let cntr = ref 0 in
+            while !cntr < elements_per_step do
+              Tools.List.accum res !i;
+              incr i;
+              if !i = row_num then begin
+                end_reached := true;
+                raise Exit
+              end;
+              incr cntr
+            done
+          with Exit -> ()
+          end;
+          List.rev !res)
         (List.map
           (fun i ->
             i, Space.Distance.compute_norm distance metric m.storage.(i)))
@@ -510,28 +505,27 @@ module Base:
       Processes.Parallel.process_stream_chunkwise
         (fun () ->
           if !end_reached then
-            raise End_of_file
-          else begin
-            (* We only compute 1/2 of the matrix, and symmetrise it at the end of the computation *)
-            let res = ref [] and cntr = ref 0 in
-            begin try
-              while !cntr < elements_per_step do
-                Tools.List.accum res (!i, !j);
-                incr j;
-                if !j > !i then begin
-                  incr i;
-                  if !i = d then begin
-                    end_reached := true;
-                    raise Exit
-                  end;
-                  j := 0
+            raise End_of_file;
+          (* We only compute 1/2 of the matrix, and symmetrise it at the end of the computation *)
+          let res = ref [] in
+          begin try
+            let cntr = ref 0 in
+            while !cntr < elements_per_step do
+              Tools.List.accum res (!i, !j);
+              incr j;
+              if !j > !i then begin
+                incr i;
+                if !i = d then begin
+                  end_reached := true;
+                  raise Exit
                 end;
-                incr cntr
-              done
-            with Exit -> ()
-            end;
-            List.rev !res
-          end)
+                j := 0
+              end;
+              incr cntr
+            done
+          with Exit -> ()
+          end;
+          List.rev !res)
         (List.map
           (* We decorate each matrix element coordinate with the respective distance *)
           (fun (i, j) ->
@@ -568,6 +562,18 @@ module Base:
           get_normalizations ~threads ~elements_per_step ~verbose distance metric m2
         else
           Float.Array.make r1 1., Float.Array.make r2 1. in
+      (*
+      to_file (transpose {
+        idx_to_col_names = m1.idx_to_row_names;
+        idx_to_row_names = [| "Normalizations" |];
+        storage = [| n1 |]
+      }) "N1.txt";
+      to_file (transpose {
+        idx_to_col_names = m2.idx_to_row_names;
+        idx_to_row_names = [| "Normalizations" |];
+        storage = [| n2 |]
+      }) "N2.txt";
+      *)
       (* We immediately allocate all the needed memory, as we already know how much we will need *)
       let storage = Array.init r1 (fun _ -> Float.Array.create r2) in
       (* Generate points to be computed by the parallel processs *)
@@ -576,27 +582,26 @@ module Base:
       Processes.Parallel.process_stream_chunkwise
         (fun () ->
           if !end_reached then
-            raise End_of_file
-          else begin
-            let res = ref [] and cntr = ref 0 in
-            begin try
-              while !cntr < elements_per_step do
-                Tools.List.accum res (!i, !j);
-                incr j;
-                if !j = r2 then begin
-                  incr i;
-                  if !i = r1 then begin
-                    end_reached := true;
-                    raise Exit
-                  end;
-                  j := 0
+            raise End_of_file;
+          let res = ref [] in
+          begin try
+            let cntr = ref 0 in
+            while !cntr < elements_per_step do
+              Tools.List.accum res (!i, !j);
+              incr j;
+              if !j = r2 then begin
+                incr i;
+                if !i = r1 then begin
+                  end_reached := true;
+                  raise Exit
                 end;
-                incr cntr
-              done
-            with Exit -> ()
-            end;
-            List.rev !res
-          end)
+                j := 0
+              end;
+              incr cntr
+            done
+          with Exit -> ()
+          end;
+          List.rev !res)
         (List.map
           (* We decorate each matrix element coordinate with the respective distance *)
           (fun (i, j) ->
@@ -881,12 +886,12 @@ include [@warning "-32"] (
           let old_processed_rows = !processed_rows in
           processed_rows := !processed_rows + n_processed;
           if verbose && !processed_rows / 10000 > old_processed_rows / 10000 then
-            Printf.eprintf "\r(%s): Writing distance digest to file '%s': done %d/%d lines%!"
-              __FUNCTION__ fname !processed_rows n_rows)
+            Printf.eprintf "%s\r(%s): Writing distance digest to file '%s': done %d/%d lines%!"
+              Tools.String.TermIO.clear __FUNCTION__ fname !processed_rows n_rows)
         threads;
       if verbose then
-        Printf.eprintf "\r(%s): Writing distance digest to file '%s': done %d/%d lines.\n%!"
-          __FUNCTION__ fname n_rows n_rows;
+        Printf.eprintf "%s\r(%s): Writing distance digest to file '%s': done %d/%d lines.\n%!"
+          Tools.String.TermIO.clear __FUNCTION__ fname n_rows n_rows;
       close_out output
     (* *)
     let archive_version = "2022-04-03"
