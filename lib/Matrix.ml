@@ -36,6 +36,9 @@ module Base:
     val to_file: ?precision:int -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> string -> unit
     val transpose_single_threaded: ?verbose:bool -> t -> t
     val transpose: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> t
+    (* Compute row normalisations *)
+    val get_normalizations: ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
+                            Space.Distance.t -> Float.Array.t -> t -> Float.Array.t
     exception Incompatible_geometries of string array * string array
     exception Duplicate_label of string
     val merge_rowwise: ?verbose:bool -> t -> t -> t
@@ -612,7 +615,7 @@ module Base:
             end))
         (List.iter
           (fun (i, j, dist) ->
-            Float.Array.set storage.(i) j dist;
+            Float.Array.set storage.(j) i dist;
             incr elts_done;
             if verbose && !elts_done mod elements_per_step = 0 then
               Printf.eprintf "%s\r(%s): Done %d/%d elements=%.3g%%%!"
@@ -623,8 +626,8 @@ module Base:
         Printf.eprintf "%s\r(%s): Done %d/%d elements=%.3g%%.\n%!"
           Tools.String.TermIO.clear __FUNCTION__
           !elts_done prod (100. *. float_of_int !elts_done /. float_of_int prod);
-      { idx_to_col_names = m2.idx_to_row_names;
-        idx_to_row_names = m1.idx_to_row_names;
+      { idx_to_col_names = m1.idx_to_row_names;
+        idx_to_row_names = m2.idx_to_row_names;
         storage = storage }
     module NearestNeighbor =
       struct
@@ -789,82 +792,143 @@ include [@warning "-32"] (
         matrix =
           Base.get_distance_rowwise ~normalize ~threads ~elements_per_step ~verbose
             distance metric m1.matrix m2.matrix }
-    exception Unexpected_type of Type.t * Type.t
     module FloatIntMultimap = Tools.Multimap (Tools.ComparableFloat) (Tools.ComparableInt)
-    let summarize_distance
-        ?(keep_at_most = Some 2) ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) m prefix =
+    let summarize_distance_matrix_row req_len row_name row col_names buf =
+      let n_cols = Float.Array.length row in
+      let f_n_cols = float_of_int n_cols and distr = ref FloatIntMultimap.empty in
+      (* We find the median and filter the result *)
+      Float.Array.iteri
+        (fun col_idx dist ->
+          distr := FloatIntMultimap.add dist col_idx !distr)
+        row;
+      let eff_len = ref 0 and median_pos = n_cols / 2 |> ref and median = ref 0. and acc = ref 0. in
+      FloatIntMultimap.iter_set
+        (fun dist set ->
+          let set_len = FloatIntMultimap.ValSet.cardinal set in
+          acc := !acc +. (float_of_int set_len *. dist);
+          if !median_pos >= 0 && !median_pos - set_len < 0 then
+            median := dist;
+          median_pos := !median_pos - set_len;
+          if !eff_len < req_len then
+            eff_len := !eff_len + set_len)
+        !distr;
+      let eff_len = !eff_len and median = !median and mean =
+        if n_cols > 0 then
+          !acc /. f_n_cols
+        else
+          0. in
+      (* We compute standard deviation e MAD *)
+      acc := 0.;
+      let ddistr = ref Tools.FloatMap.empty in
+      Float.Array.iteri
+        (fun _ dist ->
+          let d = dist -. mean in
+          acc := !acc +. (d *. d);
+          let d = (dist -. median) |> abs_float in
+          ddistr :=
+            match Tools.FloatMap.find_opt d !ddistr with
+            | None ->
+              Tools.FloatMap.add d 1 !ddistr
+            | Some n ->
+              Tools.FloatMap.add d (n + 1) !ddistr)
+        row;
+      median_pos := n_cols / 2;
+      let mad = ref 0. in
+      Tools.FloatMap.iter
+        (fun d occs ->
+          if !median_pos >= 0 && !median_pos - occs < 0 then
+            mad := d;
+          median_pos := !median_pos - occs)
+        !ddistr;
+      let mad = !mad and stddev =
+        if n_cols > 1 then
+          !acc /. (f_n_cols -. 1.) |> sqrt
+        else
+          0. in
+      Printf.bprintf buf "\"%s\"\t%.15g\t%.15g\t%.15g\t%.15g" row_name mean stddev median mad;
+      FloatIntMultimap.iteri
+        (fun i dist col_idx ->
+          if i < eff_len then
+            Printf.bprintf buf "\t\"%s\"\t%.15g\t%.15g" col_names.(col_idx) dist ((dist -. mean) /. stddev))
+        !distr;
+      Printf.bprintf buf "\n"
+    exception Unexpected_type of Type.t * Type.t
+    let summarize_rowwise ?(normalize = true) ?(keep_at_most = Some 2) ?(threads = 1) ?(elements_per_step = 10) ?(verbose = false)
+          distance metric m1 m2 prefix =
+      if m1.which <> Twisted then
+        Unexpected_type (m1.which, Twisted) |> raise;
+      if m2.which <> Twisted then
+        Unexpected_type (m2.which, Twisted) |> raise;
+      if m1.matrix.idx_to_col_names <> m2.matrix.idx_to_col_names then
+        Base.Incompatible_geometries (m1.matrix.idx_to_col_names, m2.matrix.idx_to_col_names) |> raise;
+      let r1 = Array.length m1.matrix.idx_to_row_names and r2 = Array.length m2.matrix.idx_to_row_names in
+      (* We compute normalisations *)
+      let n1, n2 =
+        if normalize then
+          Base.get_normalizations ~threads ~elements_per_step ~verbose distance metric m1.matrix,
+          Base.get_normalizations ~threads ~elements_per_step ~verbose distance metric m2.matrix
+        else
+          Float.Array.make r1 1., Float.Array.make r2 1. in
+      let fname = make_filename_summary prefix in
+      let output = open_out fname
+      and n_cols = Array.length m1.matrix.idx_to_col_names in
+      let req_len =
+        match keep_at_most with
+        | None -> n_cols
+        | Some at_most -> at_most in
+      (* Parallel section *)
+      let processed_rows = ref 0 and buf = Buffer.create 1048576 in
+      Processes.Parallel.process_stream_chunkwise
+        (fun () ->
+          if !processed_rows < r2 then
+            let to_do = max 1 (elements_per_step / n_cols) |> min (r2 - !processed_rows) in
+            let new_processed_rows = !processed_rows + to_do in
+            let res = !processed_rows, new_processed_rows - 1 in
+            processed_rows := new_processed_rows;
+            res
+          else
+            raise End_of_file)
+        (fun (lo_row, hi_row) ->
+          Buffer.clear buf;
+          for j = lo_row to hi_row do
+            (* For each row number of m2, we compute the respective distances from the rows of m1... *)
+            let distances =
+              Float.Array.init r1
+                (fun i ->
+                  Space.Distance.compute
+                    ~adaptor_a:(fun a -> a /. Float.Array.get n1 i) ~adaptor_b:(fun b -> b /. Float.Array.get n2 j)
+                    distance metric m1.matrix.storage.(i) m2.matrix.storage.(j)) in
+            (* ...and summarise them *)
+            summarize_distance_matrix_row
+              req_len m2.matrix.idx_to_row_names.(j) distances m1.matrix.idx_to_row_names buf
+          done;
+          hi_row - lo_row + 1, Buffer.contents buf)
+        (fun (n_processed, block) ->
+          Printf.fprintf output "%s" block;
+          let old_processed_rows = !processed_rows in
+          processed_rows := !processed_rows + n_processed;
+          if verbose && !processed_rows / 100 > old_processed_rows / 100 then
+            Printf.eprintf "%s\r(%s): Writing distance digest to file '%s': done %d/%d lines%!"
+              Tools.String.TermIO.clear __FUNCTION__ fname !processed_rows r2)
+        threads;
+      if verbose then
+        Printf.eprintf "%s\r(%s): Writing distance digest to file '%s': done %d/%d lines.\n%!"
+          Tools.String.TermIO.clear __FUNCTION__ fname r2 r2;
+      close_out output      
+    let summarize_distance ?(keep_at_most = Some 2) ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false)
+          m prefix =
       if m.which <> DMatrix then
         Unexpected_type (m.which, DMatrix) |> raise;
-      let n_cols = Array.length m.matrix.idx_to_col_names in
+      let fname = make_filename_summary prefix in
+      let output = open_out fname
+      and n_cols = Array.length m.matrix.idx_to_col_names in
       let req_len =
         match keep_at_most with
         | None -> n_cols
         | Some at_most -> at_most
-      and f_n_cols = float_of_int n_cols in
-      let process_row buf row_idx =
-        let name = m.matrix.idx_to_row_names.(row_idx) and row = m.matrix.storage.(row_idx)
-        and distr = ref FloatIntMultimap.empty in
-        (* We find the median and filter the result *)
-        Float.Array.iteri
-          (fun col_idx dist ->
-            distr := FloatIntMultimap.add dist col_idx !distr)
-          row;
-        let eff_len = ref 0 and median_pos = n_cols / 2 |> ref and median = ref 0. and acc = ref 0. in
-        FloatIntMultimap.iter_set
-          (fun dist set ->
-            let set_len = FloatIntMultimap.ValSet.cardinal set in
-            acc := !acc +. (float_of_int set_len *. dist);
-            if !median_pos >= 0 && !median_pos - set_len < 0 then
-              median := dist;
-            median_pos := !median_pos - set_len;
-            if !eff_len < req_len then
-              eff_len := !eff_len + set_len)
-          !distr;
-        let eff_len = !eff_len and median = !median and mean =
-          if n_cols > 0 then
-            !acc /. f_n_cols
-          else
-            0. in
-        (* We compute standard deviation e MAD *)
-        acc := 0.;
-        let ddistr = ref Tools.FloatMap.empty in
-        Float.Array.iteri
-          (fun _ dist ->
-            let d = dist -. mean in
-            acc := !acc +. (d *. d);
-            let d = (dist -. median) |> abs_float in
-            ddistr :=
-              match Tools.FloatMap.find_opt d !ddistr with
-              | None ->
-                Tools.FloatMap.add d 1 !ddistr
-              | Some n ->
-                Tools.FloatMap.add d (n + 1) !ddistr)
-          row;
-        median_pos := n_cols / 2;
-        let mad = ref 0. in
-        Tools.FloatMap.iter
-          (fun d occs ->
-            if !median_pos >= 0 && !median_pos - occs < 0 then
-              mad := d;
-            median_pos := !median_pos - occs)
-          !ddistr;
-        let mad = !mad and stddev =
-          if n_cols > 1 then
-            !acc /. (f_n_cols -. 1.) |> sqrt
-          else
-            0. in
-        Printf.bprintf buf "\"%s\"\t%.15g\t%.15g\t%.15g\t%.15g" name mean stddev median mad;
-        FloatIntMultimap.iteri
-          (fun i dist col_idx ->
-            if i < eff_len then
-              Printf.bprintf buf "\t\"%s\"\t%.15g\t%.15g"
-                m.matrix.idx_to_col_names.(col_idx) dist ((dist -. mean) /. stddev))
-          !distr;
-        Printf.bprintf buf "\n" in
-      let n_rows = Array.length m.matrix.idx_to_row_names and processed_rows = ref 0 and buf = Buffer.create 1048576
-      and fname = make_filename_summary prefix in
-      let output = open_out fname in
+      and n_rows = Array.length m.matrix.idx_to_row_names in
       (* Parallel section *)
+      let processed_rows = ref 0 and buf = Buffer.create 1048576 in
       Processes.Parallel.process_stream_chunkwise
         (fun () ->
           if !processed_rows < n_rows then
@@ -878,7 +942,8 @@ include [@warning "-32"] (
         (fun (lo_row, hi_row) ->
           Buffer.clear buf;
           for i = lo_row to hi_row do
-            process_row buf i
+            summarize_distance_matrix_row
+              req_len m.matrix.idx_to_row_names.(i) m.matrix.storage.(i) m.matrix.idx_to_col_names buf
           done;
           hi_row - lo_row + 1, Buffer.contents buf)
         (fun (n_processed, block) ->
@@ -966,6 +1031,9 @@ include [@warning "-32"] (
     val get_distance_rowwise: ?normalize:bool -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
                               Space.Distance.t -> Float.Array.t -> t -> t -> t
     exception Unexpected_type of Type.t * Type.t
+    val summarize_rowwise: ?normalize:bool -> ?keep_at_most:int option -> ?threads:int -> ?elements_per_step:int ->
+                           ?verbose:bool ->
+                           Space.Distance.t -> Float.Array.t -> t -> t -> string -> unit
     val summarize_distance: ?keep_at_most:int option -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
                             t -> string -> unit
     (* Binary marshalling of the matrix *)
