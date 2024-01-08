@@ -255,7 +255,6 @@ module [@warning "-32"] Twister:
       if verbose then
         Printf.eprintf " done.\n%!";
       { twister; inertia }
-
   end
 
 module RegisterType =
@@ -319,7 +318,7 @@ module Defaults =
   struct
     let distance = Space.Distance.of_string "euclidean"
     let distance_normalize = true
-    let metric = Space.Distance.Metric.of_string "sigmoid(1,3,10,10)"
+    let metric = Space.Distance.Metric.of_string "powers(1,1.,2)"
     let precision = 15
     let keep_at_most = Some 2
   end
@@ -333,7 +332,7 @@ module Parameters =
 
 let info = {
   Tools.Info.name = "KPopTwistDB";
-  version = "24";
+  version = "25";
   date = "05-Jan-2024"
 } and authors = [
   "2022-2024", "Paolo Ribeca", "paolo.ribeca@gmail.com"
@@ -425,19 +424,18 @@ let () =
         "Euclidean is the same as Minkowski(2); Cosine is the same as (Euclidean^2)/2" ],
       TA.Default (fun () -> Space.Distance.to_string Defaults.distance),
       (fun _ -> Set_distance (TA.get_parameter () |> Space.Distance.of_string) |> Tools.List.accum Parameters.program);
-    [ "--distance-normalize"; "--distance-normalization"; "--set-distance-normalize"; "--set-distance-normalization" ],
+    [ "--distance-normalization"; "--set-distance-normalization" ],
       Some "'true'|'false'",
       [ "set whether twisted vectors should be normalized prior to computing distances" ],
       TA.Default (fun () -> string_of_bool Defaults.distance_normalize),
       (fun _ -> Set_distance_normalize (TA.get_parameter_boolean ()) |> Tools.List.accum Parameters.program);
     [ "-m"; "--metric"; "--metric-function"; "--set-metric"; "--set-metric-function" ],
-      Some "'flat'|'power('<non_negative_float>')'|'sigmoid('SIGMOID_PARAMETERS')'",
-      [ "where SIGMOID_PARAMETERS :=";
-        " <non_negative_float>','<non_negative_float>','";
-        " <non_negative_float>','<non_negative_float> :";
+      Some "'flat'|'powers('POWERS_PARAMETERS')'",
+      [ "where POWERS_PARAMETERS :=";
+        " <non_negative_float>','<fractional_float>','<non_negative_float> :";
         "set the metric function to be used when computing distances.";
         "Parameters are:";
-        " power; thresholding multiplier; left and right sigmoid tightnesses." ],
+        " internal power; fractional accumulative threshold; external power." ],
       TA.Default (fun () -> Space.Distance.Metric.to_string Defaults.metric),
       (fun _ ->
         Set_metric (TA.get_parameter () |> Space.Distance.Metric.of_string) |> Tools.List.accum Parameters.program);
@@ -453,7 +451,8 @@ let () =
     [ "-o"; "--output" ],
       Some "T|t|d <binary_file_prefix>",
       [ "dump the database present in the specified register";
-        " (T=twister; t=twisted; d=distance) to the specified binary file.";
+        " (T=twister; t=twisted; d=distance)";
+        "to the specified binary file.";
         "File extension is automatically assigned depending on database type";
         " (will be: .KPopTwister; .KPopTwisted; or .KPopDMatrix, respectively)" ],
       TA.Optional,
@@ -471,7 +470,8 @@ let () =
     [ "-O"; "--Output" ],
       Some "T|t|d|m <table_file_prefix>",
       [ "dump the database present in the specified register";
-        " (T=twister; t=twisted; d=distance; m=metric) to the specified tabular file(s).";
+        " (T=twister; t=twisted; d=distance; m=metric)";
+        "to the specified tabular file(s).";
         "File extension is automatically assigned depending on database type";
         " (will be: .KPopTwister.txt and .KPopInertia.txt; .KPopTwisted.txt;";
         "  .KPopDMatrix.txt; or .KPopMetrics.txt, respectively)" ],
@@ -480,7 +480,7 @@ let () =
         let register_type = TA.get_parameter () |> RegisterType.of_string in
         Register_to_tables (register_type, TA.get_parameter ()) |> Tools.List.accum Parameters.program);
     [ "--keep-at-most"; "--set-keep-at-most"; "--summary-keep-at-most" ],
-      Some "<positive_integer>|all",
+      Some "<positive_integer>|'all'",
       [ "set the maximum number of closest target sequences";
         "to be kept when summarizing distances.";
         "Note that more might be printed anyway in case of ties" ],

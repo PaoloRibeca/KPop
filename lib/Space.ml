@@ -28,7 +28,6 @@ module Distance:
         val compute: t -> Float.Array.t -> Float.Array.t
         exception Unknown_metric of string
         exception Negative_power of float
-        exception Negative_tightness of float
         val of_string: string -> t
         val to_string: t -> string
       end
@@ -70,93 +69,120 @@ module Distance:
       struct
         type t =
           | Flat
-          | Power of float
-          (* Parameters are: threshold (1/n/t), tightness left, tightness right *)
-          | Sigmoid of float * float * float * float
+          (* Parameters are: internal power, threshold (on accumulated transformed inertia), external power *)
+          | Powers of float * float * float
+        (* Internal type used to cluster identical consecutive elements *)
         exception Negative_metric_element of float
         exception Unsorted_metric_vector of Float.Array.t
-        let compute = function
-          | Flat ->
-            Float.Array.map
-             (fun el ->
-               if el < 0. then
-                 Negative_metric_element el |> raise;
-               1.)
-          | Power power ->
-            (fun v ->
-              (* We normalise with respect to the transformed max *)
-              let m = ref 0. in
+        module Collected =
+          struct
+            type t = {
+              length: int;
+              data: int Tools.FloatRMap.t
+            }
+            (* This function also implements checks *)
+            let of_floatarray fa =
+              let prev = ref infinity and res = ref Tools.FloatRMap.empty in
               Float.Array.iter
                 (fun el ->
                   if el < 0. then
-                   Negative_metric_element el |> raise;
-                  m := el ** power |> max !m)
-                v;
-              let m = !m in
-              if m > 0. then
-                Float.Array.map
-                  (fun el ->
-                    (el ** power) /. m)
-                  v
-              else
-                (* All zeros *)
-                v)
-          | Sigmoid (power, threshold, l_tightness, r_tightness) ->
-            (fun v ->
-              (* We normalise to one *)
-              let acc = ref 0. in
-              Float.Array.iteri
-                (fun i el ->
-                  if el < 0. then
                     Negative_metric_element el |> raise;
-                  if i > 0 && el > Float.Array.get v (i - 1) then
-                    Unsorted_metric_vector v |> raise;
-                  acc := !acc +. el ** power)
-                v;
-              let acc = !acc in
-              if acc > 0. then begin
-                (* Determine inflection point *)
-                let f_n = float_of_int (Float.Array.length v) in
-                let threshold = 1. /. threshold /. f_n and t = ref (-1) in
-                Float.Array.iteri
-                  (fun i el ->
-                    let el = (el ** power) /. acc in
-                    if el < threshold && !t = (-1) then
-                      t := i)
-                  v;
-                if !t <> (-1) then begin
-                  let t = (float_of_int !t +. 0.5) /. f_n in
-                  Float.Array.mapi
-(*
-f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,(-(2*a-3)*a*a-1)+1/2/(1-t)*((a-1)*a*a),1/t/2*((a-2)*a*a+a)-(2*a-3)*a*a); (ifelse(y>0,-y*((1+kr)/kr)/((1+y*kr)/kr),-y*((1+kl)/kl)/((1-y*kl)/kl))+1)/2}
-*)
-                    (fun i _ ->
-                      let x = (float_of_int i +. 0.5) /. f_n in
-                      let y =
-                        if x < t then begin
-                          let a = x /. t in
-                          let a_a = a *. a in
-                          ((-2. *. a +. 3.) *. a_a -. 1.) +. 0.5 /. (1. -. t) *. ((a -. 1.) *. a_a)
-                        end else begin
-                          let a = (x -. t) /. (1. -. t) in
-                          let a_a = a *. a in
-                          0.5 /. t *. ((a -. 2.) *. a_a +. a) -. (2. *. a -. 3.) *. a_a
-                        end in
-                      let res =
-                        if y > 0. then
-                          -. y *. ((1. +. r_tightness) /. r_tightness) /. ((1. +. y *. r_tightness) /. r_tightness)
-                        else
-                          -. y *. ((1. +. l_tightness) /. l_tightness) /. ((1. -. y *. l_tightness) /. l_tightness) in
-                      (1. +. res) /. 2. |> max 0. |> min 1.)
-                    v
-                end else
-                  v
-              end else
-                (* All zeros *)
-                v)
+                  if el > !prev then
+                    Unsorted_metric_vector fa |> raise;
+                  prev := el;
+                  res :=
+                    Tools.FloatRMap.update el
+                      (function
+                        | None -> Some 1
+                        | Some n -> Some (n + 1))
+                      !res)
+                fa;
+              { length = Float.Array.length fa;
+                data = !res }
+            let to_floatarray { length; data } =
+              let res = Float.Array.create length and idx = ref 0 in
+              Tools.FloatRMap.iter
+                (fun el freq ->
+                  for i = !idx to !idx + freq - 1 do
+                    Float.Array.set res i el
+                  done;
+                  idx := !idx + freq)
+                data;
+              res
+            let sum data =
+              let acc = ref 0. in
+              Tools.FloatRMap.iter
+                (fun el freq ->
+                  acc := !acc +. (el *. float_of_int freq))
+                data;
+              !acc
+            let power p ({ length; data } as c) =
+              (* A negative power would change the original dimension order.
+                 However, at this point the check has already been made *)
+              assert (p >= 0.);
+              if p = 1. then
+                c
+              else begin
+                let res = ref Tools.FloatRMap.empty in
+                Tools.FloatRMap.iter
+                  (fun el freq ->
+                    res := Tools.FloatRMap.add (el ** p) freq !res)
+                  data;
+                { length; data = !res }
+              end
+            let normalize ({ length; data } as c) =
+              let acc = sum data in
+              if acc = 0. || acc = 1. then
+                (* If acc = 0., all (non-negative) elements must be 0. *)
+                c
+              else begin
+                let res = ref Tools.FloatRMap.empty in
+                Tools.FloatRMap.iter
+                  (fun el freq ->
+                    res := Tools.FloatRMap.add (el /. acc) freq !res)
+                  data;
+                { length; data = !res }
+              end
+            exception Invalid_threshold of float
+            (* This function must _not_ change the total number of elements.
+               It _includes_ normalisation *)
+            let threshold t ({ length; data } as c) =
+              if t < 0. || t > 1. then
+                Invalid_threshold t |> raise;
+              if t = 1. then
+                c
+              else begin
+                let t = t *. sum data and res = ref Tools.FloatRMap.empty in
+                let acc = ref 0. in
+                Tools.FloatRMap.iter
+                  (fun el freq ->
+                    res :=
+                      Tools.FloatRMap.update
+                        (if !acc < t then el else 0.)
+                        (function
+                          | None -> Some freq
+                          | Some n -> Some (n + freq))
+                        !res;
+                    acc := !acc +. (el *. float_of_int freq))
+                  data;
+                { length; data = !res }
+              end
+          end
+        let compute = function
+          | Flat ->
+            (fun m ->
+              let l = Float.Array.length m in
+              if l = 0 then
+                m
+              else
+                (1. /. float_of_int l) |> Float.Array.make l)
+          | Powers (power_int, threshold, power_ext) ->
+            (fun m ->
+              Collected.of_floatarray m |> Collected.power power_int |> Collected.threshold threshold
+                                        |> Collected.power power_ext |> Collected.normalize
+                                        |> Collected.to_floatarray)
         exception Unknown_metric of string
         exception Negative_power of float
-        exception Negative_tightness of float
         let of_string_re = Str.regexp "[(,)]"
         let of_string name =
           match name with
@@ -164,35 +190,25 @@ f<-function(x,t=0.5,kl=10,kr=100){a<-ifelse(x<t,x/t,(x-t)/(1-t)); y<-ifelse(x<t,
             Flat
           | s ->
             match Str.full_split of_string_re s with
-            | [ Text "power"; Delim "("; Text power; Delim ")" ] ->
-              let power =
+            | [ Text "powers";
+                Delim "("; Text power_int; Delim ","; Text threshold; Delim ","; Text power_ext; Delim ")" ] ->
+              let power_int, threshold, power_ext =
                 try
-                  float_of_string power
+                  float_of_string power_int, float_of_string threshold, float_of_string power_ext
                 with _ ->
                   Unknown_metric s |> raise in
-              if power < 0. then
-                Negative_power power |> raise;
-              Power power
-            | [ Text "sigmoid"; Delim "(";
-                Text power; Delim ","; Text thresh; Delim ","; Text l_tight; Delim ","; Text r_tight;
-                Delim ")" ] ->
-              let power, thresh, l_tight, r_tight =
-                try
-                  float_of_string power, float_of_string thresh, float_of_string l_tight, float_of_string r_tight
-                with _ ->
-                  Unknown_metric s |> raise in
-              if power < 0. then
-                Negative_power power |> raise;
-              Sigmoid (power, thresh, l_tight, r_tight)
+              if power_int < 0. then
+                Negative_power power_int |> raise;
+              if power_ext < 0. then
+                Negative_power power_ext |> raise;
+              Powers (power_int, threshold, power_ext)
             | _ ->
               Unknown_metric s |> raise
         let to_string = function
           | Flat ->
             "flat"
-          | Power power ->
-            Printf.sprintf "power(%.15g)" power
-          | Sigmoid (power, thresh, l_tight, r_tight) ->
-            Printf.sprintf "sigmoid(%.15g,%.15g,%.15g,%.15g)" power thresh l_tight r_tight
+          | Powers (power_int, threshold, power_ext) ->
+            Printf.sprintf "powers(%.15g,%.15g,%.15g)" power_int threshold power_ext
       end
     (* Distance *)
     type t =

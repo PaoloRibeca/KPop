@@ -44,10 +44,10 @@ let () =
   TA.parse [
     TA.make_separator "Algorithmic parameters";
     [ "-f"; "-F"; "-s"; "-S"; "--fraction"; "--sampling"; "--sampling-fraction" ],
-      Some "<non_negative_float>",
+      Some "<fractional_float>",
       [ "fraction of the rows to be considered and resampled before twisting" ],
       TA.Default (fun () -> string_of_float !Parameters.sampling),
-      (fun _ -> Parameters.sampling := TA.get_parameter_float_non_neg ());
+      (fun _ -> Parameters.sampling := TA.get_parameter_float_fraction ());
     [ "--threshold" ],
       Some "<non_negative_integer>",
       [ "set to zero all counts that are less than this threshold";
