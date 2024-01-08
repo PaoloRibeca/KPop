@@ -91,11 +91,12 @@ module Base:
             Printf.fprintf output "\t\"%s\"" name)
           m.idx_to_col_names;
         Printf.fprintf output "\n%!";
-        let processed_rows = ref 0 and buf = Buffer.create 1048576 in
+        let rows_per_step = max 1 (elements_per_step / n_cols) and processed_rows = ref 0
+        and buf = Buffer.create 1048576 in
         Processes.Parallel.process_stream_chunkwise
           (fun () ->
             if !processed_rows < n_rows then
-              let to_do = max 1 (elements_per_step / n_cols) |> min (n_rows - !processed_rows) in
+              let to_do = min rows_per_step (n_rows - !processed_rows) in
               let new_processed_rows = !processed_rows + to_do in
               let res = !processed_rows, new_processed_rows - 1 in
               processed_rows := new_processed_rows;
@@ -114,15 +115,16 @@ module Base:
             hi_row - lo_row + 1, Buffer.contents buf)
           (fun (n_processed, block) ->
             Printf.fprintf output "%s" block;
-            let old_processed_rows = !processed_rows in
-            processed_rows := !processed_rows + n_processed;
-            if verbose && !processed_rows / 10000 > old_processed_rows / 10000 then
-              Printf.eprintf "\rWriting table to file '%s': done %d/%d lines%!"
-                fname !processed_rows n_rows)
+            let new_processed_rows = !processed_rows + n_processed in
+            if verbose && new_processed_rows / rows_per_step > !processed_rows / rows_per_step then
+              Printf.eprintf "%s\r(%s): Writing table to file '%s': done %d/%d rows%!"
+                Tools.String.TermIO.clear __FUNCTION__ fname new_processed_rows n_rows;
+            processed_rows := new_processed_rows)
           threads
       end;
       if verbose then
-        Printf.eprintf "\rWriting table to file '%s': done %d/%d lines.\n%!" fname n_rows n_rows;
+        Printf.eprintf "%s\r(%s): Writing table to file '%s': done %d/%d rows.\n%!"
+          Tools.String.TermIO.clear __FUNCTION__ fname n_rows n_rows;
       close_out output
     let strip_quotes s =
       let l = String.length s in
@@ -205,7 +207,7 @@ module Base:
               let new_elts_read = !elts_read + num_cols in
               if verbose && new_elts_read / 100000 > !elts_read / 100000 then
                 Printf.eprintf "%s\r(%s): On line %d of file '%s': Read %d elements%!"
-                  Tools.String.TermIO.clear __FUNCTION__ !line_num filename !elts_read;
+                  Tools.String.TermIO.clear __FUNCTION__ !line_num filename new_elts_read;
               elts_read := new_elts_read))
           threads;
         close_in input;
@@ -227,43 +229,41 @@ module Base:
             (fun old_col ->
               Float.Array.init (Array.length m.idx_to_row_names)
                 (fun old_row -> Float.Array.get m.storage.(old_row) old_col)) }
-    let transpose ?(threads = 1) ?(elements_per_step = 10) ?(verbose = false) m =
-      let row_num = Array.length m.idx_to_col_names and col_num = Array.length m.idx_to_row_names in
-      let storage = Array.init row_num (fun _ -> Float.Array.create 0) in
+    let transpose ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false) m =
+      let n_rows = Array.length m.idx_to_col_names and n_cols = Array.length m.idx_to_row_names in
+      let storage = Array.init n_rows (fun _ -> Float.Array.create 0)
+      and rows_per_step = max 1 (elements_per_step / n_cols) and processed_rows = ref 0 in
       (* Generate points to be computed by the parallel processs *)
-      let i = ref 0 and elts_done = ref 0 and end_reached = ref (row_num = 0) in
       Processes.Parallel.process_stream_chunkwise
         (fun () ->
-          if !end_reached then
-            raise End_of_file;
+          if !processed_rows < n_rows then (* The original columns *)
+            let to_do = min rows_per_step (n_rows - !processed_rows) in
+            let new_processed_rows = !processed_rows + to_do in
+            let res = !processed_rows, new_processed_rows - 1 in
+            processed_rows := new_processed_rows;
+            res
+          else
+            raise End_of_file)
+        (fun (lo_row, hi_row) ->
           let res = ref [] in
-          begin try
-            let cntr = ref 0 in
-            while !cntr < elements_per_step do
-              Tools.List.accum res !i;
-              incr i;
-              if !i = row_num then begin (* The original columns *)
-                end_reached := true;
-                raise Exit
-              end;
-              incr cntr
-            done
-          with Exit -> ()
-          end;
-          List.rev !res)
-        (List.map
-          (* The new row is the original column *)
-          (fun i ->
-            i, Float.Array.init col_num (fun col -> Float.Array.get m.storage.(col) i)))
-        (List.iter
-          (fun (i, row_i) ->
-            storage.(i) <- row_i;
-            incr elts_done;
-            if verbose && !elts_done mod elements_per_step = 0 then
-              Printf.eprintf "%s\r(%s): Done %d/%d rows%!" Tools.String.TermIO.clear __FUNCTION__ !elts_done row_num))
+          (* We iterate backwards so as to avoid to have to reverse the list in the end *)
+          for i = hi_row downto lo_row do
+            (* The new row is the original column *)
+            Float.Array.init n_cols (fun col -> Float.Array.get m.storage.(col) i) |> Tools.List.accum res
+          done;
+          lo_row, !res)
+        (fun (lo_row, rows) ->
+          List.iteri
+            (fun offs_i row_i ->
+              storage.(lo_row + offs_i) <- row_i;
+              if verbose && !processed_rows mod rows_per_step = 0 then
+                Printf.eprintf "%s\r(%s): Done %d/%d rows%!"
+                  Tools.String.TermIO.clear __FUNCTION__ !processed_rows n_rows;
+              incr processed_rows)
+            rows)
         threads;
       if verbose then
-        Printf.eprintf "%s\r(%s): Done %d/%d rows.\n%!" Tools.String.TermIO.clear __FUNCTION__ !elts_done row_num;
+        Printf.eprintf "%s\r(%s): Done %d/%d rows.\n%!" Tools.String.TermIO.clear __FUNCTION__ !processed_rows n_rows;
       { idx_to_col_names = m.idx_to_row_names;
         idx_to_row_names = m.idx_to_col_names;
         storage = storage }
@@ -354,52 +354,52 @@ module Base:
       if verbose then
         Printf.eprintf "%s\r(%s): Done %d/%d elements.\n%!" Tools.String.TermIO.clear __FUNCTION__ !elts_done d;
       res
-    let multiply_matrix_vector ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) m v =
-      if Array.length m.idx_to_col_names <> Float.Array.length v then
+    let multiply_matrix_vector ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false) m v =
+      let n_rows = Array.length m.idx_to_row_names and n_cols = Array.length m.idx_to_col_names in
+      if n_cols <> Float.Array.length v then
         Incompatible_geometries (m.idx_to_col_names, Array.make (Float.Array.length v) "") |> raise;
-      let d = Array.length m.idx_to_row_names in
       (* We immediately allocate all the needed memory, as we already know how much we will need *)
-      let res = Float.Array.create d and i = ref 0 and elts_done = ref 0 and end_reached = ref (d = 0) in
+      let res = Float.Array.create n_rows
+      and rows_per_step = max 1 (elements_per_step / n_cols) and processed_rows = ref 0 in
+      (* Generate points to be computed by the parallel processs *)
       Processes.Parallel.process_stream_chunkwise
         (fun () ->
-          if !end_reached then
-            raise End_of_file;
+          if !processed_rows < n_rows then
+            let to_do = min rows_per_step (n_rows - !processed_rows) in
+            let new_processed_rows = !processed_rows + to_do in
+            let res = !processed_rows, new_processed_rows - 1 in
+            processed_rows := new_processed_rows;
+            res
+          else
+            raise End_of_file)
+        (fun (lo_row, hi_row) ->
           let res = ref [] in
-          begin try
-            let cntr = ref 0 in
-            while !cntr < elements_per_step do
-              Tools.List.accum res !i;
-              incr i;
-              if !i = d then begin
-                end_reached := true;
-                raise Exit
-              end;
-              incr cntr
-            done
-          with Exit -> ()
-          end;
-          List.rev !res)
-        (List.map
-          (* We decorate each vector element coordinate with the respective value *)
-          (fun i ->
+          (* We iterate backwards so as to avoid to have to reverse the list in the end *)
+          for i = hi_row downto lo_row do
+            (* We decorate each vector element coordinate with the respective value *)
             let acc = ref 0. in
             Float.Array.iter2
               (fun el_1 el_2 ->
                 acc := !acc +. (el_1 *. el_2))
               m.storage.(i) v;
-            i, !acc))
-        (List.iter
-          (fun (i, el) ->
-            (* Only here do we actually fill out the memory for the result *)
-            Float.Array.set res i el;
-            incr elts_done;
-            if verbose && !elts_done mod elements_per_step = 0 then
-              Printf.eprintf "%s\r(%s): Done %d/%d elements%!" Tools.String.TermIO.clear __FUNCTION__ !elts_done d))
+            Tools.List.accum res !acc
+          done;
+          lo_row, !res)
+        (fun (lo_row, v) ->
+          List.iteri
+            (fun offs_i el ->
+              (* Only here do we actually fill out the memory for the result *)
+              Float.Array.set res (lo_row + offs_i) el;
+              if verbose && !processed_rows mod rows_per_step = 0 then
+                Printf.eprintf "%s\r(%s): Done %d/%d rows%!"
+                  Tools.String.TermIO.clear __FUNCTION__ !processed_rows n_rows;
+              incr processed_rows)
+            v)
         threads;
       if verbose then
-        Printf.eprintf "%s\r(%s): Done %d/%d elements.\n%!" Tools.String.TermIO.clear __FUNCTION__ !elts_done d;
+        Printf.eprintf "%s\r(%s): Done %d/%d rows.\n%!" Tools.String.TermIO.clear __FUNCTION__ !processed_rows n_rows;
       res
-    let multiply_matrix_matrix ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) m1 m2 =
+    let multiply_matrix_matrix ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false) m1 m2 =
       if m1.idx_to_col_names <> m2.idx_to_row_names then
         Incompatible_geometries (m1.idx_to_col_names, m2.idx_to_row_names) |> raise;
       let row_num = Array.length m1.idx_to_row_names and col_num = Array.length m2.idx_to_col_names in
@@ -444,9 +444,9 @@ module Base:
           (fun (i, j, el) ->
             (* Only here do we actually fill out the memory for the result *)
             Float.Array.set storage.(i) j el;
-            incr elts_done;
             if verbose && !elts_done mod elements_per_step = 0 then
-              Printf.eprintf "%s\r(%s): Done %d/%d elements%!" Tools.String.TermIO.clear __FUNCTION__ !elts_done prod))
+              Printf.eprintf "%s\r(%s): Done %d/%d elements%!" Tools.String.TermIO.clear __FUNCTION__ !elts_done prod;
+            incr elts_done))
         threads;
       if verbose then
         Printf.eprintf "%s\r(%s): Done %d/%d elements.\n%!" Tools.String.TermIO.clear __FUNCTION__ !elts_done prod;
@@ -454,46 +454,44 @@ module Base:
         idx_to_row_names = m1.idx_to_row_names;
         storage = storage }
     (* Compute normalisations for rows *)
-    let get_normalizations ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) distance metric m =
-      let row_num = Array.length m.idx_to_row_names in
-      let res = Float.Array.create row_num in
+    let get_normalizations ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false) distance metric m =
+      let n_rows = Array.length m.idx_to_row_names and n_cols = Array.length m.idx_to_col_names in
+      let res = Float.Array.create n_rows
+      and rows_per_step = max 1 (elements_per_step / n_cols) and processed_rows = ref 0 in
       (* Generate points to be computed by the parallel processs *)
-      let i = ref 0 and elts_done = ref 0 and end_reached = ref (row_num = 0) in
       Processes.Parallel.process_stream_chunkwise
         (fun () ->
-          if !end_reached then
-            raise End_of_file;
+          if !processed_rows < n_rows then
+            let to_do = min rows_per_step (n_rows - !processed_rows) in
+            let new_processed_rows = !processed_rows + to_do in
+            let res = !processed_rows, new_processed_rows - 1 in
+            processed_rows := new_processed_rows;
+            res
+          else
+            raise End_of_file)
+        (fun (lo_row, hi_row) ->
           let res = ref [] in
-          begin try
-            let cntr = ref 0 in
-            while !cntr < elements_per_step do
-              Tools.List.accum res !i;
-              incr i;
-              if !i = row_num then begin
-                end_reached := true;
-                raise Exit
-              end;
-              incr cntr
-            done
-          with Exit -> ()
-          end;
-          List.rev !res)
-        (List.map
-          (fun i ->
-            i, Space.Distance.compute_norm distance metric m.storage.(i)))
-        (List.iter
-          (fun (i, norm_i) ->
-            Float.Array.set res i (if norm_i = 0. then 1. else norm_i);
-            incr elts_done;
-            if verbose && !elts_done mod elements_per_step = 0 then
-              Printf.eprintf "%s\r(%s): Done %d/%d rows%!" Tools.String.TermIO.clear __FUNCTION__ !elts_done row_num))
+          (* We iterate backwards so as to avoid to have to reverse the list in the end *)
+          for i = hi_row downto lo_row do
+            Space.Distance.compute_norm distance metric m.storage.(i) |> Tools.List.accum res
+          done;
+          lo_row, !res)
+        (fun (lo_row, norms) ->
+          List.iteri
+            (fun offs_i norm_i ->
+              Float.Array.set res (lo_row + offs_i) (if norm_i = 0. then 1. else norm_i);
+              if verbose && !processed_rows mod elements_per_step = 0 then
+                Printf.eprintf "%s\r(%s): Done %d/%d rows%!"
+                  Tools.String.TermIO.clear __FUNCTION__ !processed_rows n_rows;
+              incr processed_rows)
+            norms)
         threads;
       if verbose then
-        Printf.eprintf "%s\r(%s): Done %d/%d rows.\n%!" Tools.String.TermIO.clear __FUNCTION__ !elts_done row_num;
+        Printf.eprintf "%s\r(%s): Done %d/%d rows.\n%!" Tools.String.TermIO.clear __FUNCTION__ !processed_rows n_rows;
       res
     (* Compute rowwise distance *)
-    let get_distance_matrix ?(normalize = true) ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false)
-          distance metric m =
+    let get_distance_matrix ?(normalize = true) ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false)
+        distance metric m =
       let d = Array.length m.idx_to_row_names in
       (* We compute normalisations *)
       let norms =
@@ -543,18 +541,18 @@ module Base:
             Float.Array.set storage.(i) j dist;
             (* We symmetrise the matrix *)
             Float.Array.set storage.(j) i dist;
-            incr elts_done;
             if verbose && !elts_done mod elements_per_step = 0 then
               Printf.eprintf "%s\r(%s): Done %d/%d elements%!"
-                Tools.String.TermIO.clear __FUNCTION__ !elts_done total))
+                Tools.String.TermIO.clear __FUNCTION__ !elts_done total;
+            incr elts_done))
         threads;
       if verbose then
         Printf.eprintf "%s\r(%s): Done %d/%d elements.\n%!" Tools.String.TermIO.clear __FUNCTION__ !elts_done total;
       { idx_to_col_names = m.idx_to_row_names;
         idx_to_row_names = m.idx_to_row_names;
         storage = storage }
-    let get_distance_rowwise ?(normalize = true) ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false)
-          distance metric m1 m2 =
+    let get_distance_rowwise ?(normalize = true) ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false)
+        distance metric m1 m2 =
       if m1.idx_to_col_names <> m2.idx_to_col_names then
         Incompatible_geometries (m1.idx_to_col_names, m2.idx_to_col_names) |> raise;
       let r1 = Array.length m1.idx_to_row_names and r2 = Array.length m2.idx_to_row_names in
@@ -566,19 +564,19 @@ module Base:
         else
           Float.Array.make r1 1., Float.Array.make r2 1. in
       (*
-      to_file (transpose {
+      to_file ~verbose (transpose ~verbose {
         idx_to_col_names = m1.idx_to_row_names;
         idx_to_row_names = [| "Normalizations" |];
         storage = [| n1 |]
       }) "N1.txt";
-      to_file (transpose {
+      to_file ~verbose (transpose ~verbose {
         idx_to_col_names = m2.idx_to_row_names;
         idx_to_row_names = [| "Normalizations" |];
         storage = [| n2 |]
       }) "N2.txt";
       *)
       (* We immediately allocate all the needed memory, as we already know how much we will need *)
-      let storage = Array.init r1 (fun _ -> Float.Array.create r2) in
+      let storage = Array.init r2 (fun _ -> Float.Array.create r1) in
       (* Generate points to be computed by the parallel processs *)
       let prod = r1 * r2 in
       let i = ref 0 and j = ref 0 and elts_done = ref 0 and end_reached = ref (prod = 0) in
@@ -616,11 +614,11 @@ module Base:
         (List.iter
           (fun (i, j, dist) ->
             Float.Array.set storage.(j) i dist;
-            incr elts_done;
             if verbose && !elts_done mod elements_per_step = 0 then
               Printf.eprintf "%s\r(%s): Done %d/%d elements=%.3g%%%!"
                 Tools.String.TermIO.clear __FUNCTION__
-                !elts_done prod (100. *. float_of_int !elts_done /. float_of_int prod)))
+                !elts_done prod (100. *. float_of_int !elts_done /. float_of_int prod);
+            incr elts_done))
         threads;
       if verbose then
         Printf.eprintf "%s\r(%s): Done %d/%d elements=%.3g%%.\n%!"
@@ -705,7 +703,7 @@ module Base:
 
           { vectors = StringMap.empty }
 
-        let [@warning "-27"] find_and_replace ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) nn f =
+        let [@warning "-27"] find_and_replace ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false) nn f =
 
 
           ()
@@ -766,7 +764,7 @@ include [@warning "-32"] (
       make_filename_table m.which prefix |> Base.to_file ~precision ~threads ~elements_per_step ~verbose m.matrix
     let transpose_single_threaded ?(verbose = false) m =
       { m with matrix = Base.transpose_single_threaded ~verbose m.matrix }
-    let transpose ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) m =
+    let transpose ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false) m =
       { m with matrix = Base.transpose ~threads ~elements_per_step ~verbose m.matrix }
     exception Incompatible_matrices of Type.t * Type.t
     let merge_rowwise ?(verbose = false) m1 m2 =
@@ -777,17 +775,17 @@ include [@warning "-32"] (
       Base.multiply_matrix_vector_single_threaded ~verbose m.matrix
     let multiply_matrix_sparse_vector_single_threaded ?(verbose = false) m =
       Base.multiply_matrix_sparse_vector_single_threaded ~verbose m.matrix
-    let multiply_matrix_vector ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) m v =
+    let multiply_matrix_vector ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false) m v =
       Base.multiply_matrix_vector ~threads ~elements_per_step ~verbose m.matrix v
-    let multiply_matrix_matrix ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) which m1 m2 =
+    let multiply_matrix_matrix ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false) which m1 m2 =
       { which; matrix = Base.multiply_matrix_matrix ~threads ~elements_per_step ~verbose m1.matrix m2.matrix }
-    let get_distance_matrix ?(normalize = true) ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false)
-          distance metric m =
+    let get_distance_matrix ?(normalize = true) ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false)
+        distance metric m =
       { which = DMatrix;
         matrix = Base.get_distance_matrix ~normalize ~threads ~elements_per_step ~verbose distance metric m.matrix }
     (* Compute distances between the rows of two matrices - more general version of the previous one *)
-    let get_distance_rowwise ?(normalize = true) ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false)
-          distance metric m1 m2 =
+    let get_distance_rowwise ?(normalize = true) ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false)
+        distance metric m1 m2 =
       { which = DMatrix;
         matrix =
           Base.get_distance_rowwise ~normalize ~threads ~elements_per_step ~verbose
@@ -853,8 +851,9 @@ include [@warning "-32"] (
         !distr;
       Printf.bprintf buf "\n"
     exception Unexpected_type of Type.t * Type.t
-    let summarize_rowwise ?(normalize = true) ?(keep_at_most = Some 2) ?(threads = 1) ?(elements_per_step = 10) ?(verbose = false)
-          distance metric m1 m2 prefix =
+    let summarize_rowwise
+        ?(normalize = true) ?(keep_at_most = Some 2) ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false)
+        distance metric m1 m2 prefix =
       if m1.which <> Twisted then
         Unexpected_type (m1.which, Twisted) |> raise;
       if m2.which <> Twisted then
@@ -869,6 +868,18 @@ include [@warning "-32"] (
           Base.get_normalizations ~threads ~elements_per_step ~verbose distance metric m2.matrix
         else
           Float.Array.make r1 1., Float.Array.make r2 1. in
+      (*
+      Base.to_file ~verbose (Base.transpose ~verbose {
+        idx_to_col_names = m1.matrix.idx_to_row_names;
+        idx_to_row_names = [| "Normalizations" |];
+        storage = [| n1 |]
+      }) "N1.txt";
+      Base.to_file ~verbose (Base.transpose ~verbose {
+        idx_to_col_names = m2.matrix.idx_to_row_names;
+        idx_to_row_names = [| "Normalizations" |];
+        storage = [| n2 |]
+      }) "N2.txt";
+      *)
       let fname = make_filename_summary prefix in
       let output = open_out fname
       and n_cols = Array.length m1.matrix.idx_to_col_names in
@@ -876,12 +887,13 @@ include [@warning "-32"] (
         match keep_at_most with
         | None -> n_cols
         | Some at_most -> at_most in
+      let rows_per_step = max 1 (elements_per_step / n_cols) and processed_rows = ref 0
+      and buf = Buffer.create 1048576 in
       (* Parallel section *)
-      let processed_rows = ref 0 and buf = Buffer.create 1048576 in
       Processes.Parallel.process_stream_chunkwise
         (fun () ->
           if !processed_rows < r2 then
-            let to_do = max 1 (elements_per_step / n_cols) |> min (r2 - !processed_rows) in
+            let to_do = min rows_per_step (r2 - !processed_rows) in
             let new_processed_rows = !processed_rows + to_do in
             let res = !processed_rows, new_processed_rows - 1 in
             processed_rows := new_processed_rows;
@@ -905,18 +917,18 @@ include [@warning "-32"] (
           hi_row - lo_row + 1, Buffer.contents buf)
         (fun (n_processed, block) ->
           Printf.fprintf output "%s" block;
-          let old_processed_rows = !processed_rows in
-          processed_rows := !processed_rows + n_processed;
-          if verbose && !processed_rows / 100 > old_processed_rows / 100 then
-            Printf.eprintf "%s\r(%s): Writing distance digest to file '%s': done %d/%d lines%!"
-              Tools.String.TermIO.clear __FUNCTION__ fname !processed_rows r2)
+          let new_processed_rows = !processed_rows + n_processed in
+          if verbose && new_processed_rows / rows_per_step > !processed_rows / rows_per_step then
+            Printf.eprintf "%s\r(%s): Writing distance digest to file '%s': done %d/%d rows%!"
+              Tools.String.TermIO.clear __FUNCTION__ fname new_processed_rows r2;
+          processed_rows := new_processed_rows)
         threads;
       if verbose then
-        Printf.eprintf "%s\r(%s): Writing distance digest to file '%s': done %d/%d lines.\n%!"
+        Printf.eprintf "%s\r(%s): Writing distance digest to file '%s': done %d/%d rows.\n%!"
           Tools.String.TermIO.clear __FUNCTION__ fname r2 r2;
-      close_out output      
-    let summarize_distance ?(keep_at_most = Some 2) ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false)
-          m prefix =
+      close_out output
+    let summarize_distance ?(keep_at_most = Some 2) ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false)
+        m prefix =
       if m.which <> DMatrix then
         Unexpected_type (m.which, DMatrix) |> raise;
       let fname = make_filename_summary prefix in
@@ -928,11 +940,12 @@ include [@warning "-32"] (
         | Some at_most -> at_most
       and n_rows = Array.length m.matrix.idx_to_row_names in
       (* Parallel section *)
-      let processed_rows = ref 0 and buf = Buffer.create 1048576 in
+      let rows_per_step = max 1 (elements_per_step / n_cols) and processed_rows = ref 0
+      and buf = Buffer.create 1048576 in
       Processes.Parallel.process_stream_chunkwise
         (fun () ->
           if !processed_rows < n_rows then
-            let to_do = max 1 (elements_per_step / n_cols) |> min (n_rows - !processed_rows) in
+            let to_do = min rows_per_step (n_rows - !processed_rows) in
             let new_processed_rows = !processed_rows + to_do in
             let res = !processed_rows, new_processed_rows - 1 in
             processed_rows := new_processed_rows;
@@ -948,14 +961,14 @@ include [@warning "-32"] (
           hi_row - lo_row + 1, Buffer.contents buf)
         (fun (n_processed, block) ->
           Printf.fprintf output "%s" block;
-          let old_processed_rows = !processed_rows in
-          processed_rows := !processed_rows + n_processed;
-          if verbose && !processed_rows / 10000 > old_processed_rows / 10000 then
-            Printf.eprintf "%s\r(%s): Writing distance digest to file '%s': done %d/%d lines%!"
-              Tools.String.TermIO.clear __FUNCTION__ fname !processed_rows n_rows)
+          let new_processed_rows = !processed_rows + n_processed in
+          if verbose && new_processed_rows / rows_per_step > !processed_rows / rows_per_step then
+            Printf.eprintf "%s\r(%s): Writing distance digest to file '%s': done %d/%d rows%!"
+              Tools.String.TermIO.clear __FUNCTION__ fname new_processed_rows n_rows;
+          processed_rows := new_processed_rows)
         threads;
       if verbose then
-        Printf.eprintf "%s\r(%s): Writing distance digest to file '%s': done %d/%d lines.\n%!"
+        Printf.eprintf "%s\r(%s): Writing distance digest to file '%s': done %d/%d rows.\n%!"
           Tools.String.TermIO.clear __FUNCTION__ fname n_rows n_rows;
       close_out output
     (* *)
