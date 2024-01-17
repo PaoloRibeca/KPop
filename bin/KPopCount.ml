@@ -82,11 +82,15 @@ module Content =
       | "DNA-ds" | "DNA-double-stranded" -> DNA_ds
       | "protein" | "prot" -> Protein
       | w -> Invalid_content w |> raise
+    let to_string = function
+      | DNA_ss -> "DNA-ss"
+      | DNA_ds -> "DNA-ds"
+      | Protein -> "protein"
   end
 
 module Parameters =
   struct
-    let content = ref None
+    let content = ref Content.DNA_ds
     let k = ref 12
     let max_results_size = ref 16777216 (* Or: 4^12 *)
     let inputs = ref []
@@ -98,7 +102,7 @@ module Parameters =
 
 let info = {
   Tools.Info.name = "KPopCount";
-  version = "10";
+  version = "11";
   date = "17-Jan-2024"
 } and authors = [
   "2017-2024", "Paolo Ribeca", "paolo.ribeca@gmail.com"
@@ -128,9 +132,11 @@ let () =
       Some "'DNA-ss'|'DNA-single-stranded'|'DNA-ds'|'DNA-double-stranded'|'protein'",
       [ "how file contents should be interpreted.";
         "When content is 'DNA-ss' or 'protein', the sequence is hashed;";
-        "when content is 'DNA-ds', both sequence and reverse complement are hashed" ],
-      TA.Default (fun _ -> "'DNA-ss' for FASTA input, 'DNA-ds' for FASTQ input"),
-      (fun _ -> Parameters.content := Some (TA.get_parameter () |> Content.of_string));
+        "when content is 'DNA-ds', both sequence and reverse complement are hashed.";
+        "'DNA-ss' prevents automatic matching of reverse-complemented sequences;";
+        "use it only when comparing a set of single, homogeneus sequences" ],
+      TA.Default (fun _ -> Content.to_string !Parameters.content),
+      (fun _ -> Parameters.content := TA.get_parameter () |> Content.of_string);
     [ "-f"; "--fasta" ],
       Some "<fasta_file_name>",
       [ "FASTA input file containing sequences.";
@@ -216,22 +222,14 @@ let () =
             TA.parse_error "You cannot process FASTA and FASTQ inputs together!";        
         store := Files.ReadsIterate.add_from_files !store input)
       !Parameters.inputs;
-    if !Parameters.content = None then
-      Parameters.content := begin
-        if !is_format_fasta then
-          Some DNA_ss
-        else
-          Some DNA_ds
-      end;
     begin match !Parameters.content with
-    | None -> assert false
-    | Some DNA_ss ->
+    | DNA_ss ->
       let module KMC = KMerCounter (KMers.DNAHashSingleStranded (struct let value = !Parameters.k end)) in
       KMC.compute ~linter:(Sequences.Lint.dnaize ~keep_lowercase:false ~keep_dashes:false)
-    | Some DNA_ds ->
+    | DNA_ds ->
       let module KMC = KMerCounter (KMers.DNAHashDoubleStranded (struct let value = !Parameters.k end)) in
       KMC.compute ~linter:(Sequences.Lint.dnaize ~keep_lowercase:false ~keep_dashes:false)
-    | Some Protein ->
+    | Protein ->
       let module KMC = KMerCounter (KMers.ProteinHash (struct let value = !Parameters.k end)) in
       KMC.compute ~linter:(Sequences.Lint.proteinize ~keep_lowercase:false ~keep_dashes:false)
     end ~verbose:!Parameters.verbose !store !Parameters.max_results_size !Parameters.label !Parameters.output
