@@ -141,8 +141,8 @@ module [@warning "-32"] Twister:
               labels := snd !labels, "";
               incr num_spectra;
               if verbose then
-                Printf.eprintf "\r[%d/%d] File '%s': Read %d %s on %d %s%s%!"
-                  (!file_idx + 1) n fnames.(!file_idx)
+                Printf.eprintf "%s\r(%s): [%d/%d] File '%s': Read %d %s on %d %s%s%!"
+                  Tools.String.TermIO.clear __FUNCTION__ (!file_idx + 1) n fnames.(!file_idx)
                   !num_spectra (Tools.String.pluralize_int ~plural:"spectra" "spectrum" !num_spectra)
                   !line_num (Tools.String.pluralize_int "line" !line_num) (if !file_idx + 1 = n then ".\n" else "");
               incr file_idx;
@@ -154,8 +154,8 @@ module [@warning "-32"] Twister:
               ()
             end;
             if verbose && !file_idx < n then
-              Printf.eprintf "\r[%d/%d] File '%s': Read %d %s on %d %s%!"
-                (!file_idx + 1) n fnames.(!file_idx)
+              Printf.eprintf "%s\r(%s): [%d/%d] File '%s': Read %d %s on %d %s%!"
+                Tools.String.TermIO.clear __FUNCTION__ (!file_idx + 1) n fnames.(!file_idx)
                 !num_spectra (Tools.String.pluralize_int ~plural:"spectra" "spectrum" !num_spectra)
                 !line_num (Tools.String.pluralize_int "line" !line_num);
             (* The lines are passed in reverse order, but that does not really matter much
