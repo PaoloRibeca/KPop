@@ -332,7 +332,7 @@ module Parameters =
 
 let info = {
   Tools.Info.name = "KPopTwistDB";
-  version = "26";
+  version = "27";
   date = "17-Jan-2024"
 } and authors = [
   "2022-2024", "Paolo Ribeca", "paolo.ribeca@gmail.com"
