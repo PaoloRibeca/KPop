@@ -332,8 +332,8 @@ module Parameters =
 
 let info = {
   Tools.Info.name = "KPopTwistDB";
-  version = "25";
-  date = "05-Jan-2024"
+  version = "26";
+  date = "17-Jan-2024"
 } and authors = [
   "2022-2024", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
@@ -484,8 +484,7 @@ let () =
       [ "set the maximum number of closest target sequences";
         "to be kept when summarizing distances.";
         "Note that more might be printed anyway in case of ties" ],
-      TA.Default
-        (fun () -> KeepAtMost.to_string Defaults.keep_at_most),
+      TA.Default (fun () -> KeepAtMost.to_string Defaults.keep_at_most),
       (fun _ -> Set_keep_at_most (TA.get_parameter () |> KeepAtMost.of_string) |> Tools.List.accum Parameters.program);
     [ "-s"; "--compute-and-summarize-distances"; "--compute-and-summarize-twisted-distances" ],
       Some "<twisted_binary_file_prefix> <summary_file_prefix>",
@@ -547,10 +546,28 @@ let () =
   and metric = Space.Distance.Metric.compute Defaults.metric |> ref
   and distances = Matrix.empty DMatrix |> ref and precision = ref Defaults.precision
   and keep_at_most = ref Defaults.keep_at_most in
+  List.iter
+    (function
+      | Register_to_tables (Metrics, _)
+      | Distances_from_twisted_binary _ | Summary_from_twisted_binary _ | Summary_from_distances _ ->
+        (* A twister must have been loaded to provide the metric induced by inertia *)
+        if !twister = Twister.empty then
+          TA.parse_error
+            "Options '-O m', '-d', '-s', and '-S' require a twister in the twister register to provide a metric!"
+      | Register_to_binary (Metrics, _) ->
+        (* This is not really an option *)
+        assert false
+      | Set_distance _ | Set_distance_normalize _ | Set_metric _ ->
+        (* If we really wanted to, we might add these too *)
+        ()
+      | Empty _ | Binary_to_register _ | Tables_to_register _
+      | Add_binary_to_register _ | Add_tables_to_register _ | Add_kmer_files_to_twisted _
+      | Register_to_tables (Twister, _) | Register_to_tables (Twisted, _) | Register_to_tables (Distances, _)
+      | Register_to_binary (Twister, _) | Register_to_binary (Twisted, _) | Register_to_binary (Distances, _)
+      | Set_precision _ | Set_keep_at_most _ ->
+        ())
+    program;
   let compute_metrics () =
-    (* A twister must have been loaded to provide the metric induced by inertia *)
-    if !twister = Twister.empty then
-      failwith "You must load a twister in the twister register to provide a metric!";
     { Matrix.Base.idx_to_row_names = [| "metrics" |];
       idx_to_col_names = !twister.inertia.matrix.idx_to_col_names;
       storage = [| !metric !twister.inertia.matrix.storage.(0) |] } in
