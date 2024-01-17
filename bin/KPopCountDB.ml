@@ -235,7 +235,8 @@ and [@warning "-32"] Statistics:
         Processes.Parallel.process_stream_chunkwise
           (fun () ->
             if verbose then
-              Printf.eprintf "\rComputing %s statistics [%d/%d]%!" (col_or_row_to_string what) !processed n;
+              Printf.eprintf "%s\r(%s): Computing %s statistics [%d/%d]%!"
+                Tools.String.TermIO.clear __FUNCTION__ (col_or_row_to_string what) !processed n;
             let to_do = n - !processed in
             if to_do > 0 then begin
               let to_do = min to_do step in
@@ -270,7 +271,8 @@ and [@warning "-32"] Statistics:
             binary_merge_arrays ((Array.append a1 a2) :: processed) tl in
         let res = List.rev !res |> binary_merge_arrays [] in
         if verbose then
-          Printf.eprintf "\rComputing %s statistics [%d/%d]\n%!" (col_or_row_to_string what) n n;
+          Printf.eprintf "%s\r(%s): Computing %s statistics [%d/%d]\n%!"
+            Tools.String.TermIO.clear __FUNCTION__ (col_or_row_to_string what) n n;
         res in
       { col_stats = compute_all Col;
         row_stats = compute_all Row }
@@ -417,7 +419,7 @@ and KMerDB:
             ny
         end else
           ny in
-      (*Printf.eprintf "Resizing to (%d,%d) - asked (%d,%d)...\n%!" eff_nx eff_ny nx ny;*)
+      (*Printf.eprintf "(%s): Resizing to (%d,%d) - asked (%d,%d)...\n%!" __FUNCTION__ eff_nx eff_ny nx ny;*)
       if eff_nx > lx then
         Array.append
           (* We need to provide the is_buffer argument like this because of type resolution *)
@@ -561,12 +563,14 @@ and KMerDB:
                 !db.core.meta.(col_idx).(name_idx) <- line.(i))
             meta_indices;
           if verbose && !line_num mod 10 = 0 then
-            Printf.eprintf "\rFile '%s': Read %d lines%!" fname !line_num
+            Printf.eprintf "%s\r(%s): File '%s': Read %d lines%!"
+              Tools.String.TermIO.clear __FUNCTION__ fname !line_num
         done
       with End_of_file ->
         close_in input;
         if verbose then
-          Printf.eprintf "\rFile '%s': Read %d lines\n%!" fname !line_num
+          Printf.eprintf "%s\r(%s): File '%s': Read %d lines\n%!"
+            Tools.String.TermIO.clear __FUNCTION__ fname !line_num
       end;
       !db
     exception Header_expected of string
@@ -594,7 +598,8 @@ and KMerDB:
                 col_idx := Hashtbl.find !db.col_names_to_idx line.(1);
                 incr num_spectra;
                 if verbose then
-                  Printf.eprintf "\r[%d/%d] File '%s': Read %d %s on %d %s%!" (i + 1) n fname
+                  Printf.eprintf "%s\r(%s): [%d/%d] File '%s': Read %d %s on %d %s%!"
+                    Tools.String.TermIO.clear __FUNCTION__ (i + 1) n fname
                     !num_spectra (Tools.String.pluralize_int ~plural:"spectra" "spectrum" !num_spectra)
                     !line_num (Tools.String.pluralize_int "line" !line_num)
               end else begin
@@ -632,7 +637,8 @@ and KMerDB:
             close_in input;
             incr num_spectra;
             if verbose then
-              Printf.eprintf "\r[%d/%d] File '%s': Read %d %s on %d %s%s%!" (i + 1) n fname
+              Printf.eprintf "%s\r(%s): [%d/%d] File '%s': Read %d %s on %d %s%s%!"
+                Tools.String.TermIO.clear __FUNCTION__ (i + 1) n fname
                 !num_spectra (Tools.String.pluralize_int ~plural:"spectra" "spectrum" !num_spectra)
                 !line_num (Tools.String.pluralize_int "line" !line_num) (if i + 1 = n then ".\n" else "")
           end)
@@ -642,7 +648,7 @@ and KMerDB:
     let selected_from_regexps ?(verbose = false) db regexps =
       (* We iterate over the columns *)
       if verbose then
-        Printf.eprintf "Selecting columns... [%!";
+        Printf.eprintf "(%s): Selecting columns... [%!" __FUNCTION__;
       List.iter
         (fun (what, _) ->
           if verbose && what <> "" && Hashtbl.find_opt db.meta_names_to_idx what = None then
@@ -682,7 +688,7 @@ and KMerDB:
       let transf = Transformation.of_parameters { which = "normalize"; threshold = 1; power = 1. } in
       let stats = Statistics.table_of_db ~threads ~verbose transf db and db = ref db in
       if verbose then
-        Printf.eprintf "Adding/replacing spectrum '%s': [%!" new_label;
+        Printf.eprintf "(%s): Adding/replacing spectrum '%s': [%!" __FUNCTION__ new_label;
       add_empty_column_if_needed db new_label;
       let num_cols = ref 0 and max_norm = ref 0. in
       StringSet.iter
@@ -895,8 +901,8 @@ and KMerDB:
               let old_processed_cols = !processed_cols in
               processed_cols := !processed_cols + n_processed;
               if verbose && !processed_cols / 2 > old_processed_cols / 2 then (* We write one column at the time *)
-                Printf.eprintf "\rWriting table to file '%s': done %d/%d lines%!"
-                  fname !processed_cols n_cols)
+                Printf.eprintf "%s\r(%s): Writing table to file '%s': done %d/%d lines%!"
+                  Tools.String.TermIO.clear __FUNCTION__ fname !processed_cols n_cols)
             threads
         end else begin
           if filter.print_col_names then begin
@@ -955,7 +961,8 @@ and KMerDB:
               let old_processed_rows = !processed_rows in
               processed_rows := !processed_rows + n_processed;
               if verbose && !processed_rows / 10000 > old_processed_rows / 10000 then
-                Printf.eprintf "\rWriting table to file '%s': done %d/%d lines%!" fname !processed_rows n_rows)
+                Printf.eprintf "%s\r(%s): Writing table to file '%s': done %d/%d lines%!"
+                  Tools.String.TermIO.clear __FUNCTION__ fname !processed_rows n_rows)
             threads
         end;
         let n_done =
@@ -964,7 +971,8 @@ and KMerDB:
           else
             n_rows in
         if verbose then
-          Printf.eprintf "\rWriting table to file '%s': done %d/%d lines.\n%!" fname n_done n_done
+          Printf.eprintf "%s\r(%s): Writing table to file '%s': done %d/%d lines.\n%!"
+            Tools.String.TermIO.clear __FUNCTION__ fname n_done n_done
       end;
       close_out output
     let make_filename_table = function
@@ -1058,8 +1066,8 @@ module Parameters =
 
 let info = {
   Tools.Info.name = "KPopCountDB";
-  version = "34";
-  date = "02-Jan-2024"
+  version = "35";
+  date = "17-Jan-2024"
 } and authors = [
   "2020-2024", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
@@ -1296,74 +1304,75 @@ let () =
   and transform = Transformation.to_parameters Defaults.filter.transform |> ref
   and filter = ref Defaults.filter
   and distance = ref Defaults.distance and distance_normalise = ref Defaults.distance_normalise in
-
-  (* The addition of an exception handler would be nice *)
-
-  List.iter
-    (function
-      | Empty ->
-        current := KMerDB.make_empty ()
-      | Of_file fname ->
-        current := KMerDB.of_binary ~verbose:!Parameters.verbose fname
-      | Add_meta fname ->
-        current := KMerDB.add_meta ~verbose:!Parameters.verbose !current fname
-      | Add_files fnames ->
-        current := KMerDB.add_files ~verbose:!Parameters.verbose !current fnames
-      | Add_sum_selected new_label ->
-        current :=
-          KMerDB.add_sum_selected ~threads:!Parameters.threads ~verbose:!Parameters.verbose
-            !current new_label !selected
-      | Remove_selected ->
-        current := KMerDB.remove_selected !current !selected
-      | Summary ->
-        KMerDB.output_summary ~verbose:!Parameters.verbose !current
-      | Selected_from_labels labels ->
-        selected := labels
-      | Selected_from_regexps regexps ->
-        selected := KMerDB.selected_from_regexps ~verbose:!Parameters.verbose !current regexps
-      | Selected_negate ->
-        selected := KMerDB.selected_negate !current !selected
-      | Selected_print ->
-        Printf.eprintf "Currently selected spectra = [";
-        StringSet.iter (Printf.eprintf " '%s'%!") !selected;
-        Printf.eprintf " ].\n%!"
-      | Selected_clear ->
-        selected := StringSet.empty
-      | Selected_to_filter ->
-        filter := { !filter with filter_columns = !selected }
-      | Table_emit_row_names print_row_names ->
-        filter := { !filter with print_row_names }
-      | Table_emit_col_names print_col_names ->
-        filter := { !filter with print_col_names }
-      | Table_emit_metadata print_metadata ->
-        filter := { !filter with print_metadata }
-      | Table_transpose transpose ->
-        filter := { !filter with transpose }
-      | Table_transform_threshold threshold ->
-        transform := { !transform with threshold };
-        filter := { !filter with transform = Transformation.of_parameters !transform }
-      | Table_transform_power power ->
-        transform := { !transform with power };
-        filter := { !filter with transform = Transformation.of_parameters !transform }
-      | Table_transform_which which ->
-        transform := { !transform with which };
-        filter := { !filter with transform = Transformation.of_parameters !transform }
-      | Table_emit_zero_rows print_zero_rows ->
-        filter := { !filter with print_zero_rows }
-      | Table_precision precision ->
-        filter := { !filter with precision }
-      | To_table fname ->
-        KMerDB.to_table ~filter:!filter ~threads:!Parameters.threads ~verbose:!Parameters.verbose !current fname
-      | To_file fname ->
-        KMerDB.to_binary ~verbose:!Parameters.verbose !current fname
-      | Distance_set dist ->
-        distance := dist
-      | Distance_normalisation_set normalise ->
-        distance_normalise := normalise
-      | To_distances (regexps_1, regexps_2, prefix) ->
-        let selected_1 = KMerDB.selected_from_regexps ~verbose:!Parameters.verbose !current regexps_1
-        and selected_2 = KMerDB.selected_from_regexps ~verbose:!Parameters.verbose !current regexps_2 in
-        KMerDB.to_distances ~normalise:!distance_normalise ~threads:!Parameters.threads ~verbose:!Parameters.verbose
-          !distance !current selected_1 selected_2 prefix)
-    program
+  try
+    List.iter
+      (function
+        | Empty ->
+          current := KMerDB.make_empty ()
+        | Of_file fname ->
+          current := KMerDB.of_binary ~verbose:!Parameters.verbose fname
+        | Add_meta fname ->
+          current := KMerDB.add_meta ~verbose:!Parameters.verbose !current fname
+        | Add_files fnames ->
+          current := KMerDB.add_files ~verbose:!Parameters.verbose !current fnames
+        | Add_sum_selected new_label ->
+          current :=
+            KMerDB.add_sum_selected ~threads:!Parameters.threads ~verbose:!Parameters.verbose
+              !current new_label !selected
+        | Remove_selected ->
+          current := KMerDB.remove_selected !current !selected
+        | Summary ->
+          KMerDB.output_summary ~verbose:!Parameters.verbose !current
+        | Selected_from_labels labels ->
+          selected := labels
+        | Selected_from_regexps regexps ->
+          selected := KMerDB.selected_from_regexps ~verbose:!Parameters.verbose !current regexps
+        | Selected_negate ->
+          selected := KMerDB.selected_negate !current !selected
+        | Selected_print ->
+          Printf.eprintf "Currently selected spectra = [";
+          StringSet.iter (Printf.eprintf " '%s'%!") !selected;
+          Printf.eprintf " ].\n%!"
+        | Selected_clear ->
+          selected := StringSet.empty
+        | Selected_to_filter ->
+          filter := { !filter with filter_columns = !selected }
+        | Table_emit_row_names print_row_names ->
+          filter := { !filter with print_row_names }
+        | Table_emit_col_names print_col_names ->
+          filter := { !filter with print_col_names }
+        | Table_emit_metadata print_metadata ->
+          filter := { !filter with print_metadata }
+        | Table_transpose transpose ->
+          filter := { !filter with transpose }
+        | Table_transform_threshold threshold ->
+          transform := { !transform with threshold };
+          filter := { !filter with transform = Transformation.of_parameters !transform }
+        | Table_transform_power power ->
+          transform := { !transform with power };
+          filter := { !filter with transform = Transformation.of_parameters !transform }
+        | Table_transform_which which ->
+          transform := { !transform with which };
+          filter := { !filter with transform = Transformation.of_parameters !transform }
+        | Table_emit_zero_rows print_zero_rows ->
+          filter := { !filter with print_zero_rows }
+        | Table_precision precision ->
+          filter := { !filter with precision }
+        | To_table fname ->
+          KMerDB.to_table ~filter:!filter ~threads:!Parameters.threads ~verbose:!Parameters.verbose !current fname
+        | To_file fname ->
+          KMerDB.to_binary ~verbose:!Parameters.verbose !current fname
+        | Distance_set dist ->
+          distance := dist
+        | Distance_normalisation_set normalise ->
+          distance_normalise := normalise
+        | To_distances (regexps_1, regexps_2, prefix) ->
+          let selected_1 = KMerDB.selected_from_regexps ~verbose:!Parameters.verbose !current regexps_1
+          and selected_2 = KMerDB.selected_from_regexps ~verbose:!Parameters.verbose !current regexps_2 in
+          KMerDB.to_distances ~normalise:!distance_normalise ~threads:!Parameters.threads ~verbose:!Parameters.verbose
+            !distance !current selected_1 selected_2 prefix)
+      program
+  with exc ->
+    TA.usage ();
+    raise exc
 
