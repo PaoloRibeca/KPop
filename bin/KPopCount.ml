@@ -102,8 +102,8 @@ module Parameters =
 
 let info = {
   Tools.Info.name = "KPopCount";
-  version = "11";
-  date = "17-Jan-2024"
+  version = "12";
+  date = "18-Jan-2024"
 } and authors = [
   "2017-2024", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
@@ -227,7 +227,7 @@ let () =
       let module KMC = KMerCounter (KMers.DNAHashSingleStranded (struct let value = !Parameters.k end)) in
       KMC.compute ~linter:(Sequences.Lint.dnaize ~keep_lowercase:false ~keep_dashes:false)
     | DNA_ds ->
-      let module KMC = KMerCounter (KMers.DNAHashDoubleStranded (struct let value = !Parameters.k end)) in
+      let module KMC = KMerCounter (KMers.DNAHashDoubleStrandedLexicographic (struct let value = !Parameters.k end)) in
       KMC.compute ~linter:(Sequences.Lint.dnaize ~keep_lowercase:false ~keep_dashes:false)
     | Protein ->
       let module KMC = KMerCounter (KMers.ProteinHash (struct let value = !Parameters.k end)) in
