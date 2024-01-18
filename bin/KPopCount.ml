@@ -101,7 +101,7 @@ module Parameters =
   end
 
 let info = {
-  Tools.Info.name = "KPopCount";
+  Tools.Argv.name = "KPopCount";
   version = "12";
   date = "18-Jan-2024"
 } and authors = [
@@ -110,7 +110,7 @@ let info = {
 
 let () =
   let module TA = Tools.Argv in
-  TA.make_header info authors [ BiOCamLib.Info.info; KPop.Info.info ] |> TA.set_header;
+  TA.set_header (info, authors, [ BiOCamLib.Info.info; KPop.Info.info ]);
   TA.set_synopsis "-l|--label <output_vector_label> [OPTIONS]";
   TA.parse [
     TA.make_separator "Algorithmic parameters";

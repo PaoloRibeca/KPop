@@ -331,7 +331,7 @@ module Parameters =
   end
 
 let info = {
-  Tools.Info.name = "KPopTwistDB";
+  Tools.Argv.name = "KPopTwistDB";
   version = "27";
   date = "17-Jan-2024"
 } and authors = [
@@ -340,7 +340,7 @@ let info = {
 
 let () =
   let module TA = Tools.Argv in
-  TA.make_header info authors [ BiOCamLib.Info.info; KPop.Info.info ] |> TA.set_header;
+  TA.set_header (info, authors, [ BiOCamLib.Info.info; KPop.Info.info ]);
   TA.set_synopsis "[ACTIONS]";
   TA.parse [
     TA.make_separator_multiline [ "Actions."; "They are executed delayed and in order of specification." ];
@@ -408,7 +408,7 @@ let () =
           TA.parse_error "You cannot add content to the twister or metrics registers"
         | Twisted | Distances as register_type ->
           Add_tables_to_register (register_type, TA.get_parameter ()) |> Tools.List.accum Parameters.program);
-    [ "-k"; "-K"; "--kmers"; "--add-kmers"; "--add-kmer-files" ],
+    [ "-k"; "--kmers"; "--add-kmers"; "--add-kmer-files" ],
       Some "<k-mer_table_file_name>[','...','<k-mer_table_file_name>]",
       [ "twist k-mers from the specified files through the transformation";
         "present in the twister register, and add the results";
@@ -420,8 +420,9 @@ let () =
     [ "--distance"; "--distance-function"; "--set-distance"; "--set-distance-function" ],
       Some "'euclidean'|'cosine'|'minkowski(<non_negative_float>)'",
       [ "set the function to be used when computing distances.";
-        "The parameter for Minkowski is the power.";
-        "Euclidean is the same as Minkowski(2); Cosine is the same as (Euclidean^2)/2" ],
+        "The parameter for 'minkowski' is the power.";
+        "Note that 'euclidean' is the same as 'minkowski(2)',";
+        "and 'cosine' is the same as ('euclidean'^2)/2" ],
       TA.Default (fun () -> Space.Distance.to_string Defaults.distance),
       (fun _ -> Set_distance (TA.get_parameter () |> Space.Distance.of_string) |> Tools.List.accum Parameters.program);
     [ "--distance-normalization"; "--set-distance-normalization" ],
@@ -479,7 +480,7 @@ let () =
       (fun _ ->
         let register_type = TA.get_parameter () |> RegisterType.of_string in
         Register_to_tables (register_type, TA.get_parameter ()) |> Tools.List.accum Parameters.program);
-    [ "--keep-at-most"; "--set-keep-at-most"; "--summary-keep-at-most" ],
+    [ "-K"; "--keep-at-most"; "--set-keep-at-most"; "--summary-keep-at-most" ],
       Some "<positive_integer>|'all'",
       [ "set the maximum number of closest target sequences";
         "to be kept when summarizing distances.";
@@ -499,7 +500,7 @@ let () =
       (fun _ ->
         let twisted_prefix = TA.get_parameter () in
         Summary_from_twisted_binary (twisted_prefix, TA.get_parameter ()) |> Tools.List.accum Parameters.program);
-    [ "-S"; "--summarize-distances" ],
+    [ "-S"; "--summarize-distances"; "--summarize-twisted-distances" ],
       Some "<summary_file_prefix>",
       [ "summarize the distances present in the distance register";
         "and write the result to the specified tabular file.";
@@ -697,6 +698,6 @@ let () =
             ~keep_at_most:!keep_at_most ~threads:!Parameters.threads ~verbose:!Parameters.verbose !distances prefix)
       program
   with exc ->
-    TA.usage ();
-    raise exc
+    Printf.eprintf "[#%s]: (%s): %s\n%!" (Unix.getpid () |> string_of_int |> Tools.String.TermIO.blue) __FUNCTION__
+      ("FATAL: Uncaught exception: " ^ Printexc.to_string exc |> Tools.String.TermIO.red)
 

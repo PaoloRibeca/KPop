@@ -30,7 +30,7 @@ module Parameters =
   end
 
 let info = {
-  Tools.Info.name = "KPopTwist";
+  Tools.Argv.name = "KPopTwist";
   version = "17";
   date = "02-Jan-2024"
 } and authors = [
@@ -39,7 +39,7 @@ let info = {
 
 let () =
   let module TA = Tools.Argv in
-  TA.make_header info authors [ BiOCamLib.Info.info; KPop.Info.info ] |> TA.set_header;
+  TA.set_header (info, authors, [ BiOCamLib.Info.info; KPop.Info.info ]);
   TA.set_synopsis "-i|--input <input_table_prefix> [OPTIONS]";
   TA.parse [
     TA.make_separator "Algorithmic parameters";

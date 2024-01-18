@@ -1065,16 +1065,16 @@ module Parameters =
   end
 
 let info = {
-  Tools.Info.name = "KPopCountDB";
-  version = "35";
-  date = "17-Jan-2024"
+  Tools.Argv.name = "KPopCountDB";
+  version = "36";
+  date = "18-Jan-2024"
 } and authors = [
   "2020-2024", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
 
 let () =
   let module TA = Tools.Argv in
-  TA.make_header info authors [ BiOCamLib.Info.info; KPop.Info.info ] |> TA.set_header;
+  TA.set_header (info, authors, [ BiOCamLib.Info.info; KPop.Info.info ]);
   TA.set_synopsis "[ACTIONS]";
   let parse_regexp_selector option s =
     List.map
@@ -1107,7 +1107,7 @@ let () =
       [ "add to the database present in the register metadata from the specified file" ],
       TA.Optional,
       (fun _ -> Add_meta (TA.get_parameter ()) |> Tools.List.accum Parameters.program);
-    [ "-f"; "--files"; "--add-files" ],
+    [ "-k"; "--kmers"; "--add-kmers"; "--add-kmer-files" ],
       Some "<k-mer_table_file_name>[','...','<k-mer_table_file_name>]",
       [ "add to the database present in the register k-mers from the specified files" ],
       TA.Optional,
@@ -1373,6 +1373,6 @@ let () =
             !distance !current selected_1 selected_2 prefix)
       program
   with exc ->
-    TA.usage ();
-    raise exc
+    Printf.eprintf "[#%s]: (%s): %s\n%!" (Unix.getpid () |> string_of_int |> Tools.String.TermIO.blue) __FUNCTION__
+      ("FATAL: Uncaught exception: " ^ Printexc.to_string exc |> Tools.String.TermIO.red)
 
