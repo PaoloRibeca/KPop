@@ -157,15 +157,15 @@ let () =
     [ "-l"; "--label" ],
       Some "<output_vector_label>",
       [ "label to be given to the k-mer vector in the output file.";
-        "One of options '-l' and '-L' is mandatory" ],
+        "Either option '-l' or option '-L' is mandatory" ],
       TA.Optional,
       (fun _ -> Parameters.option_l_or_L := true; Parameters.label := TA.get_parameter());
     [ "-L"; "--one-spectrum-per-sequence" ],
       None,
       [ "emit one spectrum per sequence; the label will be the sequence name.";
-        "One of options '-L' and '-l' is mandatory" ],
+        "Either option '-l' or option '-L' is mandatory" ],
       TA.Optional,
-      (fun _ -> Parameters.option_l_or_L := true; Parameters.label := TA.get_parameter());
+      (fun _ -> Parameters.option_l_or_L := true);
     [ "-o"; "--output" ],
       Some "<output_file_name>",
       [ "name of generated output file" ],
