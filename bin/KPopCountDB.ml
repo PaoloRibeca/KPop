@@ -314,7 +314,7 @@ and KMerDB:
       end
     (* Generate according to the specified criterion a combination of the spectra having the given labels,
         name the combination as directed, and add it to the database *)
-    val add_combined_selected: ?threads:int -> ?verbose:bool ->
+    val add_combined_selected: ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
                                t -> string -> StringSet.t -> CombinationCriterion.t -> t
     (* Remove spectra with the given labels *)
     val remove_selected: t -> StringSet.t -> t
@@ -697,15 +697,19 @@ and KMerDB:
       end
     (* It should be OK to have the same label on both LHS and RHS,
         as a temporary vector is used to generate the combination *)
-    let add_combined_selected ?(threads = 1) ?(verbose = false) db new_label selection criterion =
+    let add_combined_selected ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false)
+        db new_label selection criterion =
       (* Here we want no thresholding and linear statistics *)
       let transf = Transformation.of_parameters { which = "normalize"; threshold = 1; power = 1. } in
       let stats = Statistics.table_of_db ~threads ~verbose transf db and db = ref db in
       if verbose then
         Printf.eprintf "(%s): Adding/replacing spectrum '%s': [%!" __FUNCTION__ new_label;
-      (* Computing maximum normalisation across columns *)
+      (* We allocate the result *)
       add_empty_column_if_needed db new_label;
-      let num_found_cols = ref 0 and max_norm = ref 0. in
+      let new_col_idx = Hashtbl.find !db.col_names_to_idx new_label in
+      let new_col = !db.core.storage.(new_col_idx) in
+      (* Computing valid labels and maximum normalisation across columns *)
+      let found_cols = ref [] and max_norm = ref 0. in
       StringSet.iter
         (fun label ->
           if verbose then
@@ -713,54 +717,71 @@ and KMerDB:
           (* Some labels might be invalid *)
           match Hashtbl.find_opt !db.col_names_to_idx label with
           | Some col_idx ->
-            incr num_found_cols;
+            Tools.List.accum found_cols col_idx;
             max_norm := max !max_norm stats.col_stats.(col_idx).sum
           | None ->
             if verbose then
               Printf.eprintf "(NOT FOUND)%!")
         selection;
-      let num_found_cols = !num_found_cols and max_norm = !max_norm in
+      let found_cols = Array.of_list !found_cols in (* We don't really care about the order here *)
+      let num_found_cols = Array.length found_cols and max_norm = !max_norm and norm = ref 0. in
       if verbose then
-        Printf.eprintf " ] n_found=%d max_norm=%.16g [%!" num_found_cols max_norm;
-      let module FVF = Numbers.Frequencies.Vector(Numbers.Float)(Numbers.MakeComparableNumber) in
-      let red_n_rows = !db.core.n_rows - 1
-      (* We need one histogram per row to be able to compute statistics such as the median *)
-      and row_combinators = Array.init !db.core.n_rows (fun _ -> FVF.empty ~non_negative:true ()) in
-      (* We normalise columns *separately* before combining them *)
-      StringSet.iter
-        (fun label ->
-          (* Remember that some labels might be invalid *)
-          match Hashtbl.find_opt !db.col_names_to_idx label with
-          | Some col_idx ->
-            if verbose then
-              Printf.eprintf ".%!";
-            let col = !db.core.storage.(col_idx) and norm = stats.col_stats.(col_idx).sum in
-            (* All counts are non-negative *)
-            if norm > 0. then begin
-              for i = 0 to red_n_rows do
-                (* We add the renormalised sum to the suitable row histogram *)
-                IBAVector.N.to_float col.IBAVector.@(i) *. max_norm /. norm |> FVF.add row_combinators.(i)
-              done
-            end
-          | None -> ())
-        selection;
-      let new_col_idx = Hashtbl.find !db.col_names_to_idx new_label in
-      let new_col = !db.core.storage.(new_col_idx) and norm = ref 0. in
-      (* For each row historgram, we now generate a combination and actually copy it to storage *)
-      for i = 0 to red_n_rows do
-        let res_i =
-          match criterion with
-          | CombinationCriterion.RescaledMean ->
-            FVF.sum row_combinators.(i)
-          | RescaledMedian ->
-            FVF.median row_combinators.(i) *. float_of_int num_found_cols in
-        let res_i = Int32.of_float res_i in
-        (* Actual copy to storage *)
-        new_col.IBAVector.@(i) <- res_i;
-        norm := !norm +. IBAVector.N.to_float res_i
-      done;
+        Printf.eprintf " ] n_found=%d max_norm=%.16g.\n%!" num_found_cols max_norm;
+      let n_rows = !db.core.n_rows and processed_rows = ref 0 in
+      Processes.Parallel.process_stream_chunkwise
+        (fun () ->
+          if !processed_rows < n_rows then
+            let to_do = max 1 (elements_per_step / num_found_cols) |> min (n_rows - !processed_rows) in
+            let new_processed_rows = !processed_rows + to_do in
+            let res = !processed_rows, new_processed_rows - 1 in
+            processed_rows := new_processed_rows;
+            res
+          else
+            raise End_of_file)
+        (fun (lo_row, hi_row) ->
+          let module FVF = Numbers.Frequencies.Vector(Numbers.Float)(Numbers.MakeComparableNumber) in
+          (* We need one histogram per row to be able to compute statistics such as the median *)
+          let row_combinators = Array.init (hi_row - lo_row + 1) (fun _ -> FVF.empty ~non_negative:true ()) in
+          for i = lo_row to hi_row do
+            (* We iterate over valid columns *)
+            Array.iter
+              (fun col_idx ->
+                (* We normalise columns *separately* before combining them *)
+                let col = !db.core.storage.(col_idx) and norm = stats.col_stats.(col_idx).sum in
+                (* All counts are non-negative *)
+                if norm > 0. then
+                  (* We add the renormalised sum to the suitable row histogram *)
+                  IBAVector.N.to_float col.IBAVector.@(i) *. max_norm /. norm |> FVF.add row_combinators.(i - lo_row))
+              found_cols
+          done;
+          (* For each row histogram in the input range, we now generate a combination and pass it along *)
+          lo_row,
+          Array.map
+            (fun combinator ->
+              match criterion with
+              | CombinationCriterion.RescaledMean ->
+                FVF.sum combinator
+              | RescaledMedian ->
+                FVF.median combinator *. float_of_int num_found_cols)
+            row_combinators)
+        (fun (lo_row, block) ->
+          let n_processed = Array.length block in
+          for i = lo_row to lo_row + n_processed - 1 do
+            let res_i = block.(i - lo_row) in
+            Numbers.Float.(norm ++ res_i);
+            let res_i = Int32.of_float res_i in
+            (* Actual copy to storage *)
+            new_col.IBAVector.@(i) <- res_i
+          done;
+          let old_processed_rows = !processed_rows in
+          processed_rows := !processed_rows + n_processed;
+          if verbose && !processed_rows / 10000 > old_processed_rows / 10000 then
+            Printf.eprintf "%s\r(%s): Combining spectra: done %d/%d lines%!"
+              Tools.String.TermIO.clear __FUNCTION__ !processed_rows n_rows)
+        threads;
       if verbose then
-        Printf.eprintf "] norm=%.16g\n%!" !norm;
+        Printf.eprintf "%s\r(%s): Combining spectra: done %d/%d lines. Norm=%.16g\n%!"
+          Tools.String.TermIO.clear __FUNCTION__ !processed_rows n_rows !norm;
       (* If metadata is present in the database, we generate some for the new column too *)
       if !db.core.n_meta > 0 then begin
         (* For each metadata field, we compute the intersection of the values across all selected columns *)
