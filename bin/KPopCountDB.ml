@@ -305,9 +305,17 @@ and KMerDB:
     (* Select column names identified by regexps on metadata fields *)
     val selected_from_regexps: ?verbose:bool -> t -> (string * Str.regexp) list -> StringSet.t
     val selected_negate: t -> StringSet.t -> StringSet.t
-    (* Add a linear combination of the spectra having the given labels,
-        and name it as directed *)
-    val add_sum_selected: ?threads:int -> ?verbose:bool -> t -> string -> StringSet.t -> t
+    exception Unknown_combination_criterion of string
+    module CombinationCriterion:
+      sig
+        type t = RescaledMean | RescaledMedian
+        val of_string: string -> t
+        val to_string: t -> string
+      end
+    (* Generate according to the specified criterion a combination of the spectra having the given labels,
+        name the combination as directed, and add it to the database *)
+    val add_combined_selected: ?threads:int -> ?verbose:bool ->
+                               t -> string -> StringSet.t -> CombinationCriterion.t -> t
     (* Remove spectra with the given labels *)
     val remove_selected: t -> StringSet.t -> t
     (* Output information about the contents *)
@@ -675,53 +683,78 @@ and KMerDB:
       !res
     let selected_negate db selection =
       StringSet.diff (Array.to_list db.core.idx_to_col_names |> StringSet.of_list) selection
-    (* It should be OK to have the same label on both LHS and RHS, as a temporary vector is used *)
-    let add_sum_selected ?(threads = 1) ?(verbose = false) db new_label selection =
+    exception Unknown_combination_criterion of string
+    module CombinationCriterion =
+      struct
+        type t = RescaledMean | RescaledMedian
+        let of_string = function
+          | "rescaled-mean" | "mean" -> RescaledMean
+          | "rescaled-median" | "median" -> RescaledMedian
+          | w -> Unknown_combination_criterion w |> raise
+        let to_string = function
+          | RescaledMean -> "rescaled-mean"
+          | RescaledMedian -> "rescaled-median"
+      end
+    (* It should be OK to have the same label on both LHS and RHS,
+        as a temporary vector is used to generate the combination *)
+    let add_combined_selected ?(threads = 1) ?(verbose = false) db new_label selection criterion =
       (* Here we want no thresholding and linear statistics *)
       let transf = Transformation.of_parameters { which = "normalize"; threshold = 1; power = 1. } in
       let stats = Statistics.table_of_db ~threads ~verbose transf db and db = ref db in
       if verbose then
         Printf.eprintf "(%s): Adding/replacing spectrum '%s': [%!" __FUNCTION__ new_label;
+      (* Computing maximum normalisation across columns *)
       add_empty_column_if_needed db new_label;
-      let num_cols = ref 0 and max_norm = ref 0. in
+      let num_found_cols = ref 0 and max_norm = ref 0. in
       StringSet.iter
         (fun label ->
           if verbose then
             Printf.eprintf " '%s'%!" label;
+          (* Some labels might be invalid *)
           match Hashtbl.find_opt !db.col_names_to_idx label with
           | Some col_idx ->
-            incr num_cols;
+            incr num_found_cols;
             max_norm := max !max_norm stats.col_stats.(col_idx).sum
           | None ->
             if verbose then
               Printf.eprintf "(NOT FOUND)%!")
         selection;
-      let num_cols = !num_cols and max_norm = !max_norm in
+      let num_found_cols = !num_found_cols and max_norm = !max_norm in
       if verbose then
-        Printf.eprintf " ] n=%d max_norm=%.16g [%!" num_cols max_norm;
-      let red_n_rows = !db.core.n_rows - 1 and res = FBAVector.make !db.core.n_rows 0. in
-      (* We normalise columns *separately* before adding them.
-         Remember that some labels might be invalid *)
+        Printf.eprintf " ] n_found=%d max_norm=%.16g [%!" num_found_cols max_norm;
+      let module FVF = Numbers.Frequencies.Vector(Numbers.Float)(Numbers.MakeComparableNumber) in
+      let red_n_rows = !db.core.n_rows - 1
+      (* We need one histogram per row to be able to compute statistics such as the median *)
+      and row_combinators = Array.init !db.core.n_rows (fun _ -> FVF.empty ~non_negative:true ()) in
+      (* We normalise columns *separately* before combining them *)
       StringSet.iter
         (fun label ->
+          (* Remember that some labels might be invalid *)
           match Hashtbl.find_opt !db.col_names_to_idx label with
           | Some col_idx ->
             if verbose then
               Printf.eprintf ".%!";
-            let col = !db.core.storage.(col_idx)
-            and norm = stats.col_stats.(col_idx).sum in
+            let col = !db.core.storage.(col_idx) and norm = stats.col_stats.(col_idx).sum in
             (* All counts are non-negative *)
             if norm > 0. then begin
               for i = 0 to red_n_rows do
-                res.FBAVector.+(i) <- IBAVector.N.to_float col.IBAVector.@(i) *. max_norm /. norm
+                (* We add the renormalised sum to the suitable row histogram *)
+                IBAVector.N.to_float col.IBAVector.@(i) *. max_norm /. norm |> FVF.add row_combinators.(i)
               done
             end
           | None -> ())
         selection;
       let new_col_idx = Hashtbl.find !db.col_names_to_idx new_label in
       let new_col = !db.core.storage.(new_col_idx) and norm = ref 0. in
+      (* For each row historgram, we now generate a combination and actually copy it to storage *)
       for i = 0 to red_n_rows do
-        let res_i = IBAVector.N.of_float res.FBAVector.@(i) in
+        let res_i =
+          match criterion with
+          | CombinationCriterion.RescaledMean ->
+            FVF.sum row_combinators.(i)
+          | RescaledMedian ->
+            FVF.median row_combinators.(i) *. float_of_int num_found_cols in
+        let res_i = Int32.of_float res_i in
         (* Actual copy to storage *)
         new_col.IBAVector.@(i) <- res_i;
         norm := !norm +. IBAVector.N.to_float res_i
@@ -1018,7 +1051,8 @@ type to_do_t =
   | Of_file of string
   | Add_meta of string
   | Add_files of string list
-  | Add_sum_selected of string (* The new label *)
+  | Combination_criterion_set of KMerDB.CombinationCriterion.t
+  | Add_combined_selected of string (* The new label *)
   | Remove_selected
   | Summary
   | Selected_from_labels of StringSet.t
@@ -1045,6 +1079,7 @@ and regexps_t = (string * Str.regexp) list
 
 module Defaults =
   struct
+    let combination_criterion = KMerDB.CombinationCriterion.of_string "rescaled-median" 
     let filter = KMerDB.TableFilter.default
     let distance = Space.Distance.of_string "euclidean"
     let distance_normalise = true
@@ -1091,7 +1126,7 @@ let () =
       (fun _ -> Empty |> Tools.List.accum Parameters.program);
     [ "-i"; "--input" ],
       Some "<binary_file_prefix>",
-      [ "load to the register the database present in the specified file";
+      [ "load into the register the database present in the specified file";
         " (which must have extension .KPopCounter)" ],
       TA.Optional,
       (fun _ -> Of_file (TA.get_parameter () |> KMerDB.make_filename_binary) |> Tools.List.accum Parameters.program);
@@ -1120,7 +1155,7 @@ let () =
     [ "--distance"; "--distance-function"; "--set-distance"; "--set-distance-function" ],
       Some "'euclidean'|'minkowski(<non_negative_float>)'",
       [ "set the function to be used when computing distances.";
-        "The parameter for Minkowski is the power" ],
+        "The parameter for 'minkowski()' is the power" ],
       TA.Default (fun () -> Space.Distance.to_string Defaults.distance),
       (fun _ -> Distance_set (TA.get_parameter () |> Space.Distance.of_string) |> Tools.List.accum Parameters.program);
     [ "--distance-normalize"; "--normalize-distances"; "--distance-normalization" ],
@@ -1165,8 +1200,8 @@ let () =
       Some "'true'|'false'",
       [ "whether to transpose the database present in the register";
         "before writing it as a tab-separated file";
-        " (if 'true' : rows are spectrum names, columns are (metadata and) k-mer names;";
-        "  if 'false': rows are (metadata and) k-mer names, columns are spectrum names)" ],
+        " (if 'true': rows are spectrum names, columns [metadata and] k-mer names;";
+        "  if 'false': rows are [metadata and] k-mer names, columns spectrum names)" ],
       TA.Default (fun () -> string_of_bool Defaults.filter.transpose),
       (fun _ -> Table_transpose (TA.get_parameter_boolean ()) |> Tools.List.accum Parameters.program);
     [ "--table-threshold" ],
@@ -1175,7 +1210,7 @@ let () =
         "before transforming and outputting them" ],
       TA.Default (fun () -> (Transformation.to_parameters Defaults.filter.transform).threshold |> string_of_int),
       (fun _ ->
-         Table_transform_threshold (TA.get_parameter_int_non_neg ()) |> Tools.List.accum Parameters.program);
+        Table_transform_threshold (TA.get_parameter_int_non_neg ()) |> Tools.List.accum Parameters.program);
     [ "--table-power" ],
       Some "<non_negative_float>",
       [ "raise counts to this power before transforming and outputting them.";
@@ -1183,20 +1218,20 @@ let () =
         "performs a logarithmic transformation" ],
       TA.Default (fun () -> (Transformation.to_parameters Defaults.filter.transform).power |> string_of_float),
       (fun _ ->
-         Table_transform_power (TA.get_parameter_float_non_neg ()) |> Tools.List.accum Parameters.program);
+        Table_transform_power (TA.get_parameter_float_non_neg ()) |> Tools.List.accum Parameters.program);
     [ "--table-transform"; "--table-transformation" ],
       Some "'none'|'normalize'|'pseudocount'|'clr'",
       [ "transformation to apply to table elements before outputting them" ],
       TA.Default (fun () -> (Transformation.to_parameters Defaults.filter.transform).which),
       (fun _ ->
-         Table_transform_which (TA.get_parameter ()) |> Tools.List.accum Parameters.program);
+        Table_transform_which (TA.get_parameter ()) |> Tools.List.accum Parameters.program);
     [ "--table-emit-zero-rows" ],
       Some "'true'|'false'",
       [ "whether to emit rows whose elements are all zero";
         "when writing the database as a tab-separated file" ],
       TA.Default (fun () -> string_of_bool Defaults.filter.print_zero_rows),
       (fun _ -> Table_emit_zero_rows (TA.get_parameter_boolean ()) |> Tools.List.accum Parameters.program);
-    [ "--table-set-precision" ],
+    [ "--table-set-precision"; "--set-table-precision" ],
       Some "<positive_integer>",
       [ "set the number of precision digits to be used when outputting counts" ],
       TA.Default (fun () -> string_of_int Defaults.filter.precision),
@@ -1228,15 +1263,27 @@ let () =
       (fun _ ->
         Selected_from_regexps (TA.get_parameter () |> parse_regexp_selector "-R")
           |> Tools.List.accum Parameters.program);
-    [ "-A"; "--add-sum-selection"; "--selection-add-sum" ],
+    [ "--set-selection-combination-criterion"; "--selection-combination-criterion" ],
+      Some "'rescaled-mean'|'mean'|'rescaled-median'|'median'",
+      [ "set the criterion used to combine the k-mer frequencies of selected spectra.";
+        "To avoid rounding issues, each k-mer frequency is also rescaled";
+        "by the largest normalization across spectra";
+        " ('rescaled-mean' or 'mean' averages frequencies across spectra;";
+        "  'rescaled-median' or 'median' computes the median across spectra)" ],
+      TA.Default (fun () -> KMerDB.CombinationCriterion.to_string Defaults.combination_criterion),
+      (fun _ ->
+        Combination_criterion_set (TA.get_parameter () |> KMerDB.CombinationCriterion.of_string)
+          |> Tools.List.accum Parameters.program);
+    [ "-A"; "--add-combined-selection"; "--selection-combine-and-add" ],
       Some "<new_spectrum_label>",
-      [ "add to the database present in the register (or replace if the new label exists)";
-        "a linear combination of the spectra whose labels are in the selection register" ],
+      [ "add to the database present in the register (or replace if new label exists)";
+        "a combination of the spectra whose labels are in the selection register" ],
       TA.Optional,
-      (fun _ -> Add_sum_selected (TA.get_parameter ()) |> Tools.List.accum Parameters.program);
+      (fun _ -> Add_combined_selected (TA.get_parameter ()) |> Tools.List.accum Parameters.program);
     [ "-D"; "--delete"; "--selection-delete" ],
       None,
-      [ "drop from the table the spectra whose labels are in the selection register" ],
+      [ "drop the spectra whose labels are in the selection register";
+        "from the database present in the register" ],
       TA.Optional,
       (fun _ -> Remove_selected |> Tools.List.accum Parameters.program);
     [ "-N"; "--selection-negate" ],
@@ -1256,7 +1303,7 @@ let () =
       (fun _ -> Selected_clear |> Tools.List.accum Parameters.program);
     [ "-F"; "--selection-to-table-filter" ],
       None,
-      [ "filters out spectra whose labels are present in the selection register";
+      [ "filter out spectra whose labels are present in the selection register";
         "when writing the database as a tab-separated file" ],
       TA.Optional,
       (fun _ -> Selected_to_filter |> Tools.List.accum Parameters.program);
@@ -1294,6 +1341,7 @@ let () =
     TA.header ();
   (* These are the registers available to the program *)
   let current = KMerDB.make_empty () |> ref and selected = ref StringSet.empty
+  and combination_criterion = ref Defaults.combination_criterion
   and transform = Transformation.to_parameters Defaults.filter.transform |> ref
   and filter = ref Defaults.filter
   and distance = ref Defaults.distance and distance_normalise = ref Defaults.distance_normalise in
@@ -1308,10 +1356,12 @@ let () =
           current := KMerDB.add_meta ~verbose:!Parameters.verbose !current fname
         | Add_files fnames ->
           current := KMerDB.add_files ~verbose:!Parameters.verbose !current fnames
-        | Add_sum_selected new_label ->
+        | Combination_criterion_set criterion ->
+          combination_criterion := criterion
+        | Add_combined_selected new_label ->
           current :=
-            KMerDB.add_sum_selected ~threads:!Parameters.threads ~verbose:!Parameters.verbose
-              !current new_label !selected
+            KMerDB.add_combined_selected ~threads:!Parameters.threads ~verbose:!Parameters.verbose
+              !current new_label !selected !combination_criterion
         | Remove_selected ->
           current := KMerDB.remove_selected !current !selected
         | Summary ->
