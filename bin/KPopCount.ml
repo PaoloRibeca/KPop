@@ -15,11 +15,12 @@
 
 open BiOCamLib
 
-module KMerCounter (KMH: KMers.Hash_t with type t = int):
+module KMerCounter (KIH: KMers.IntHash_t):
   sig
     val compute: ?verbose:bool -> linter:(string -> string) -> Files.ReadsIterate.t -> int -> string -> string -> unit
   end
 = struct
+    module KIHF = KMers.IntHashFrequencies
     let compute ?(verbose = false) ~linter store max_results_size label fname =
       let output =
         if fname = "" then
@@ -27,34 +28,25 @@ module KMerCounter (KMH: KMers.Hash_t with type t = int):
         else
           open_out fname in
       (* Header with label *)
-      Printf.fprintf output "\t%s\n" label;
-      let output_format = Scanf.format_from_string (Printf.sprintf "%%0%dx\t%%d\n" ((KMH.k + 1) / 2)) "%d%d" in
-      let reads_cntr = ref 0 and res = KMers.HashFrequencies.Base.create max_results_size in
+      if label <> "" then
+        Printf.fprintf output "\t%s\n" label;
+      let output_format = Scanf.format_from_string (Printf.sprintf "%%0%dx\t%%d\n" ((KIH.k + 1) / 2)) "%d%d" in
+      let reads_cntr = ref 0 and res = KIHF.create max_results_size in
       Files.ReadsIterate.iter ~linter ~verbose:false
         (fun _ segm_id read ->
-          KMH.iterc
-            (fun hash occs ->
-              KMers.HashFrequencies.add res hash occs;
-              if KMers.HashFrequencies.Base.length res > max_results_size then begin
-                let min_binding =
-                  KMers.HashFrequencies.Base.fold (fun _ occs old_min -> min old_min !occs) res max_int in
-                if verbose then
-                  Printf.eprintf "%s\r(%s): Outputting and removing hashes having #%d occurrences...%!"
-                    Tools.String.TermIO.clear __FUNCTION__ min_binding;
-                KMers.HashFrequencies.Base.filter_map_inplace
-                  (fun hash occs ->
-                    if !occs = min_binding then begin
-                      Printf.fprintf output output_format hash !occs;
-                      (* Discard the binding *)
-                      None
-                    end else
-                      (* Keep the binding *)
-                      Some occs)
-                  res;
-                if verbose then
-                  Printf.eprintf " done.\n%!"
-              end)
-            read.seq;
+          KIH.iterc res read.seq;
+          if label = "" || KMers.IntHashFrequencies.length res >= max_results_size then begin
+            (* We dump the table, empty it and start again *)
+            if verbose && label <> "" then
+              Printf.eprintf "%s\r(%s): Maximum size (%d) reached. Outputting and removing hashes...%!"
+                Tools.String.TermIO.clear __FUNCTION__ max_results_size;
+            if label = "" then
+              Printf.fprintf output "\t%s\n" read.tag;
+            KIHF.iter (Printf.fprintf output output_format) res;
+            if verbose && label <> "" then
+              Printf.eprintf " done.\n%!";
+            KIHF.clear res
+          end;
           if verbose && !reads_cntr mod 1_000 = 0 then
             Printf.eprintf "%s\r(%s): Added %d reads%!" Tools.String.TermIO.clear __FUNCTION__ !reads_cntr;
           if segm_id = 0 then
@@ -64,7 +56,7 @@ module KMerCounter (KMH: KMers.Hash_t with type t = int):
         Printf.eprintf "%s\r(%s): Added %d reads.\n%!" Tools.String.TermIO.clear __FUNCTION__ !reads_cntr;
         Printf.eprintf "(%s): Outputting hashes...%!" __FUNCTION__;
       end;
-      KMers.HashFrequencies.iter (Printf.fprintf output output_format) res;
+      KIHF.iter (Printf.fprintf output output_format) res;
       if verbose then
         Printf.eprintf " done.%!\n";
       close_out output
@@ -90,6 +82,7 @@ module Content =
 
 module Parameters =
   struct
+    let option_l_or_L = ref false
     let content = ref Content.DNA_ds
     let k = ref 12
     let max_results_size = ref 16777216 (* Or: 4^12 *)
@@ -102,8 +95,8 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopCount";
-  version = "12";
-  date = "18-Jan-2024"
+  version = "13";
+  date = "21-Jan-2024"
 } and authors = [
   "2017-2024", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
@@ -111,7 +104,7 @@ let info = {
 let () =
   let module TA = Tools.Argv in
   TA.set_header (info, authors, [ BiOCamLib.Info.info; KPop.Info.info ]);
-  TA.set_synopsis "-l|--label <output_vector_label> [OPTIONS]";
+  TA.set_synopsis "-l <output_vector_label>|-L [OPTIONS]";
   TA.parse [
     TA.make_separator "Algorithmic parameters";
     [ "-k"; "-K"; "--k-mer-size"; "--k-mer-length" ],
@@ -163,9 +156,16 @@ let () =
         PairedEndFASTQ (name1, name2) |> Tools.List.accum Parameters.inputs);
     [ "-l"; "--label" ],
       Some "<output_vector_label>",
-      [ "label of the k-mer vector in the output file" ],
-      TA.Mandatory,
-      (fun _ -> Parameters.label := TA.get_parameter() );
+      [ "label to be given to the k-mer vector in the output file.";
+        "One of options '-l' and '-L' is mandatory" ],
+      TA.Optional,
+      (fun _ -> Parameters.option_l_or_L := true; Parameters.label := TA.get_parameter());
+    [ "-L"; "--one-spectrum-per-sequence" ],
+      None,
+      [ "emit one spectrum per sequence; the label will be the sequence name.";
+        "One of options '-L' and '-l' is mandatory" ],
+      TA.Optional,
+      (fun _ -> Parameters.option_l_or_L := true; Parameters.label := TA.get_parameter());
     [ "-o"; "--output" ],
       Some "<output_file_name>",
       [ "name of generated output file" ],
@@ -198,6 +198,8 @@ let () =
       TA.Optional,
       (fun _ -> TA.usage (); exit 1)
   ];
+  if not !Parameters.option_l_or_L then
+    TA.parse_error "One of options '-l' and '-L' is mandatory";
   if !Parameters.verbose then
     TA.header ();
   Parameters.inputs := List.rev !Parameters.inputs;
@@ -219,7 +221,7 @@ let () =
             | SingleEndFASTQ _ | PairedEndFASTQ _ -> !is_format_fasta
             | _ -> assert false
           end then
-            TA.parse_error "You cannot process FASTA and FASTQ inputs together!";        
+            TA.parse_error "You cannot process FASTA and FASTQ inputs together";        
         store := Files.ReadsIterate.add_from_files !store input)
       !Parameters.inputs;
     begin match !Parameters.content with

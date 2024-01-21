@@ -28,6 +28,7 @@ module Distance:
         val compute: t -> Float.Array.t -> Float.Array.t
         exception Unknown_metric of string
         exception Negative_power of float
+        exception Invalid_threshold of float
         val of_string: string -> t
         val to_string: t -> string
       end
@@ -69,105 +70,13 @@ module Distance:
       struct
         type t =
           | Flat
-          (* Parameters are: internal power, threshold (on accumulated transformed inertia), external power *)
+          (* Parameters are: internal power, threshold (on accumulated transformed inertia), external power.
+             Powers must be >= 0., threshold between 0. and 1. *)
           | Powers of float * float * float
         (* Internal type used to cluster identical consecutive elements *)
         exception Negative_metric_element of float
         exception Unsorted_metric_vector of Float.Array.t
-        module Collected =
-          struct
-            type t = {
-              length: int;
-              data: int Tools.FloatRMap.t
-            }
-            (* This function also implements checks *)
-            let of_floatarray fa =
-              let prev = ref infinity and res = ref Tools.FloatRMap.empty in
-              Float.Array.iter
-                (fun el ->
-                  if el < 0. then
-                    Negative_metric_element el |> raise;
-                  if el > !prev then
-                    Unsorted_metric_vector fa |> raise;
-                  prev := el;
-                  res :=
-                    Tools.FloatRMap.update el
-                      (function
-                        | None -> Some 1
-                        | Some n -> Some (n + 1))
-                      !res)
-                fa;
-              { length = Float.Array.length fa;
-                data = !res }
-            let to_floatarray { length; data } =
-              let res = Float.Array.create length and idx = ref 0 in
-              Tools.FloatRMap.iter
-                (fun el freq ->
-                  for i = !idx to !idx + freq - 1 do
-                    Float.Array.set res i el
-                  done;
-                  idx := !idx + freq)
-                data;
-              res
-            let sum data =
-              let acc = ref 0. in
-              Tools.FloatRMap.iter
-                (fun el freq ->
-                  acc := !acc +. (el *. float_of_int freq))
-                data;
-              !acc
-            let power p ({ length; data } as c) =
-              (* A negative power would change the original dimension order.
-                 However, at this point the check has already been made *)
-              assert (p >= 0.);
-              if p = 1. then
-                c
-              else begin
-                let res = ref Tools.FloatRMap.empty in
-                Tools.FloatRMap.iter
-                  (fun el freq ->
-                    res := Tools.FloatRMap.add (el ** p) freq !res)
-                  data;
-                { length; data = !res }
-              end
-            let normalize ({ length; data } as c) =
-              let acc = sum data in
-              if acc = 0. || acc = 1. then
-                (* If acc = 0., all (non-negative) elements must be 0. *)
-                c
-              else begin
-                let res = ref Tools.FloatRMap.empty in
-                Tools.FloatRMap.iter
-                  (fun el freq ->
-                    res := Tools.FloatRMap.add (el /. acc) freq !res)
-                  data;
-                { length; data = !res }
-              end
-            exception Invalid_threshold of float
-            (* This function must _not_ change the total number of elements.
-               It _includes_ normalisation *)
-            let threshold t ({ length; data } as c) =
-              if t < 0. || t > 1. then
-                Invalid_threshold t |> raise;
-              if t = 1. then
-                c
-              else begin
-                let t = t *. sum data and res = ref Tools.FloatRMap.empty in
-                let acc = ref 0. in
-                Tools.FloatRMap.iter
-                  (fun el freq ->
-                    res :=
-                      Tools.FloatRMap.update
-                        (if !acc < t then el else 0.)
-                        (function
-                          | None -> Some freq
-                          | Some n -> Some (n + freq))
-                        !res;
-                    acc := !acc +. (el *. float_of_int freq))
-                  data;
-                { length; data = !res }
-              end
-          end
+        module FV = Numbers.Frequencies.Vector(Numbers.Float)(Numbers.MakeRComparableNumber)
         let compute = function
           | Flat ->
             (fun m ->
@@ -178,11 +87,17 @@ module Distance:
                 (1. /. float_of_int l) |> Float.Array.make l)
           | Powers (power_int, threshold, power_ext) ->
             (fun m ->
-              Collected.of_floatarray m |> Collected.power power_int |> Collected.threshold threshold
-                                        |> Collected.power power_ext |> Collected.normalize
-                                        |> Collected.to_floatarray)
+              (* We assume that the elements of the metric are non-negative.
+                 In order to guarantee that the order of elements does not change after transformation,
+                  elements must also be sorted (in decreasing order), and powers non-negative.
+                 The latter is checked at construction time, so we just assert it.
+                 Same for the threshold, which must be between 0. and 1. *)
+              assert (power_int >= 0. && threshold >= 0. && threshold <= 1. && power_ext >= 0.);
+              FV.of_floatarray m |> FV.pow_abs power_int |> FV.threshold_accum_abs threshold
+                                 |> FV.pow_abs power_ext |> FV.normalize_abs |> FV.to_floatarray)
         exception Unknown_metric of string
         exception Negative_power of float
+        exception Invalid_threshold of float
         let of_string_re = Str.regexp "[(,)]"
         let of_string name =
           match name with
@@ -192,6 +107,7 @@ module Distance:
             match Str.full_split of_string_re s with
             | [ Text "powers";
                 Delim "("; Text power_int; Delim ","; Text threshold; Delim ","; Text power_ext; Delim ")" ] ->
+              (* Powers must be non-negative, and the threshold between 0. and 1. *)
               let power_int, threshold, power_ext =
                 try
                   float_of_string power_int, float_of_string threshold, float_of_string power_ext
@@ -199,6 +115,8 @@ module Distance:
                   Unknown_metric s |> raise in
               if power_int < 0. then
                 Negative_power power_int |> raise;
+              if threshold < 0. || threshold > 1. then
+                Invalid_threshold threshold |> raise;
               if power_ext < 0. then
                 Negative_power power_ext |> raise;
               Powers (power_int, threshold, power_ext)

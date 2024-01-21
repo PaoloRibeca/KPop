@@ -21,25 +21,18 @@ module StringSet = Tools.StringSet
 module StringMap = Tools.StringMap
 
 (* For counts. We assume each count to be < 2^31 *)
-module IBAVector =
-Tools.BA.Vector (
+module IBAVector = Numbers.Bigarray.Vector (
   struct
-    include Tools.Number.Make(Int32)
+    include Numbers.Int32
     type elt_t = Bigarray.int32_elt
     let elt = Bigarray.Int32
   end
 )
 
 (* For normalisations and combined spectra. We assume normalisations might be > 2^31 *)
-module FBAVector =
-Tools.BA.Vector (
+module FBAVector = Numbers.Bigarray.Vector (
   struct
-    include Tools.Number.Make(
-      struct
-        include Float
-        let of_float x = x
-        let to_float x = x
-      end)
+    include Numbers.Float
     type elt_t = Bigarray.float64_elt
     let elt = Bigarray.Float64
   end
@@ -434,12 +427,12 @@ and KMerDB:
           Array.map (resize ?is_buffer:(Some false) eff_ny) a
     let resize_string_array_array ?(is_buffer = true) =
       _resize_t_array_ ~is_buffer Array.length resize_string_array (fun l -> Array.make l "")
-    module BAVectorMisc (M: Tools.BA.Type_t) =
+    module BAVectorMisc (M: Numbers.Vector_t) =
       struct
         let resize ?(is_buffer = true) n =
-          M.resize ~is_buffer n M.N.zero
+          M.resize ~is_buffer ~fill_with:M.N.zero n
         let resize_array ?(is_buffer = true) =
-          _resize_t_array_ ~is_buffer M.length resize (fun l -> M.init l M.N.zero)
+          _resize_t_array_ ~is_buffer M.length resize (fun l -> M.make l M.N.zero)
       end
     module IBAVectorMisc = BAVectorMisc (IBAVector)
     module FBAVectorMisc = BAVectorMisc (FBAVector)
@@ -706,7 +699,7 @@ and KMerDB:
       let num_cols = !num_cols and max_norm = !max_norm in
       if verbose then
         Printf.eprintf " ] n=%d max_norm=%.16g [%!" num_cols max_norm;
-      let red_n_rows = !db.core.n_rows - 1 and res = FBAVector.init !db.core.n_rows 0. in
+      let red_n_rows = !db.core.n_rows - 1 and res = FBAVector.make !db.core.n_rows 0. in
       (* We normalise columns *separately* before adding them.
          Remember that some labels might be invalid *)
       StringSet.iter
@@ -1373,6 +1366,6 @@ let () =
             !distance !current selected_1 selected_2 prefix)
       program
   with exc ->
-    Printf.eprintf "[#%s]: (%s): %s\n%!" (Unix.getpid () |> string_of_int |> Tools.String.TermIO.blue) __FUNCTION__
+    Tools.Printf.peprintf "(%s): %s\n%!" __FUNCTION__
       ("FATAL: Uncaught exception: " ^ Printexc.to_string exc |> Tools.String.TermIO.red)
 
