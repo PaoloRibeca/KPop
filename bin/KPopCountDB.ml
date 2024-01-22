@@ -382,16 +382,28 @@ and KMerDB:
       meta_names_to_idx = Hashtbl.create 16
     }
     let output_summary ?(verbose = false) db =
-      Printf.eprintf "[Vector labels (%d)]:" (Array.length db.core.idx_to_col_names);
-      Array.iter (Printf.eprintf " '%s'") db.core.idx_to_col_names;
+      Printf.eprintf "[Vector labels (%d)]:" db.core.n_cols;
+      Array.iteri
+        (fun i s ->
+          if i < db.core.n_cols then
+            Printf.eprintf " '%s'" s)
+        db.core.idx_to_col_names;
       Printf.eprintf "\n%!";
       if verbose then begin
-        Printf.eprintf "[K-mer hashes (%d)]:" (Array.length db.core.idx_to_row_names);
-        Array.iter (Printf.eprintf " '%s'") db.core.idx_to_row_names;
+        Printf.eprintf "[K-mer hashes (%d)]:" db.core.n_rows;
+        Array.iteri
+          (fun i s ->
+            if i < db.core.n_rows then
+              Printf.eprintf " '%s'" s)
+          db.core.idx_to_row_names;
         Printf.eprintf "\n%!"
       end;
-      Printf.eprintf "[Meta-data fields (%d)]:" (Array.length db.core.idx_to_meta_names);
-      Array.iter (Printf.eprintf " '%s'") db.core.idx_to_meta_names;
+      Printf.eprintf "[Meta-data fields (%d)]:" db.core.n_meta;
+      Array.iteri
+        (fun i s ->
+          if i < db.core.n_meta then
+            Printf.eprintf " '%s'" s)
+        db.core.idx_to_meta_names;
       Printf.eprintf "\n%!"
     (* *)
     let resize_string_array ?(is_buffer = true) n a =
@@ -1115,8 +1127,8 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopCountDB";
-  version = "36";
-  date = "18-Jan-2024"
+  version = "37";
+  date = "22-Jan-2024"
 } and authors = [
   "2020-2024", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
