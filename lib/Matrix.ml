@@ -885,7 +885,7 @@ include [@warning "-32"] (
       and n_cols = Array.length m1.matrix.idx_to_col_names in
       let req_len =
         match keep_at_most with
-        | None -> n_cols
+        | None -> r1
         | Some at_most -> at_most in
       let rows_per_step = max 1 (elements_per_step / n_cols) and processed_rows = ref 0
       and buf = Buffer.create 1048576 in
