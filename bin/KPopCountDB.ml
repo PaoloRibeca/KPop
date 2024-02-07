@@ -700,12 +700,12 @@ and KMerDB:
       struct
         type t = RescaledMean | RescaledMedian
         let of_string = function
-          | "rescaled-mean" | "mean" -> RescaledMean
-          | "rescaled-median" | "median" -> RescaledMedian
+          | "mean" -> RescaledMean
+          | "median" -> RescaledMedian
           | w -> Unknown_combination_criterion w |> raise
         let to_string = function
-          | RescaledMean -> "rescaled-mean"
-          | RescaledMedian -> "rescaled-median"
+          | RescaledMean -> "mean"
+          | RescaledMedian -> "median"
       end
     (* It should be OK to have the same label on both LHS and RHS,
         as a temporary vector is used to generate the combination *)
@@ -1112,7 +1112,7 @@ and regexps_t = (string * Str.regexp) list
 
 module Defaults =
   struct
-    let combination_criterion = KMerDB.CombinationCriterion.of_string "rescaled-median" 
+    let combination_criterion = KMerDB.CombinationCriterion.of_string "mean"
     let filter = KMerDB.TableFilter.default
     let distance = Space.Distance.of_string "euclidean"
     let distance_normalise = true
@@ -1127,8 +1127,8 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopCountDB";
-  version = "37";
-  date = "22-Jan-2024"
+  version = "38";
+  date = "07-Feb-2024"
 } and authors = [
   "2020-2024", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
@@ -1185,7 +1185,7 @@ let () =
         " (which will be given extension .KPopCounter)" ],
       TA.Optional,
       (fun _ -> To_file (TA.get_parameter () |> KMerDB.make_filename_binary) |> Tools.List.accum Parameters.program);
-    [ "--distance"; "--distance-function"; "--set-distance"; "--set-distance-function" ],
+    [ "--distance"; "--distance-function" ],
       Some "'euclidean'|'minkowski(<non_negative_float>)'",
       [ "set the function to be used when computing distances.";
         "The parameter for 'minkowski()' is the power" ],
@@ -1264,7 +1264,7 @@ let () =
         "when writing the database as a tab-separated file" ],
       TA.Default (fun () -> string_of_bool Defaults.filter.print_zero_rows),
       (fun _ -> Table_emit_zero_rows (TA.get_parameter_boolean ()) |> Tools.List.accum Parameters.program);
-    [ "--table-set-precision"; "--set-table-precision" ],
+    [ "--table-precision" ],
       Some "<positive_integer>",
       [ "set the number of precision digits to be used when outputting counts" ],
       TA.Default (fun () -> string_of_int Defaults.filter.precision),
@@ -1296,13 +1296,13 @@ let () =
       (fun _ ->
         Selected_from_regexps (TA.get_parameter () |> parse_regexp_selector "-R")
           |> Tools.List.accum Parameters.program);
-    [ "--set-selection-combination-criterion"; "--selection-combination-criterion" ],
-      Some "'rescaled-mean'|'mean'|'rescaled-median'|'median'",
+    [ "--selection-combination-criterion"; "--combination-criterion" ],
+      Some "'mean'|'median'",
       [ "set the criterion used to combine the k-mer frequencies of selected spectra.";
         "To avoid rounding issues, each k-mer frequency is also rescaled";
         "by the largest normalization across spectra";
-        " ('rescaled-mean' or 'mean' averages frequencies across spectra;";
-        "  'rescaled-median' or 'median' computes the median across spectra)" ],
+        " ('mean' averages frequencies across spectra;";
+        "  'median' computes the median across spectra)" ],
       TA.Default (fun () -> KMerDB.CombinationCriterion.to_string Defaults.combination_criterion),
       (fun _ ->
         Combination_criterion_set (TA.get_parameter () |> KMerDB.CombinationCriterion.of_string)
