@@ -1,11 +1,29 @@
 
 # `KPop`: Unleash the full power of your *k*-mers!
 
-`KPop` is an assembly-free and scalable method for the comparative analysis of microbial genomes. It is based on full *k*-mer spectra and dataset-specific transformations, and allows for the accurate comparison of hundreds of thousands of assembled or unassembled microbial genomes in a matter of hours. More details can be found in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v1).
+`KPop` is an assembly-free and scalable method for the comparative analysis of microbial genomes and environmental samples. It is based on full *k*-mer spectra and dataset-specific transformations; it allows to accurately compare hundreds of thousands of assembled, or thousands of unassembled microbial genomes or sequenced samples, in a matter of hours. It provides excellent resolution across a very large number of use cases and applications. More details can be found in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v1).
 
-`KPop` is mostly implemented in [OCaml](https://ocaml.org), an industry-strength functional statically-typed programming language that offers remarkable concision, symbolic power, robustness, compiled speed, and portability. Due mostly to historical, prototyping reasons, a small part of `KPoP` is still in R, although we hope to eventually migrate everything to OCaml. All programs, both OCaml and R, are parallelised and will automatically use as many CPUs as are available on your machine, in order to reduce as much as possible the wallclock time taken by your tasks.
+## Frequently asked questions
 
-Depending on the problem at hand, `KPop` analysis can require a relatively large amount of resources, memory in particular. That is a conscious design choice &mdash; it would be impossible to leverage the power of full *k*-mer spectra otherwise. If you need to explore datasets with millions of sequences, we recommend that you do so on a robustly sized HPC node. However, not everything is expensive &mdash; for instance, and similar to what happens with other big-data frameworks, while the "training" phase needed to create `KPop`-based classifiers is typically resource-intensive, in most cases the classifiers themselves can then be run on lower-end machines.
+### How does `KPop` compare with minimiser-based methods?
+
+`KPop` is much more sensitive than minimiser-based methods, allowing out-of-the-box accurate comparison of assembled or unassembled long sequences irrespective of whether they differ by single nucleotides or by large portions. This is usually not true for minimiser-based methods, irrespective of the hashing scheme they use, as they only produce a much coarser comparison.
+
+Crucially, while minimiser-based methods are geared towards providing distances between sequences, `KPop` explicitly produces *embeddings*, i.e., it is able to turn sequences into points of a low-dimensionality latent space. Having an explicit latent space is important for many reasons &mdash; it helps explainability; it also makes it possible to perform direct clustering and use vector [DBs](https://milvus.io/) or [libraries](https://github.com/facebookresearch/faiss) to store and search embedded sequences.
+
+A number of comparisons and a detailed explanation of the differences between the two approaches can be found in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v1).
+
+### Can I run it on my laptop?
+
+Depending on the problem at hand, `KPop` analysis can require a relatively large amount of resources, memory in particular. That is a conscious design choice &mdash; one could not leverage the power of full *k*-mer spectra otherwise. If you need to explore datasets with millions of sequences, we recommend that you do so on a robustly sized HPC node. However, not everything is expensive &mdash; for instance, and similar to what happens with other big-data frameworks, while the "training" phase needed to create `KPop`-based classifiers is typically resource-intensive, the classifiers themselves can typically be run on lower-end machines.
+
+All `KPop` programs are parallelised and will automatically use as many CPUs as are available on your machine, in order to reduce as much as possible the wallclock time taken by your tasks.
+
+### There are no binaries available for my OS, what do I do?
+
+`KPop` is mostly implemented in [OCaml](https://ocaml.org), an industry-strength functional statically-typed programming language that offers remarkable concision, symbolic power, robustness, compiled speed, and portability. Due mostly to historical reasons, a small part of `KPop` is still written in R, although we hope to eventually migrate everything to OCaml.
+
+Both OCaml and R are highly portable and you might be able to manually compile/install everything successfully on other platforms. See the [Installation](#1-installation) section below.
 
 ## Table of contents
 
@@ -15,6 +33,8 @@ Depending on the problem at hand, `KPop` analysis can require a relatively large
 &emsp; [1.3. Manual install](#13-manual-install)<br>
 [2. Quick start](#2-quick-start)<br>
 [3. Overview of commands](#3-overview-of-commands)<br>
+&emsp; [3.1. General design](#31-general-design)<br>
+&emsp; [3.2. Building workflows](#32-building-workflows)<br>
 [4. Command line syntax](#4-command-line-syntax)<br>
 &emsp; [4.1. `KPopCount`](#41-kpopcount)<br>
 &emsp; [4.2. `KPopCountDB`](#42-kpopcountdb)<br>
@@ -30,11 +50,11 @@ Depending on the problem at hand, `KPop` analysis can require a relatively large
 
 ## 1. Installation
 
+There are several possible ways of installing the software on your machine: through `conda`; by downloading pre-compiled binaries (Linux and MacOS x86_64 only); or manually.
+
 > :warning: Note that the only operating systems we officially support are Linux and MacOS. :warning:
 >
-> Both OCaml and R are highly portable and you might be able to manually compile/install everything successfully on other platforms (for instance, Windows) but you will have to do it yourself. 
-
-There are several possible ways of installing the software on your machine: through `conda`; by downloading pre-compiled binaries (Linux and MacOS x86_64 only); or manually.
+> Both OCaml and R are highly portable and you might be able to manually compile/install everything successfully on other platforms (for instance, Windows). Please let us know if you succeed or if you encounter some unexpected behaviour. However, please note that in general we are unable to provide installation-relaated support or troubleshooting on specific hardware/software combinations. 
 
 ### 1.1. Conda channel
 
@@ -73,38 +93,61 @@ ca
 
 ## 2. Quick start
 
-Download file `clusters-small.fasta` from the directory `test`. Then run the following commands in `bash` (excluding prompt characters `$` at the beginning of each line):
+Download file `clusters-small.fasta` from the directory `test`. Then run the following commands in `bash`:
 
 ```bash
-$ export K=5
-$ date
-$ for CLASS in C1 C2 C3 C4 C5 C6 C7 C8 C9 C10; do cat clusters-small.fasta | awk -v CLASS="$CLASS" '{nr=(NR-1)%4; ok=(nr==0?$0~("-"CLASS"$"):nr==1&&ok); if (ok) print}' | KPopCount -l $CLASS -f /dev/stdin -k "$K" | KPopCountDB -f /dev/stdin -R "~." -A "$CLASS" -P -L "$CLASS" -N -P -D --table-transform none -t /dev/stdout 2> /dev/null; done | KPopCountDB -f /dev/stdin -o Classes -v
-$ KPopTwist -i Classes
-$ cat clusters-small.fasta | awk -v K="$K" '{nr=(NR-1)%4; if (nr==2) split($0,s,"[>-]"); if (nr==3) {command="KPopCount -l "s[2]"-"s[3]" -f /dev/stdin -k "K; print ">"s[2]"\n"$0 | command; close(command)}}' | KPopTwistDB -i T Classes -k /dev/stdin -d Classes -s Classes -v
-$ echo -n "Misclassified sequences: "; cat Classes.KPopSummary.txt | awk -F '\t' 'BEGIN{OFS="\t"} {$1=gensub("-","\"\t\"",1,$1); print}' | awk -F '\t' '{if ($2!=$7) print}' | wc -l
-$ date
+export K=5
+date
+for CLASS in C1 C2 C3 C4 C5 C6 C7 C8 C9 C10; do cat clusters-small.fasta | awk -v CLASS=$CLASS '{nr=(NR-1)%4; ok=(nr==0?$0~("-"CLASS"$"):nr==1&&ok); if (ok) print}' | KPopCount -k $K -l $CLASS -f /dev/stdin | KPopCountDB -k /dev/stdin -R "~." -A $CLASS -L $CLASS -N -D --table-transform none -t /dev/stdout; done | KPopCountDB -k /dev/stdin -o Classes.$K -v
+KPopTwist -i Classes -v
+cat clusters-small.fasta | awk -v K="$K" '{nr=(NR-1)%4; if (nr==2) split($0,s,"[>-]"); if (nr==3) print ">"s[2]"-"s[3]"\n"$0}' | KPopCount -k $K -L -f /dev/stdin | KPopTwistDB -i T Classes.$K -k /dev/stdin -o t /dev/stdout | KPopTwistDB -i T Classes.$K -i t Classes.$K -s /dev/stdin Classes.$K -v
+echo -n ">>> Misclassified sequences: "; cat Classes.KPopSummary.txt | awk -F '\t' 'BEGIN{OFS="\t"} {$1=gensub("-","\"\t\"",1,$1); print}' | awk -F '\t' '{if ($2!=$7) print}' | wc -l
+date
 ```
 
 That should produce an output such as this one:
 
 ```
-Fri 14 Jul 11:58:45 BST 2023
-This is the KPopCountDB program (version 0.31)
- (c) 2020-2023 Paolo Ribeca, <paolo.ribeca@gmail.com>
-[1/1] File '/dev/stdin': Read 10 spectra on 10244 lines.
-(Dune__exe__KPopCountDB.KMerDB.to_binary): Outputting DB to file 'Classes.KPopCounter'... done.
-This is the KPopTwistDB program (version 0.18)
- (c) 2022 Paolo Ribeca, <paolo.ribeca@gmail.com>
-(Dune__exe__KPopTwistDB.Twister.of_binary): Reading DB from file 'Classes.KPopTwister'... done.
-[1/1] File '/dev/stdin': Read 500 spectra on 512088 lines.
-(KPop__Matrix.of_binary): Reading DB from file 'Classes.KPopTwisted'... done.
-(KPop__Matrix.Base.get_distance_rowwise): Done 5000/5000 elements=100%.
-(KPop__Matrix.summarize_distance): Writing distance digest to file 'Classes.KPopSummary.txt': done 500/500 lines.
-Misclassified sequences: 0
-Fri 14 Jul 11:59:37 BST 2023
+Wed 24 Jan 11:18:16 BST 2024
+This is KPopCountDB version 37 [22-Jan-2024]
+ compiled against: BiOCamLib version 242 [23-Jan-2024];
+                   KPop version 366 [23-Jan-2024]
+ (c) 2020-2024 Paolo Ribeca <paolo.ribeca@gmail.com>
+(Dune__exe__KPopCountDB.KMerDB.add_files.(fun)): [1/1] File '/dev/stdin': Read 10 spectra on 5127 lines.
+(Dune__exe__KPopCountDB.KMerDB.to_binary): Outputting DB to file 'Classes.5.KPopCounter'... done.
+This is KPopTwist version 17 [02-Jan-2024]
+ compiled against: BiOCamLib version 242 [23-Jan-2024];
+                   KPop version 366 [23-Jan-2024]
+ (c) 2022-2024 Paolo Ribeca <paolo.ribeca@gmail.com>
+Wed 24 Jan 2024 11:18:37 GMT: [1/13] Exporting table...
+Wed 24 Jan 2024 11:18:38 GMT: [2/13] Splitting table...
+Wed 24 Jan 2024 11:18:42 GMT: [3/13] Reading table...
+Wed 24 Jan 2024 11:18:42 GMT: [4/13] Resampling table...
+Wed 24 Jan 2024 11:18:42 GMT: [5/13] Transforming table...
+Wed 24 Jan 2024 11:18:42 GMT: [6/13] Writing twisted...
+Wed 24 Jan 2024 11:18:42 GMT: [7/13] Writing inertia...
+Wed 24 Jan 2024 11:18:42 GMT: [8/13] Normalizing table...
+Wed 24 Jan 2024 11:18:42 GMT: [9/13] Transposing table...
+Wed 24 Jan 2024 11:18:42 GMT: [10/13] Writing twister...
+Wed 24 Jan 2024 11:18:42 GMT: [11/13] Encoding twisted...
+Wed 24 Jan 2024 11:18:43 GMT: [12/13] Encoding twister...
+Wed 24 Jan 2024 11:18:43 GMT: [13/13] Cleaning up...
+Wed 24 Jan 2024 11:18:43 GMT: All done.
+This is KPopTwistDB version 27 [17-Jan-2024]
+ compiled against: BiOCamLib version 242 [23-Jan-2024];
+                   KPop version 366 [23-Jan-2024]
+ (c) 2022-2024 Paolo Ribeca <paolo.ribeca@gmail.com>
+(Dune__exe__KPopTwistDB.Twister.of_binary): Reading DB from file 'Classes.5.KPopTwister'... done.
+(KPop__Matrix.of_binary): Reading DB from file 'Classes.5.KPopTwisted'... done.
+(KPop__Matrix.of_binary): Reading DB from file '/dev/stdin'... done.
+(KPop__Matrix.Base.get_normalizations): Done 500/500 rows.
+(KPop__Matrix.Base.get_normalizations): Done 10/10 rows.
+(KPop__Matrix.summarize_rowwise): Writing distance digest to file 'Classes.5.KPopSummary.txt': done 500/500 rows.
+>>> Misclassified sequences: 0
+Wed 24 Jan 11:19:08 BST 2024
 ```
 
-This is an example of `KPop`-based classifier. The input FASTA file `clusters-small.fasta` contains 1000 sequences having names such as `S2-C1`, meaning "sequence 2 belonging to class 1". There are 10 different classes. We will see things in more detail in the following sections, but, to summarise:
+This is an example of `KPop`-based classifier. The input FASTA file [`clusters-small.fasta`](test/clusters-small.fasta) contains 1000 sequences having names such as `S2-C1`, meaning "sequence 2 belonging to class 1". There are 10 different classes. We will see how the process works in more detail in the following sections, but, to summarise:
 1. Sequences with an odd index are taken to be part of the training set, sequences with an even index are considered part of the test set
 2. For each class `C1`, `C2`, ... `C10`, if the variable CLASS contains the name of the class, the command
    ```bash
@@ -135,20 +178,38 @@ This is an example of `KPop`-based classifier. The input FASTA file `clusters-sm
    $ echo -n "Misclassified sequences: "; cat Classes.KPopSummary.txt | awk -F '\t' 'BEGIN{OFS="\t"} {$1=gensub("-","\"\t\"",1,$1); print}' | awk -F '\t' '{if ($2!=$7) print}' | wc -l
    ```
    parses the results in `Classes.KPopSummary.txt` and computes the number of misclassified sequences.
+Congratulations! You have now moved your first steps in the fascinating world of `KPop`.
 
 ## 3. Overview of commands
 
-`KPop` comes as a number of different programs, which can be combined into complex workflows in a modular fashion. They are:
+`KPop` is implemented as a suite of different programs, which can be combined into complex workflows in a modular fashion. They are:
 * [`KPopCount`](#41-kpopcount). It implements extraction of *k*-mer spectra from files containing sequences or sequencing reads (in FASTA format; and both single- and paired-end FASTQ format)
 * [`KPopCountDB`](#42-kpopcountdb). It implements collection of *k*-mer spectra into binary databases, allowing the user to export the resulting objects as either binary files or text tables. Spectra can be transformed before export
 * [`KPopTwist`](#43-kpoptwist). It implements the unsupervised generation of coordinate transformations (or "twisters") from databases of *k*-mer spectra. Each transformation is optimised for the database at hand, and turns ("twists") *k*-mer spectra into numerical vectors of a typically very much reduced dimensionality. The transformation can be stored as a binary object for future use
 * [`KPopTwistDB`](#44-kpoptwistdb). It implements a number of operations on twisted spectra. It can: use an existing twister to twist *k*-mer spectra; generate databases of twisted spectra and output/input them as binary files or text tables; compute and summarise distances between twisted spectra; and more.
 
+### 3.1. General design
+
+While `KPopCount` and `KPopTwist` implement one-shot operations (computing spectra from sequences and generating a twister, respectively), `KPopCountDB` and `KPopTwistDB` need to be versatile and perform a number of complex tasks, ranging from householding ones (management of spectra and twisted spectra, respectively) to complex operations that are an essential component of larger workflows.
+
+In response to such needs, `KPopCountDB` and `KPopTwistDB` are able to execute a series of *actions*. Actions are specified each one as a different command line option, and performed in order of specification &mdash; i.e., saying something like `KPopCountDB -D -N` is *not* the same as saying `KPopCountDB -N -D`.
+
+In addition, both `KPopCountDB` and `KPopTwistDB` have *registers*, i.e., slots to/from which the contents of external files and the results of computations can be loaded/saved. You can see registers as program variables, each one having a specific type. For instance, the `KPop` programs know that only twisters can be loaded to/saved from twister registers, and will enforce that by requiring and checking that your external file has the correct extension (`.KPopTwister`) and format when doing I/O to/from a twister register.
+
+`KPopCountDB` has xxx registers:
+
+
+In addition to registers, both `KPopCountDB` and `KPopTwistDB` are able to read and process external files containing *k*-mer spectra in the format produced by `KPopCount` &mdash; this ensures that new spectra/twisted spectra can be added to their respective databases.
+
+In general, registers provide "memory" (or a "state" in computer science parlance) to `KPopCountDB` and `KPopTwistDB` &mdash; by using them and the rich set of command line options we implemented, one can easily combine `KPop` programs and build complex workflows performing sophisticated tasks (see the section on [examples](#5-examples) below).
+
+### 3.2. Building workflows
+
 The following figure summarises the main typical data transformations that are possible and the file formats used to encode inputs and outputs in each case:
 
 ![KPop-main-data-formats](images/KPop-DataFormats-RR.png)
 
-It should be noted that there are many more possible ways of using `KPopCountDB` and `KPopTwistDB`. For instance, with `KPopCountDB` it is possible to compute distances between untwisted *k*-mer spectra; with `KPopTwistDB` one can accumulate twisted *k*-mer spectra or distances into existing databases, and convert binary files from/to plain-text tab-separated tables. In the latter case, automatic naming rules are applied &mdash; for example, a command such as
+There are many more possible ways of using `KPopCountDB` and `KPopTwistDB`. For instance, with `KPopCountDB` one can compute distances between untwisted *k*-mer spectra; with `KPopTwistDB` one can accumulate twisted *k*-mer spectra or distances into existing databases, and convert binary files from/to plain-text tab-separated tables. In the latter case, as explained, automatic naming rules are applied depending on the type of the register being used &mdash; for example, a command such as
 ```bash
 $ KPopTwistDB ... -o t Classes
 ```
@@ -168,37 +229,41 @@ $ KPopCount -h
 ```
 in your terminal. You will see a header containing information about the version:
 ```
-This is the KPopCount program (version 0.6)
- (c) 2017-2022 Paolo Ribeca, <paolo.ribeca@gmail.com>
+This is KPopCount version 13 [21-Jan-2024]
+ compiled against: BiOCamLib version 242 [23-Jan-2024];
+                   KPop version 368 [07-Feb-2024]
+ (c) 2017-2024 Paolo Ribeca <paolo.ribeca@gmail.com>
 ```
 followed by detailed information. The general form the command can be used is:
 ```
-KPopCount -l|--label <output_vector_label> [OPTIONS]
+KPopCount -l <output_vector_label>|-L [OPTIONS]
 ```
 
 **Algorithmic parameters**
 
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
-| `-k`<br>`-K`<br>`--k-mer-size`<br>`--k-mer-length` | _&lt;k\_mer\_length&gt;_ |  *k*\-mer length (must be positive, and &lt;= 30 for DNA or &lt;= 12 for protein) | <ins>default=<mark>_12_</mark></ins> |
-| `-m`<br>`-M`<br>`--max-results-size` | _&lt;positive\_integer&gt;_ |  maximum number of *k*\-mer signatures to be kept in memory at any given time\.<br>If more are present, the ones corresponding to the lowest cardinality will be removed from memory and printed out, and there will be repeated signatures in the output | <ins>default=<mark>_16777216_</mark></ins> |
+| `-k`<br>`-K`<br>`--k-mer-size`<br>`--k-mer-length` | _k\_mer\_length_ |  *k*\-mer length \(must be positive, and &lt;= 30 for DNA or &lt;= 12 for protein\) | <ins>default=<mark>_12_</mark></ins> |
+| `-M`<br>`--max-results-size` | _positive\_integer_ |  maximum number of *k*\-mer signatures to be kept in memory at any given time\.<br>If more are present, the ones corresponding to the lowest cardinality will be removed from memory and printed out, and there will be repeated signatures in the output | <ins>default=<mark>_16777216_</mark></ins> |
 
 **Input/Output**
 
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
-| `-c`<br>`-C`<br>`--content`<br>`--mode` | _'DNA'&#124;'protein'_ |  how file contents should be interpreted | <ins>default=<mark>_DNA_</mark></ins> |
-| `-f`<br>`-F`<br>`--fasta` | _&lt;fasta\_file\_name&gt;_ |  FASTA input file containing sequences |  |
-| `-s`<br>`-S`<br>`--single-end` | _&lt;fastq\_file\_name&gt;_ |  FASTQ input file containing single\-end sequencing reads |  |
-| `-p`<br>`-P`<br>`--paired-end` | _&lt;fastq\_file\_name1&gt; &lt;fastq\_file\_name2&gt;_ |  FASTQ input files containing paired\-end sequencing reads |  |
-| `-l`<br>`--label` | _&lt;output\_vector\_label&gt;_ |  label of the *k*\-mer vector in the output file | *(mandatory)* |
-| `-o`<br>`--output` | _&lt;output\_file\_name&gt;_ |  name of generated output file | <ins>default=<mark>_&lt;stdout&gt;_</mark></ins> |
+| `-C`<br>`--content` | `DNA-ss` _&#124;_ `DNA-single-stranded` _&#124;_ `DNA-ds` _&#124;_ `DNA-double-stranded` _&#124;_ `protein` |  how file contents should be interpreted\.<br>When content is `DNA-ss` or `protein`, the sequence is hashed; when content is `DNA-ds`, both sequence and reverse complement are hashed\.<br>`DNA-ss` prevents automatic matching of reverse\-complemented sequences; use it only when comparing a set of single, homogeneus sequences | <ins>default=<mark>_DNA\-ds_</mark></ins> |
+| `-f`<br>`--fasta` | _fasta\_file\_name_ |  FASTA input file containing sequences\.<br>You can specify more than one FASTA input, but not FASTA and FASTQ inputs at the same time\. Contents are expected to be homogeneous across inputs |  |
+| `-s`<br>`--single-end` | _fastq\_file\_name_ |  FASTQ input file containing single\-end sequencing reads You can specify more than one FASTQ input, but not FASTQ and FASTA inputs at the same time\. Contents are expected to be homogeneous across inputs |  |
+| `-p`<br>`--paired-end` | _fastq\_file\_name1 fastq\_file\_name2_ |  FASTQ input files containing paired\-end sequencing reads You can specify more than one FASTQ input, but not FASTQ and FASTA inputs at the same time\. Contents are expected to be homogeneous across inputs |  |
+| `-l`<br>`--label` | _output\_vector\_label_ |  label to be given to the *k*\-mer vector in the output file\.<br>Either option `-l` or option `-L` is mandatory |  |
+| `-L`<br>`--one-spectrum-per-sequence` |  |  emit one spectrum per sequence; the label will be the sequence name\.<br>Either option `-l` or option `-L` is mandatory |  |
+| `-o`<br>`--output` | _output\_file\_name_ |  name of generated output file | <ins>default=<mark>_stdout_</mark></ins> |
 
 **Miscellaneous**
 
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
 | `-v`<br>`--verbose` |  |  set verbose execution | <ins>default=<mark>_false_</mark></ins> |
+| `-V`<br>`--version` |  |  print version and exit |  |
 | `-h`<br>`--help` |  |  print syntax and exit |  |
 
 ### 4.2. `KPopCountDB`
@@ -209,8 +274,10 @@ $ KPopCountDB -h
 ```
 in your terminal. You will see a header containing information about the version:
 ```
-This is the KPopCountDB program (version 0.30)
- (c) 2020-2022 Paolo Ribeca, <paolo.ribeca@gmail.com>
+This is KPopCountDB version 38 [07-Feb-2024]
+ compiled against: BiOCamLib version 242 [23-Jan-2024];
+                   KPop version 368 [07-Feb-2024]
+ (c) 2020-2024 Paolo Ribeca <paolo.ribeca@gmail.com>
 ```
 followed by detailed information. The general form the command can be used is:
 ```
@@ -225,44 +292,47 @@ Actions on the database register:
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
 | `-e`<br>`--empty` |  |  put an empty database into the register |  |
-| `-i`<br>`--input` | _&lt;binary\_file\_prefix&gt;_ |  load to the register the database present in the specified file  (which must have extension `.KPopCounter`) |  |
-| `-m`<br>`--metadata`<br>`--add-metadata` | _&lt;metadata\_table\_file\_name&gt;_ |  add to the database present in the register metadata from the specified file |  |
-| `-f`<br>`--files`<br>`--add-files` | _&lt;k\-mer\_table\_file\_name&gt;\[','\.\.\.','&lt;k\-mer\_table\_file\_name&gt;\]_ |  add to the database present in the register *k*\-mers from the specified files |  |
+| `-i`<br>`--input` | _binary\_file\_prefix_ |  load into the register the database present in the specified file  \(which must have extension `.KPopCounter`\) |  |
+| `-m`<br>`--metadata`<br>`--add-metadata` | _metadata\_table\_file\_name_ |  add to the database present in the register metadata from the specified file |  |
+| `-k`<br>`--kmers`<br>`--add-kmers`<br>`--add-kmer-files` | _k\-mer\_table\_file\_name\[_`,`_\.\.\._`,`_k\-mer\_table\_file\_name\]_ |  add to the database present in the register *k*\-mers from the specified files |  |
 | `--summary` |  |  print a summary of the database present in the register |  |
-| `-o`<br>`--output` | _&lt;binary\_file\_prefix&gt;_ |  dump the database present in the register to the specified file  (which will be given extension `.KPopCounter`) |  |
-| `--distance`<br>`--distance-function`<br>`--set-distance`<br>`--set-distance-function` | _'euclidean'&#124;'minkowski\(&lt;non\_negative\_float&gt;\)'_ |  set the function to be used when computing distances\.<br>The parameter for Minkowski is the power | <ins>default=<mark>_euclidean_</mark></ins> |
-| `-d`<br>`--distances`<br>`--compute-distances`<br>`--compute-distances-spectral` | _&lt;binary\_file\_prefix&gt;_ |  compute distances between all the spectra present in the register  (the result will have extension `.KPopDMatrix`) |  |
-| `--table-emit-row-names` | _'true'&#124;'false'_ |  whether to emit row names for the database present in the register when writing it as a tab\-separated file | <ins>default=<mark>_true_</mark></ins> |
-| `--table-emit-col-names` | _'true'&#124;'false'_ |  whether to emit column names for the database present in the register when writing it as a tab\-separated file | <ins>default=<mark>_true_</mark></ins> |
-| `--table-emit-metadata` | _'true'&#124;'false'_ |  whether to emit metadata for the database present in the register when writing it as a tab\-separated file | <ins>default=<mark>_false_</mark></ins> |
-| `--table-transpose` | _'true'&#124;'false'_ |  whether to transpose the database present in the register before writing it as a tab\-separated file  (if `true` : rows are vector names, columns are (metadata and) *k*\-mer names;   if `false`: rows are (metadata and) *k*\-mer names, columns are vector names) | <ins>default=<mark>_false_</mark></ins> |
-| `--table-threshold` | _&lt;non\_negative\_integer&gt;_ |  set to zero all counts that are less than this threshold before transforming and outputting them | <ins>default=<mark>_1_</mark></ins> |
-| `--table-power` | _&lt;non\_negative\_float&gt;_ |  raise counts to this power before transforming and outputting them\.<br>A power of 0 when the `pseudocount` method is used performs a logarithmic transformation | <ins>default=<mark>_1\._</mark></ins> |
-| `--table-transform`<br>`--table-transformation` | _'none'&#124;'normalize'&#124;'pseudocount'&#124;'clr'_ |  transformation to apply to table elements before outputting them | <ins>default=<mark>_normalize_</mark></ins> |
-| `--table-emit-zero-rows` | _'true'&#124;'false'_ |  whether to emit rows whose elements are all zero when writing the database as a tab\-separated file | <ins>default=<mark>_false_</mark></ins> |
-| `--table-set-precision` | _&lt;positive\_integer&gt;_ |  set the number of precision digits to be used when outputting counts | <ins>default=<mark>_15_</mark></ins> |
-| `-t`<br>`--table` | _&lt;file\_prefix&gt;_ |  write the database present in the register as a tab\-separated file  (rows are *k*\-mer names, columns are vector names;   the file will be given extension `.KPopCounter.txt`) |  |
+| `-o`<br>`--output` | _binary\_file\_prefix_ |  dump the database present in the register to the specified file  \(which will be given extension \.KPopCounter\) |  |
+| `--distance`<br>`--distance-function` | `euclidean` _&#124;_ `minkowski(`_non\_negative\_float_`)` |  set the function to be used when computing distances\.<br>The parameter for `minkowski()` is the power | <ins>default=<mark>_euclidean_</mark></ins> |
+| `--distance-normalize`<br>`--normalize-distances`<br>`--distance-normalization` | `true` _&#124;_ `false` |  whether spectra should be normalized prior to computing distances |  |
+| `-d`<br>`--distances`<br>`--compute-distances`<br>`--compute-spectral-distances` | _REGEXP\_SELECTOR REGEXP\_SELECTOR binary\_file\_prefix_ |  where _REGEXP\_SELECTOR :=  metadata\_field_`~`_regexp\[_`,`_\.\.\._`,`_metadata\_field_`~`_regexp\]_ and regexps are defined as in [https://ocaml.org/api/Str.html](https://ocaml.org/api/Str.html):<br>select two sets of spectra from the register and compute and output distances between all possible pairs<br>\(metadata fields must match the regexps specified in the selector;   an empty metadata field makes the regexp match labels\.<br>  The result will have extension `.KPopDMatrix`\) |  |
+| `--table-emit-row-names` | `true` _&#124;_ `false` |  whether to emit row names for the database present in the register when writing it as a tab\-separated file | <ins>default=<mark>_true_</mark></ins> |
+| `--table-emit-col-names` | `true` _&#124;_ `false` |  whether to emit column names for the database present in the register when writing it as a tab\-separated file | <ins>default=<mark>_true_</mark></ins> |
+| `--table-emit-metadata` | `true` _&#124;_ `false` |  whether to emit metadata for the database present in the register when writing it as a tab\-separated file | <ins>default=<mark>_false_</mark></ins> |
+| `--table-transpose` | `true` _&#124;_ `false` |  whether to transpose the database present in the register before writing it as a tab\-separated file  \(if `true`: rows are spectrum names, columns \[metadata and\] *k*\-mer names;   if `false`: rows are \[metadata and\] *k*\-mer names, columns spectrum names\) | <ins>default=<mark>_false_</mark></ins> |
+| `--table-threshold` | _non\_negative\_integer_ |  set to zero all counts that are less than this threshold before transforming and outputting them | <ins>default=<mark>_1_</mark></ins> |
+| `--table-power` | _non\_negative\_float_ |  raise counts to this power before transforming and outputting them\.<br>A power of 0 when the `pseudocount` method is used performs a logarithmic transformation | <ins>default=<mark>_1\._</mark></ins> |
+| `--table-transform`<br>`--table-transformation` | `none` _&#124;_ `normalize` _&#124;_ `pseudocount` _&#124;_ `clr` |  transformation to apply to table elements before outputting them | <ins>default=<mark>_normalize_</mark></ins> |
+| `--table-emit-zero-rows` | `true` _&#124;_ `false` |  whether to emit rows whose elements are all zero when writing the database as a tab\-separated file | <ins>default=<mark>_false_</mark></ins> |
+| `--table-precision` | _positive\_integer_ |  set the number of precision digits to be used when outputting counts | <ins>default=<mark>_15_</mark></ins> |
+| `-t`<br>`--table` | _file\_prefix_ |  write the database present in the register as a tab\-separated file  \(rows are *k*\-mer names, columns are spectrum names;   the file will be given extension `.KPopCounter.txt`\) |  |
 
 Actions involving the selection register:
 
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
-| `-L`<br>`--labels`<br>`--selection-from-labels` | _&lt;vector\_label&gt;\[','\.\.\.','&lt;vector\_label&gt;\]_ |  put into the selection register the specified labels |  |
-| `-R`<br>`--regexps`<br>`--selection-from-regexps` | _&lt;metadata\_field&gt;'\~'&lt;regexp&gt;\[','\.\.\.','&lt;metadata\_field&gt;'\~'&lt;regexp&gt;\]_ |  put into the selection register the labels of the vectors whose metadata fields match the specified regexps\.<br>An empty metadata field matches the labels |  |
-| `-A`<br>`--add-sum-selection`<br>`--selection-add-sum` | _&lt;new\_vector\_label&gt;_ |  add to the database present in the register (or replace if the new label exists) a linear combination of the vectors whose labels are in the selection register |  |
-| `-D`<br>`--delete`<br>`--selection-remove` |  |  remove from the table the vectors whose labels are in the selection register |  |
+| `-L`<br>`--labels`<br>`--selection-from-labels` | _spectrum\_label\[_`,`_\.\.\._`,`_spectrum\_label\]_ |  put into the selection register the specified labels |  |
+| `-R`<br>`--regexps`<br>`--selection-from-regexps` | _metadata\_field_`~`_regexp\[_`,`_\.\.\._`,`_metadata\_field_`~`_regexp\]_ |  put into the selection register the labels of the spectra whose metadata fields match the specified regexps and regexps are defined as in [https://ocaml.org/api/Str.html](https://ocaml.org/api/Str.html)\.<br>An empty metadata field makes the regexp match labels |  |
+| `--selection-combination-criterion`<br>`--combination-criterion` | `mean` _&#124;_ `median` |  set the criterion used to combine the *k*\-mer frequencies of selected spectra\.<br>To avoid rounding issues, each *k*\-mer frequency is also rescaled by the largest normalization across spectra  \(`mean` averages frequencies across spectra;   `median` computes the median across spectra\) | <ins>default=<mark>_mean_</mark></ins> |
+| `-A`<br>`--add-combined-selection`<br>`--selection-combine-and-add` | _new\_spectrum\_label_ |  add to the database present in the register \(or replace if new label exists\) a combination of the spectra whose labels are in the selection register |  |
+| `-D`<br>`--delete`<br>`--selection-delete` |  |  drop the spectra whose labels are in the selection register from the database present in the register |  |
 | `-N`<br>`--selection-negate` |  |  negate the labels that are present in the selection register |  |
 | `-P`<br>`--selection-print` |  |  print the labels that are present in the selection register |  |
 | `-C`<br>`--selection-clear` |  |  purge the selection register |  |
-| `-F`<br>`--selection-to-table-filter` |  |  filters out vectors whose labels are present in the selection register when writing the database as a tab\-separated file |  |
+| `-F`<br>`--selection-to-table-filter` |  |  filter out spectra whose labels are present in the selection register when writing the database as a tab\-separated file |  |
 
 **Miscellaneous options.**
 They are set immediately
 
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
-| `-T`<br>`--threads` | _&lt;computing\_threads&gt;_ |  number of concurrent computing threads to be spawned  (default automatically detected from your configuration) | <ins>default=<mark>_nproc_</mark></ins> |
+| `-T`<br>`--threads` | _computing\_threads_ |  number of concurrent computing threads to be spawned  \(default automatically detected from your configuration\) | <ins>default=<mark>_nproc_</mark></ins> |
 | `-v`<br>`--verbose` |  |  set verbose execution | <ins>default=<mark>_false_</mark></ins> |
+| `-V`<br>`--version` |  |  print version and exit |  |
 | `-h`<br>`--help` |  |  print syntax and exit |  |
 
 ### 4.3. `KPopTwist`
@@ -273,8 +343,10 @@ $ KPopTwist -h
 ```
 in your terminal. You will see a header containing information about the version:
 ```
-This is the KPopTwist program (version 0.14)
- (c) 2022 Paolo Ribeca, <paolo.ribeca@gmail.com>
+This is KPopTwist version 17 [02-Jan-2024]
+ compiled against: BiOCamLib version 242 [23-Jan-2024];
+                   KPop version 368 [07-Feb-2024]
+ (c) 2022-2024 Paolo Ribeca <paolo.ribeca@gmail.com>
 ```
 followed by detailed information. The general form the command can be used is:
 ```
@@ -285,23 +357,25 @@ KPopTwist -i|--input <input_table_prefix> [OPTIONS]
 
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
-| `-f`<br>`-F`<br>`-s`<br>`-S`<br>`--fraction`<br>`--sampling`<br>`--sampling-fraction` | _&lt;non\_negative\_float&gt;_ |  fraction of the rows to be considered and resampled before twisting | <ins>default=<mark>_1\._</mark></ins> |
-| `--threshold` | _&lt;non\_negative\_integer&gt;_ |  set to zero all counts that are less than this threshold before transforming them | <ins>default=<mark>_1_</mark></ins> |
-| `--power` | _&lt;non\_negative\_float&gt;_ |  raise counts to this power before transforming them\.<br>A power of 0 when the `pseudocount` method is used performs a logarithmic transformation | <ins>default=<mark>_1\._</mark></ins> |
-| `--transform`<br>`--transformation` | _'none'&#124;'normalize'&#124;'pseudocount'&#124;'clr'_ |  transformation to apply to table elements | <ins>default=<mark>_normalize_</mark></ins> |
+| `-f`<br>`-F`<br>`-s`<br>`-S`<br>`--fraction`<br>`--sampling`<br>`--sampling-fraction` | _fractional\_float_ |  fraction of the rows to be considered and resampled before twisting | <ins>default=<mark>_1\._</mark></ins> |
+| `--threshold` | _non\_negative\_integer_ |  set to zero all counts that are less than this threshold before transforming them | <ins>default=<mark>_1_</mark></ins> |
+| `--power` | _non\_negative\_float_ |  raise counts to this power before transforming them\.<br>A power of 0 when the `pseudocount` method is used performs a logarithmic transformation | <ins>default=<mark>_1\._</mark></ins> |
+| `--transform`<br>`--transformation` | `none` _&#124;_ `normalize` _&#124;_ `pseudocount` _&#124;_ `clr` |  transformation to apply to table elements | <ins>default=<mark>_normalize_</mark></ins> |
 
 **Input/Output**
 
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
-| `-i`<br>`--input` | _&lt;input\_table\_prefix&gt;_ |  load the specified *k*\-mer database in the register and twist it\.<br>File extension is automatically determined  (will be `.KPopCounter`)\.<br>The prefix is then re\-used for output  (and the output file will be given prefix `.KPopTwisted`) | *(mandatory)* |
+| `-i`<br>`--input` | _binary\_file\_prefix_ |  load the specified *k*\-mer database in the register and twist it\.<br>File extension is automatically determined  \(will be `.KPopCounter`\)\.<br>The prefix is then re\-used for output  \(and the output files will be given extensions   `.KPopTwister` and `.KPopTwisted`\) | *(mandatory)* |
 
 **Miscellaneous**
 
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
-| `-T`<br>`--threads` | _&lt;computing\_threads&gt;_ |  number of concurrent computing threads to be spawned  (default automatically detected from your configuration) | <ins>default=<mark>_nproc_</mark></ins> |
+| `-T`<br>`--threads` | _computing\_threads_ |  number of concurrent computing threads to be spawned  (default automatically detected from your configuration) | <ins>default=<mark>_nproc_</mark></ins> |
+| `--keep-temporaries` |  |  keep temporary files rather than deleting them in the end | <ins>default=<mark>_false_</mark></ins> |
 | `-v`<br>`--verbose` |  |  set verbose execution | <ins>default=<mark>_false_</mark></ins> |
+| `-V`<br>`--version` |  |  print version and exit |  |
 | `-h`<br>`--help` |  |  print syntax and exit |  |
 
 ### 4.4. `KPopTwistDB`
@@ -325,28 +399,31 @@ They are executed delayed and in order of specification.
 
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
-| `-e`<br>`--empty` | _T&#124;t&#124;d_ |  load an empty twisted database into the specified register  (`T`=twister; `t`=twisted; `d`=distance) |  |
-| `-i`<br>`--input` | _T&#124;t&#124;d &lt;binary\_file\_prefix&gt;_ |  load the specified binary database into the specified register  (`T`=twister; `t`=twisted; `d`=distance)\.<br>File extension is automatically determined depending on database type  (will be: `.KPopTwister`; `.KPopTwisted`; or `.KPopDMatrix`, respectively) |  |
-| `-I`<br>`--Input` | _T&#124;t&#124;d &lt;table\_file\_prefix&gt;_ |  load the specified tabular database(s) into the specified register  (`T`=twister; `t`=twisted; `d`=distance)\.<br>File extension is automatically determined depending on database type  (will be: `.KPopTwister.txt` and `.KPopInertia.txt`; `.KPopTwisted.txt`;   or `.KPopDMatrix.txt`, respectively) |  |
-| `-a`<br>`--add` | _t&#124;d &lt;binary\_file\_prefix&gt;_ |  add the contents of the specified binary database to the specified register  (`t`=twisted; `d`=distance)\.<br>File extension is automatically determined depending on database type  (will be: `.KPopTwisted`; or `.KPopDMatrix`, respectively) |  |
-| `-A`<br>`--Add` | _t&#124;d &lt;table\_file\_prefix&gt;_ |  add the contents of the specified tabular database to the specified register  (`t`=twisted; `d`=distance)\.<br>File extension is automatically determined depending on database type  (will be: `.KPopTwisted.txt`; or `.KPopDMatrix.txt`, respectively) |  |
-| `-k`<br>`-K`<br>`--kmers`<br>`--add-kmers`<br>`--add-kmer-files` | _&lt;k\-mer\_table\_file\_name&gt;[','\.\.\.','&lt;k\-mer\_table\_file\_name&gt;]_ |  twist *k*\-mers from the specified files through the transformation present in the twister register, and add the results to the database present in the twisted register |  |
-| `--distance`<br>`--distance-function`<br>`--set-distance`<br>`--set-distance-function` | _'euclidean'&#124;<br> 'minkowski(&lt;non\_negative\_float&gt;)'_ |  set the function to be used when computing distances\.<br>The parameter for Minkowski is the power | <ins>default=<mark>_euclidean_</mark></ins> |
-| `-m`<br>`--metric`<br>`--metric-function`<br>`--set-metric`<br>`--set-metric-function` | _'flat'&#124;<br> 'power('&lt;non\_negative\_float&gt;')'&#124;<br> 'sigmoid('SIGMOID\_PARAMETERS')'_ |  where SIGMOID\_PARAMETERS :=  &lt;non\_negative\_float&gt;','&lt;non\_negative\_float&gt;','  &lt;non\_negative\_float&gt;','&lt;non\_negative\_float&gt; : set the metric function to be used when computing distances\.<br>Parameters are:  power; thresholding multiplier; left and right sigmoid tightnesses\. | <ins>default=<mark>_sigmoid(1,3,10,10)_</mark></ins> |
-| `-d`<br>`--distances`<br>`--compute-distances`<br>`--compute-distances-twisted` | _&lt;twisted\_binary\_file\_prefix&gt;_ |  compute distances between all the vectors present in the twisted register and all the vectors present in the specified twisted binary file  (which must have extension `.KPopTwisted`)\.<br>The result will be placed in the distance register |  |
-| `-o`<br>`--output` | _T&#124;t&#124;d &lt;binary\_file\_prefix&gt;_ |  dump the database present in the specified register  (`T`=twister; `t`=twisted; `d`=distance) to the specified binary file\.<br>File extension is automatically determined depending on database type  (will be: `.KPopTwister`; `.KPopTwisted`; or `.KPopDMatrix`, respectively) |  |
-| `--precision`<br>`--set-precision`<br>`--set-table-precision` | _&lt;positive\_integer&gt;_ |  set the number of precision digits to be used when outputting numbers | <ins>default=<mark>_15_</mark></ins> |
-| `-O`<br>`--Output` | _T&#124;t&#124;d&#124;m &lt;table\_file\_prefix&gt;_ |  dump the database present in the specified register  (`T`=twister; `t`=twisted; `d`=distance; `m`=metrics) to the specified tabular file(s)\.<br>File extension is automatically determined depending on database type  (will be: `.KPopTwister.txt` and `.KPopInertia.txt`; `.KPopTwisted.txt`;   `.KPopDMatrix.txt`; or `.KPopMetrics.txt`, respectively) |  |
-| `--keep-at-most`<br>`--set-keep-at-most`<br>`--summary-keep-at-most` | _&lt;positive\_integer&gt;&#124;all_ |  set the maximum number of closest target sequences to be kept when summarizing distances | <ins>default=<mark>_2_</mark></ins> |
-| `-s`<br>`--summarize-distances` | _&lt;summary\_file\_prefix&gt;_ |  summarize the distances present in the distance register and write the result to the specified tabular file\.<br>File extension will be automatically determined  (will be `.KPopSummary.txt`) |  |
+| `-e`<br>`--empty` | `T`_&#124;_`t`_&#124;_`d` |  load an empty database into the specified register  \(T=twister; t=twisted; d=distance\) |  |
+| `-i`<br>`--input` | `T`_&#124;_`t`_&#124;_`d` _binary\_file\_prefix_ |  load the specified binary database into the specified register  \(`T`=twister; `t`=twisted; `d`=distance\)\.<br>File extension is automatically determined depending on database type  \(will be: `.KPopTwister`; `.KPopTwisted`; or `.KPopDMatrix`, respectively\) |  |
+| `-I`<br>`--Input` | `T`_&#124;_`t`_&#124;_`d` _table\_file\_prefix_ |  load the specified tabular database\(s\) into the specified register  \(`T`=twister; `t`=twisted; `d`=distance\)\.<br>File extension is automatically determined depending on database type  \(will be: `.KPopTwister.txt` and `.KPopInertia.txt`; `.KPopTwisted.txt`;   or `.KPopDMatrix.txt`, respectively\) |  |
+| `-a`<br>`--add` | `t`_&#124;_`d` _binary\_file\_prefix_ |  add the contents of the specified binary database to the specified register  \(`t`=twisted; `d`=distance\)\.<br>File extension is automatically determined depending on database type  \(will be: `.KPopTwisted`; or `.KPopDMatrix`, respectively\) |  |
+| `-A`<br>`--Add` | `t`_&#124;_`d` _table\_file\_prefix_ |  add the contents of the specified tabular database to the specified register  \(`t`=twisted; `d`=distance\)\.<br>File extension is automatically determined depending on database type  \(will be: `.KPopTwisted.txt`; or `.KPopDMatrix.txt`, respectively\) |  |
+| `-k`<br>`--kmers`<br>`--add-kmers`<br>`--add-kmer-files` | _k\-mer\_table\_file\_name\[`,`_\.\.\.`,`_k\-mer\_table\_file\_name\]_ |  twist *k*\-mers from the specified files through the transformation present in the twister register, and add the results to the database present in the twisted register |  |
+| `--distance`<br>`--distance-function`<br>`--set-distance`<br>`--set-distance-function` | `euclidean` _&#124;_ `cosine` _&#124;_ `minkowski(`_non\_negative\_float_`)` |  set the function to be used when computing distances\.<br>The parameter for `minkowski` is the power\.<br>Note that `euclidean` is the same as `minkowski\(2\)`, and `cosine` is the same as \(`euclidean`^2\)/2 | <ins>default=<mark>_euclidean_</mark></ins> |
+| `--distance-normalization`<br>`--set-distance-normalization` | `true` _&#124;_ `false` |  set whether twisted vectors should be normalized prior to computing distances | <ins>default=<mark>_true_</mark></ins> |
+| `-m`<br>`--metric`<br>`--metric-function`<br>`--set-metric`<br>`--set-metric-function` | `flat` _&#124;_ `powers(`_POWERS\_PARAMETERS_`)` |  where _POWERS\_PARAMETERS :=  non\_negative\_float_`,`_fractional\_float_`,`_non\_negative\_float_ :<br>set the metric function to be used when computing distances\.<br>Parameters are:  internal power; fractional accumulative threshold; external power\. | <ins>default=<mark>_powers\(1,1,2\)_</mark></ins> |
+| `-d`<br>`--distances`<br>`--compute-distances`<br>`--compute-twisted-distances` | _twisted\_binary\_file\_prefix_ |  compute distances between all the vectors present in the twisted register and all the vectors present in the specified twisted binary file  \(which must have extension `.KPopTwisted`\) using the metric provided by the twister present in the twister register\.<br>The result will be placed in the distance register |  |
+| `-o`<br>`--output` | `T`_&#124;_`t`_&#124;_`d` _binary\_file\_prefix_ |  dump the database present in the specified register  \(`T`=twister; `t`=twisted; `d`=distance\) to the specified binary file\.<br>File extension is automatically assigned depending on database type  \(will be: `.KPopTwister`; `.KPopTwisted`; or `.KPopDMatrix`, respectively\) |  |
+| `--precision`<br>`--set-precision`<br>`--set-table-precision` | _positive\_integer_ |  set the number of precision digits to be used when outputting numbers | <ins>default=<mark>_15_</mark></ins> |
+| `-O`<br>`--Output` | `T`_&#124;_`t`_&#124;_`d`_&#124;_`m` _table\_file\_prefix_ |  dump the database present in the specified register  \(`T`=twister; `t`=twisted; `d`=distance; `m`=metric\) to the specified tabular file\(s\)\.<br>File extension is automatically assigned depending on database type  \(will be: `.KPopTwister.txt` and `.KPopInertia.txt`; `.KPopTwisted.txt`;   `.KPopDMatrix.txt`; or `.KPopMetrics.txt`, respectively\) |  |
+| `-K`<br>`--keep-at-most`<br>`--set-keep-at-most`<br>`--summary-keep-at-most` | _positive\_integer_ _&#124;_ `all` |  set the maximum number of closest target sequences to be kept when summarizing distances\.<br>Note that more might be printed anyway in case of ties | <ins>default=<mark>_2_</mark></ins> |
+| `-s`<br>`--compute-and-summarize-distances`<br>`--compute-and-summarize-twisted-distances` | _twisted\_binary\_file\_prefix summary\_file\_prefix_ |  compute distances between all the vectors present in the twisted register and all the vectors present in the specified twisted binary file  \(which must have extension `.KPopTwisted`\) using the metric provided by the twister present in the twister register; summarize them and write the result to the specified tabular file\.<br>File extension is automatically assigned  \(will be `.KPopSummary.txt`\) |  |
+| `-S`<br>`--summarize-distances`<br>`--summarize-twisted-distances` | _summary\_file\_prefix_ |  summarize the distances present in the distance register and write the result to the specified tabular file\.<br>File extension is automatically assigned  \(will be `.KPopSummary.txt`\) |  |
 
 **Miscellaneous options.**
 They are set immediately.
 
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
-| `-T`<br>`--threads` | _&lt;computing\_threads&gt;_ |  number of concurrent computing threads to be spawned  (default automatically detected from your configuration) | <ins>default=<mark>_nproc_</mark></ins> |
+| `-T`<br>`--threads` | _computing\_threads_ |  number of concurrent computing threads to be spawned  \(default automatically detected from your configuration\) | <ins>default=<mark>_nproc_</mark></ins> |
 | `-v`<br>`--verbose` |  |  set verbose execution | <ins>default=<mark>_false_</mark></ins> |
+| `-V`<br>`--version` |  |  print version and exit |  |
 | `-h`<br>`--help` |  |  print syntax and exit |  |
 
 ## 5. Examples

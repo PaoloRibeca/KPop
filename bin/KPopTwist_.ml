@@ -68,7 +68,7 @@ let () =
       (fun _ -> Parameters.transformation := TA.get_parameter ());
     TA.make_separator "Input/Output";
     [ "-i"; "--input" ],
-      Some "<input_table_prefix>",
+      Some "<binary_file_prefix>",
       [ "load the specified k-mer database in the register and twist it.";
         "File extension is automatically determined";
         " (will be .KPopCounter).";

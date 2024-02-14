@@ -345,7 +345,7 @@ let () =
   TA.parse [
     TA.make_separator_multiline [ "Actions."; "They are executed delayed and in order of specification." ];
     [ "-e"; "--empty" ],
-      Some "T|t|d",
+      Some "'T'|'t'|'d'",
       [ "load an empty database into the specified register";
         " (T=twister; t=twisted; d=distance)" ],
       TA.Optional,
@@ -356,7 +356,7 @@ let () =
         | Twister | Twisted | Distances as register_type ->
           Empty register_type |> Tools.List.accum Parameters.program);
     [ "-i"; "--input" ],
-      Some "T|t|d <binary_file_prefix>",
+      Some "'T'|'t'|'d' <binary_file_prefix>",
       [ "load the specified binary database into the specified register";
         " (T=twister; t=twisted; d=distance).";
         "File extension is automatically determined depending on database type";
@@ -369,7 +369,7 @@ let () =
         | Twister | Twisted | Distances as register_type ->
           Binary_to_register (register_type, TA.get_parameter ()) |> Tools.List.accum Parameters.program);
     [ "-I"; "--Input" ],
-      Some "T|t|d <table_file_prefix>",
+      Some "'T'|'t'|'d' <table_file_prefix>",
       [ "load the specified tabular database(s) into the specified register";
         " (T=twister; t=twisted; d=distance).";
         "File extension is automatically determined depending on database type";
@@ -383,7 +383,7 @@ let () =
         | Twister | Twisted | Distances as register_type ->
           Tables_to_register (register_type, TA.get_parameter ()) |> Tools.List.accum Parameters.program);
     [ "-a"; "--add" ],
-      Some "t|d <binary_file_prefix>",
+      Some "'t'|'d' <binary_file_prefix>",
       [ "add the contents of the specified binary database to the specified register";
         " (t=twisted; d=distance).";
         "File extension is automatically determined depending on database type";
@@ -396,7 +396,7 @@ let () =
         | Twisted | Distances as register_type ->
           Add_binary_to_register (register_type, TA.get_parameter ()) |> Tools.List.accum Parameters.program);
     [ "-A"; "--Add" ],
-      Some "t|d <table_file_prefix>",
+      Some "'t'|'d' <table_file_prefix>",
       [ "add the contents of the specified tabular database to the specified register";
         " (t=twisted; d=distance).";
         "File extension is automatically determined depending on database type";
@@ -450,7 +450,7 @@ let () =
       TA.Optional,
       (fun _ -> Distances_from_twisted_binary (TA.get_parameter ()) |> Tools.List.accum Parameters.program);
     [ "-o"; "--output" ],
-      Some "T|t|d <binary_file_prefix>",
+      Some "'T'|'t'|'d' <binary_file_prefix>",
       [ "dump the database present in the specified register";
         " (T=twister; t=twisted; d=distance)";
         "to the specified binary file.";
@@ -469,7 +469,7 @@ let () =
       TA.Default (fun () -> string_of_int Defaults.precision),
       (fun _ -> Set_precision (TA.get_parameter_int_pos ()) |> Tools.List.accum Parameters.program);
     [ "-O"; "--Output" ],
-      Some "T|t|d|m <table_file_prefix>",
+      Some "'T'|'t'|'d'|'m' <table_file_prefix>",
       [ "dump the database present in the specified register";
         " (T=twister; t=twisted; d=distance; m=metric)";
         "to the specified tabular file(s).";
