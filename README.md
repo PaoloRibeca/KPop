@@ -7,11 +7,9 @@
 
 ### How does `KPop` compare with minimiser-based methods?
 
-`KPop` is much more sensitive than minimiser-based methods, allowing out-of-the-box accurate comparison of assembled or unassembled long sequences irrespective of whether they differ by single nucleotides or by large portions. This is usually not true for minimiser-based methods, irrespective of the hashing scheme they use, as they only produce a much coarser comparison.
+`KPop` is much more sensitive than minimiser-based methods, allowing out-of-the-box accurate comparison of assembled or unassembled long sequences irrespective of whether they differ by single nucleotides or by large portions. This is usually not true for minimiser-based methods, irrespective of the hashing scheme they use, as they only produce a much coarser comparison. A number of comparisons and a detailed explanation of the differences between the two approaches can be found in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v1).
 
 Crucially, while minimiser-based methods are geared towards providing distances between sequences, `KPop` explicitly produces *embeddings*, i.e., it is able to turn sequences into points of a low-dimensionality latent space. Having an explicit latent space is important for many reasons &mdash; it helps explainability; it also makes it possible to perform direct clustering and use vector [DBs](https://milvus.io/) or [libraries](https://github.com/facebookresearch/faiss) to store and search embedded sequences.
-
-A number of comparisons and a detailed explanation of the differences between the two approaches can be found in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v1).
 
 ### Can I run it on my laptop?
 
