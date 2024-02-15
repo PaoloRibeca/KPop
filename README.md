@@ -7,11 +7,9 @@
 
 ### How does `KPop` compare with minimiser-based methods?
 
-`KPop` is much more sensitive than minimiser-based methods, allowing out-of-the-box accurate comparison of assembled or unassembled long sequences irrespective of whether they differ by single nucleotides or by large portions. This is usually not true for minimiser-based methods, irrespective of the hashing scheme they use, as they only produce a much coarser comparison.
+`KPop` is much more sensitive than minimiser-based methods, allowing out-of-the-box accurate comparison of assembled or unassembled long sequences irrespective of whether they differ by single nucleotides or by large portions. This is usually not true for minimiser-based methods, irrespective of the hashing scheme they use, as they only produce a much coarser comparison. A number of comparisons and a detailed explanation of the differences between the two approaches can be found in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v1).
 
 Crucially, while minimiser-based methods are geared towards providing distances between sequences, `KPop` explicitly produces *embeddings*, i.e., it is able to turn sequences into points of a low-dimensionality latent space. Having an explicit latent space is important for many reasons &mdash; it helps explainability; it also makes it possible to perform direct clustering and use vector [DBs](https://milvus.io/) or [libraries](https://github.com/facebookresearch/faiss) to store and search embedded sequences.
-
-A number of comparisons and a detailed explanation of the differences between the two approaches can be found in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v1).
 
 ### Can I run it on my laptop?
 
@@ -98,86 +96,87 @@ Download file `clusters-small.fasta` from the directory `test`. Then run the fol
 ```bash
 export K=5
 date
-for CLASS in C1 C2 C3 C4 C5 C6 C7 C8 C9 C10; do cat clusters-small.fasta | awk -v CLASS=$CLASS '{nr=(NR-1)%4; ok=(nr==0?$0~("-"CLASS"$"):nr==1&&ok); if (ok) print}' | KPopCount -k $K -l $CLASS -f /dev/stdin | KPopCountDB -k /dev/stdin -R "~." -A $CLASS -L $CLASS -N -D --table-transform none -t /dev/stdout; done | KPopCountDB -k /dev/stdin -o Classes.$K -v
-KPopTwist -i Classes -v
-cat clusters-small.fasta | awk -v K="$K" '{nr=(NR-1)%4; if (nr==2) split($0,s,"[>-]"); if (nr==3) print ">"s[2]"-"s[3]"\n"$0}' | KPopCount -k $K -L -f /dev/stdin | KPopTwistDB -i T Classes.$K -k /dev/stdin -o t /dev/stdout | KPopTwistDB -i T Classes.$K -i t Classes.$K -s /dev/stdin Classes.$K -v
-echo -n ">>> Misclassified sequences: "; cat Classes.KPopSummary.txt | awk -F '\t' 'BEGIN{OFS="\t"} {$1=gensub("-","\"\t\"",1,$1); print}' | awk -F '\t' '{if ($2!=$7) print}' | wc -l
+for CLASS in C1 C2 C3 C4 C5 C6 C7 C8 C9 C10; do cat clusters-small.fasta | awk -v CLASS=$CLASS '{nr=(NR-1)%4; ok=(nr==0?$0~("-"CLASS"$"):nr==1&&ok); if (ok) print}' | KPopCount -k $K -L -f /dev/stdin | KPopCountDB -k /dev/stdin -R "~." -A $CLASS -L $CLASS -N -D --table-transform none -t /dev/stdout; done | KPopCountDB -k /dev/stdin -o Classes.$K -v
+KPopTwist -i Classes.$K -v
+cat clusters-small.fasta | awk -v K="$K" '{nr=(NR-1)%4; if (nr==2) split($0,s,"[>-]"); if (nr==3) print ">"s[2]"-"s[3]"\n"$0}' | KPopCount -k $K -L -f /dev/stdin | KPopTwistDB -i T Classes.$K -k /dev/stdin -o t /dev/stdout | KPopTwistDB -i T Classes.$K -i t Classes.$K -s /dev/stdin Class_prediction.$K -v
+echo -n ">>> Misclassified sequences: "; cat Class_prediction.$K.KPopSummary.txt | awk -F '\t' 'BEGIN{OFS="\t"} {$1=gensub("-","\"\t\"",1,$1); print}' | awk -F '\t' '{if ($2!=$7) print}' | wc -l
 date
 ```
 
 That should produce an output such as this one:
 
 ```
-Wed 24 Jan 11:18:16 BST 2024
-This is KPopCountDB version 37 [22-Jan-2024]
- compiled against: BiOCamLib version 242 [23-Jan-2024];
-                   KPop version 366 [23-Jan-2024]
- (c) 2020-2024 Paolo Ribeca <paolo.ribeca@gmail.com>
+Wed 14 Feb 16:46:55 GMT 2024
+This is KPopCountDB version 38 [07-Feb-2024]
+ │ compiled against: BiOCamLib version 242 [23-Jan-2024];
+                     KPop version 368 [07-Feb-2024]
+ │ (c) 2020-2024 Paolo Ribeca <paolo.ribeca@gmail.com>
 (Dune__exe__KPopCountDB.KMerDB.add_files.(fun)): [1/1] File '/dev/stdin': Read 10 spectra on 5127 lines.
 (Dune__exe__KPopCountDB.KMerDB.to_binary): Outputting DB to file 'Classes.5.KPopCounter'... done.
+
 This is KPopTwist version 17 [02-Jan-2024]
- compiled against: BiOCamLib version 242 [23-Jan-2024];
-                   KPop version 366 [23-Jan-2024]
- (c) 2022-2024 Paolo Ribeca <paolo.ribeca@gmail.com>
-Wed 24 Jan 2024 11:18:37 GMT: [1/13] Exporting table...
-Wed 24 Jan 2024 11:18:38 GMT: [2/13] Splitting table...
-Wed 24 Jan 2024 11:18:42 GMT: [3/13] Reading table...
-Wed 24 Jan 2024 11:18:42 GMT: [4/13] Resampling table...
-Wed 24 Jan 2024 11:18:42 GMT: [5/13] Transforming table...
-Wed 24 Jan 2024 11:18:42 GMT: [6/13] Writing twisted...
-Wed 24 Jan 2024 11:18:42 GMT: [7/13] Writing inertia...
-Wed 24 Jan 2024 11:18:42 GMT: [8/13] Normalizing table...
-Wed 24 Jan 2024 11:18:42 GMT: [9/13] Transposing table...
-Wed 24 Jan 2024 11:18:42 GMT: [10/13] Writing twister...
-Wed 24 Jan 2024 11:18:42 GMT: [11/13] Encoding twisted...
-Wed 24 Jan 2024 11:18:43 GMT: [12/13] Encoding twister...
-Wed 24 Jan 2024 11:18:43 GMT: [13/13] Cleaning up...
-Wed 24 Jan 2024 11:18:43 GMT: All done.
+ │ compiled against: BiOCamLib version 242 [23-Jan-2024];
+                     KPop version 368 [07-Feb-2024]
+ │ (c) 2022-2024 Paolo Ribeca <paolo.ribeca@gmail.com>
+Wed 14 Feb 2024 16:47:19 GMT: [1/13] Exporting table...
+Wed 14 Feb 2024 16:47:19 GMT: [2/13] Splitting table...
+Wed 14 Feb 2024 16:47:19 GMT: [3/13] Reading table...
+Wed 14 Feb 2024 16:47:19 GMT: [4/13] Resampling table...
+Wed 14 Feb 2024 16:47:19 GMT: [5/13] Transforming table...
+Wed 14 Feb 2024 16:47:19 GMT: [6/13] Writing twisted...
+Wed 14 Feb 2024 16:47:19 GMT: [7/13] Writing inertia...
+Wed 14 Feb 2024 16:47:19 GMT: [8/13] Normalizing table...
+Wed 14 Feb 2024 16:47:19 GMT: [9/13] Transposing table...
+Wed 14 Feb 2024 16:47:19 GMT: [10/13] Writing twister...
+Wed 14 Feb 2024 16:47:19 GMT: [11/13] Encoding twisted...
+Wed 14 Feb 2024 16:47:19 GMT: [12/13] Encoding twister...
+Wed 14 Feb 2024 16:47:19 GMT: [13/13] Cleaning up...
+Wed 14 Feb 2024 16:47:19 GMT: All done.
 This is KPopTwistDB version 27 [17-Jan-2024]
- compiled against: BiOCamLib version 242 [23-Jan-2024];
-                   KPop version 366 [23-Jan-2024]
- (c) 2022-2024 Paolo Ribeca <paolo.ribeca@gmail.com>
+ │ compiled against: BiOCamLib version 242 [23-Jan-2024];
+                     KPop version 368 [07-Feb-2024]
+ │ (c) 2022-2024 Paolo Ribeca <paolo.ribeca@gmail.com>
 (Dune__exe__KPopTwistDB.Twister.of_binary): Reading DB from file 'Classes.5.KPopTwister'... done.
 (KPop__Matrix.of_binary): Reading DB from file 'Classes.5.KPopTwisted'... done.
 (KPop__Matrix.of_binary): Reading DB from file '/dev/stdin'... done.
 (KPop__Matrix.Base.get_normalizations): Done 500/500 rows.
 (KPop__Matrix.Base.get_normalizations): Done 10/10 rows.
-(KPop__Matrix.summarize_rowwise): Writing distance digest to file 'Classes.5.KPopSummary.txt': done 500/500 rows.
+(KPop__Matrix.summarize_rowwise): Writing distance digest to file 'Class_prediction.5.KPopSummary.txt': done 500/500 rows.
 >>> Misclassified sequences: 0
-Wed 24 Jan 11:19:08 BST 2024
+Wed 14 Feb 16:47:41 GMT 2024
 ```
 
 This is an example of `KPop`-based classifier. The input FASTA file [`clusters-small.fasta`](test/clusters-small.fasta) contains 1000 sequences having names such as `S2-C1`, meaning "sequence 2 belonging to class 1". There are 10 different classes. We will see how the process works in more detail in the following sections, but, to summarise:
 1. Sequences with an odd index are taken to be part of the training set, sequences with an even index are considered part of the test set
 2. For each class `C1`, `C2`, ... `C10`, if the variable CLASS contains the name of the class, the command
    ```bash
-   $ cat clusters-small.fasta | awk -v CLASS="$CLASS" '{nr=(NR-1)%4; ok=(nr==0?$0~("-"CLASS"$"):nr==1&&ok); if (ok) print}' | KPopCount -l $CLASS -f /dev/stdin -k "$K" | KPopCountDB -f /dev/stdin -R "~." -A "$CLASS" -P -L "$CLASS" -N -P -D --table-transform none -t /dev/stdout 2> /dev/null
+   $ cat clusters-small.fasta | awk -v CLASS=$CLASS '{nr=(NR-1)%4; ok=(nr==0?$0~("-"CLASS"$"):nr==1&&ok); if (ok) print}' | KPopCount -k $K -L -f /dev/stdin | KPopCountDB -k /dev/stdin -R "~." -A $CLASS -L $CLASS -N -D --table-transform none -t /dev/stdout
    ```
    runs `KPopCount` (with *k*=5) on each training sequence belonging to CLASS; the results, which are text files each one containing a list of *k*-mers with their respective frequencies, are concatenated and sent to `KPopCountDB` through a pipe &mdash; if you wanted to look into the format, you could do so with the command
    ```bash
-   $ cat clusters-small.fasta | awk -v CLASS="$CLASS" '{nr=(NR-1)%4; ok=(nr==0?$0~("-"CLASS"$"):nr==1&&ok); if (ok) print}' | KPopCount -l $CLASS -f /dev/stdin -k "$K" | less
+   $ cat clusters-small.fasta | awk -v CLASS=$CLASS '{nr=(NR-1)%4; ok=(nr==0?$0~("-"CLASS"$"):nr==1&&ok); if (ok) print}' | KPopCount -k $K -L -f /dev/stdin | less
    ```
-   After that, `KPopCountDB` collects all the spectra for each class into a temporary database, replaces them with an average of the inputs, names the averaged spectrum `$CLASS`, and re-outputs it in the same format used before for the spectra produced by `KPopCount`
+   After that, `KPopCountDB` collects all spectra for each class into a temporary database, replaces them with a combination of the input spectra, names the combined spectrum `$CLASS`, and re-outputs it in the same format used before for the spectra produced by `KPopCount`
 3. The command
    ```bash
-   $ KPopCountDB -f /dev/stdin -o Classes -v
+   $ KPopCountDB -k /dev/stdin -o Classes.$K -v
    ```
-   receives the 10 averaged spectra, one per class, and outputs them to a binary database called `Classes` (actually that corresponds to a file, which gets automatically named `Classes.KPopCounter`)
+   receives the 10 spectra, one per class, and outputs them to a binary database called `Classes.5` (actually that corresponds to a file, which gets automatically named `Classes.5.KPopCounter`)
 4. The command
    ```bash
-   $ KPopTwist -i Classes
+   $ KPopTwist -i Classes.$K -v
    ```
-   "twists" spectra to a reduced-dimensionality space, storing the results in binary form (actually that corresponds to two files, which are automatically named `Classes.KPopTwister` and `Classes.KPopTwisted`). Both the twisted spectra and the "twister" &mdash; i.e., the operator that can be used to convert the original spectra to twisted space &mdash; are stored and can be reused later on
+   "twists" spectra to a reduced-dimensionality space, storing the results in binary form (actually that corresponds to two files, which are automatically named `Classes.5.KPopTwister` and `Classes.5.KPopTwisted`). Both the twisted spectra and the "twister" &mdash; i.e., the operator that can be used to convert the original spectra to twisted space &mdash; are stored and can be reused later on
 5. The command
    ```bash
-   $ cat clusters-small.fasta | awk -v K="$K" '{nr=(NR-1)%4; if (nr==2) split($0,s,"[>-]"); if (nr==3) {command="KPopCount -l "s[2]"-"s[3]" -f /dev/stdin -k "K; print ">"s[2]"\n"$0 | command; close(command)}}' | KPopTwistDB -i T Classes -k /dev/stdin -d Classes -s Classes -v
+   $ cat clusters-small.fasta | awk -v K="$K" '{nr=(NR-1)%4; if (nr==2) split($0,s,"[>-]"); if (nr==3) print ">"s[2]"-"s[3]"\n"$0}' | KPopCount -k $K -L -f /dev/stdin | KPopTwistDB -i T Classes.$K -k /dev/stdin -o t /dev/stdout | KPopTwistDB -i T Classes.$K -i t Classes.$K -s /dev/stdin Class_prediction.$K -v
    ```
-   selects test sequences, runs each of them separately through `KPopCount` to produce a spectrum, and concatenates and pipes all the spectra thus generated to `KPopTwistDB`, which twists them according to the twister generated at the previous stage (named `Classes`). The results are output to a summary text file, which gets automatically named `Classes.KPopSummary.txt`. The file contains information about the two closest classes for each sequence
+   selects test sequences, runs each of them separately through `KPopCount` to produce a spectrum, and concatenates and pipes all the spectra thus generated to `KPopTwistDB`, which twists them according to the twister generated at the previous stage (named `Classes.5`). The results are output to a summary text file, which gets automatically named `Class_prediction.5.KPopSummary.txt`. The file contains information about the two closest classes for each sequence
 6. Finally, the command
    ```bash
-   $ echo -n "Misclassified sequences: "; cat Classes.KPopSummary.txt | awk -F '\t' 'BEGIN{OFS="\t"} {$1=gensub("-","\"\t\"",1,$1); print}' | awk -F '\t' '{if ($2!=$7) print}' | wc -l
+   $ echo -n ">>> Misclassified sequences: "; cat Class_prediction.$K.KPopSummary.txt | awk -F '\t' 'BEGIN{OFS="\t"} {$1=gensub("-","\"\t\"",1,$1); print}' | awk -F '\t' '{if ($2!=$7) print}' | wc -l
    ```
-   parses the results in `Classes.KPopSummary.txt` and computes the number of misclassified sequences.
+   parses the results in `Class_prediction.5.KPopSummary.txt` and computes the number of misclassified sequences.
 Congratulations! You have now moved your first steps in the fascinating world of `KPop`.
 
 ## 3. Overview of commands
@@ -492,7 +491,7 @@ while read DIR; do
   echo "Processing class '${CLASS}'..." > /dev/stderr
   ls "$DIR"/*_1.fastq |
     Parallel --lines-per-block 1 -- awk '{l=split($0,s,"/"); system("KPopCount -k 12 -l "gensub("_1.fastq$","",1,s[l])" -p "$0" "gensub("_1.fastq$","_2.fastq",1))}' |
-    KPopCountDB -f /dev/stdin -R "~." -A "$CLASS" -P -L "$CLASS" -N -P -D --summary --table-transform none -t /dev/stdout 2> /dev/null
+    KPopCountDB -k /dev/stdin -R "~." -A "$CLASS" -P -L "$CLASS" -N -P -D --summary --table-transform none -t /dev/stdout 2> /dev/null
 done
 ```
 The program `Parallel` can be obtained from the [BiOCamLib repository](https://github.com/PaoloRibeca/BiOCamLib). on which the implementation of `KPop` depends.
