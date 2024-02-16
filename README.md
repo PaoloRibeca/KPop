@@ -562,7 +562,7 @@ Note that the script is implicitly parallelised, in that both `Parallel` and `KP
 
 At this point, in order to perform the "training" phase, we need to issue the two commands
 ```bash
-$ ls -d Train/*/ | Parallel --lines-per-block 1 -- ./process_classes | KPopCountDB -f /dev/stdin -o Classes
+$ ls -d Train/*/ | Parallel --lines-per-block 1 -- ./process_classes | KPopCountDB -k /dev/stdin -o Classes
 $ KPopTwist -i Classes
 ```
 The first command will generate one combined, representative spectrum for each class in the training set, and subsequently, thanks to `KPopCountDB`, combine the spectra for all the representatives into a database having prefix `Classes` and full name `Classes.KPopCounter`.
@@ -604,9 +604,9 @@ Test.KPopTwisted
 Test.KPopTwisted.txt
 ```
 
-What is left to do in order to classify the sequences in our test set is to compute the distance in twisted space between each sequence (rows of file `Test.KPopTwisted`) and the representative of each equivalence class of the training set (rows of file `Classes.KPopTwisted`); the classification for each given sequence will be the closest equivalence class (provided that the closest and second closest match are separated by some reasonable margin). Computing all pairwise distances in twisted space between sequences and classes is accomplished by the command
+What is left to do in order to classify the sequences in our test set is to compute the distance in twisted space between each sequence (rows of file `Test.KPopTwisted`) and the representative of each equivalence class of the training set (rows of file `Classes.KPopTwisted`); the classification for each given sequence will be the closest equivalence class (provided that the closest and second closest match are separated by some reasonable margin). Computing all pairwise distances in twisted space between sequences and classes also requires transformation values from `Classes.KPopTwister`, and is accomplished by the command
 ```bash
-$ KPopTwistDB -i t Test -d Classes -O d Test-vs-Classes
+$ KPopTwistDB -i t Test -i T Classes -d Classes -O d Test-vs-Classes
 ```
 which reads "load twisted file `Test.KPopTwisted`, compute pairwise distances with the contents of `Classes.KPopTwisted` &mdash; the results will be placed in the "distance" register of `KPopTwistDB` &mdash;, and write results into tabular file `Test-vs-Classes.KPopDMatrix.txt` (we write to a text rather than binary file for illustration). File `Test-vs-Classes.KPopDMatrix.txt` will contain a header
 ```
@@ -621,7 +621,7 @@ In this case, for instance, sequence `121` has distance in twisted space of \~1.
 
 In fact, an automated way of summarising distances and finding the $n$ closest ones is implemented in the option `-s` of `KPopTwistDB`, and that is what one would probably use in real life. The command
 ```
-KPopTwistDB -i d Test-vs-Classes -s Test-vs-Classes
+KPopTwistDB -i T Classes -i d Test-vs-Classes -s Test Test-vs-Classes
 ```
 will produce a file `Test-vs-Classes.KPopSummary.txt` made of tab-separated lines<a name="distance-summary-line"></a>, one per sequence, such as
 ```
@@ -698,8 +698,8 @@ However, equivalent techniques that discard extraneous reads using different app
 Once reads have been pre-processed and their *k*-mer spectrum generated for each sample, data analysis proceeds along the lines of the [simulated *M.tuberculosis* example above](#5112-data-analysis) &mdash; we assume that the spectra have been placed in a `Train` and `Test` directory and separated into subdirectory according to their class, as per the convention previously described. We then generate representative spectra for the classes; twist them; and use the resulting transformation to twist the test sequences, processing each directory in parallel. The results are then collected in the database `Test.KPopTwisted`.
 
 ```bash
-$ ls -d Train/*/ | awk '{print substr(gensub("Train/","",1),1,length($0)-7)}' | Parallel -l 1 -t 4 -- awk '{CLASS=$0; system("cat Train/"CLASS"/*.txt | KPopCountDB -f /dev/stdin -R \"~.\" -A "CLASS" -L "CLASS" -N -D -v --table-transform none -t "CLASS)}'
-$ cat M_*.KPopCounter.txt | KPopCountDB -f /dev/stdin -o Classes -v
+$ ls -d Train/*/ | awk '{print substr(gensub("Train/","",1),1,length($0)-7)}' | Parallel -l 1 -t 4 -- awk '{CLASS=$0; system("cat Train/"CLASS"/*.txt | KPopCountDB -k /dev/stdin -R \"~.\" -A "CLASS" -L "CLASS" -N -D -v --table-transform none -t "CLASS)}'
+$ cat M_*.KPopCounter.txt | KPopCountDB -k /dev/stdin -o Classes -v
 $ KPopTwist -i Classes -v
 $ ls -d Test/M_*/ | Parallel -l 1 -t 4 -- awk '{system("cat "$0"*.k12.txt | awk -F \047\\t\047 \047{if ($1==\"\") print $0\"\\001"substr($0,6,length($0)-6)"\"; else print}\047 | KPopTwistDB -i T Classes -k /dev/stdin -o t "substr($0,1,length($0)-1)" -v")}'
 $ KPopTwistDB $(ls Test/*.KPopTwisted | awk '{split($0,s,"[.]"); printf " -a t "s[1]}') -o t Test
@@ -712,7 +712,7 @@ As detailed in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/20
 
 This approach works exactly as in the [simulated *M.tuberculosis* example above](#5112-data-analysis):
 ```bash
-$ KPopTwistDB -i t Test -d Classes -o d Test-vs-Classes -s Test-vs-Classes -v
+$ KPopTwistDB -i T Classes -i t Test -d Classes -o d Test-vs-Classes -s Test Test-vs-Classes -v
 $ cat Test-vs-Classes.KPopSummary.txt | awk '{print gensub("\001","\"\t\"","g")}' > RESULTS-2C.txt
 ```
 
@@ -728,7 +728,7 @@ $ KPopTwistDB $(ls Train/*.KPopTwisted | awk '{split($0,s,"[.]"); printf " -a t 
 
 We then use the distance capability of `KPopTwist` as before. However, in this case we alter the default to output information about 5 nearest neighbours rather than 2:
 ```bash
-$ KPopTwistDB $(ls Test/*.KPopTwisted | awk '{split($0,s,"[.]"); printf " -a t "s[1]}') -o t Test -d Train -o d Test-vs-Train --keep-at-most 5 -s Test-vs-Train -v
+$ KPopTwistDB $(ls Test/*.KPopTwisted | awk '{split($0,s,"[.]"); printf " -a t "s[1]}') -o t Test -d Train -o d Test-vs-Train --keep-at-most 5 -s Test Test-vs-Train -v
 ```
 This produces the usual digest of the distance matrix containing, in this case, the 5 training sequences that are closest to the test sequence (we adopt a 5-NN classification approach in this example, but of course the number of neighbours could be chosen to be different). At this point we are almost done, but we still have to parse the digest in order to compute how many of the nearest neighbours belong to the most frequent class, which translates into a slightly more complex script:
 
@@ -975,7 +975,7 @@ Once the preparation stage has been completed, the analysis proceeds exactly as 
 
 First, we compute the spectra for the class representatives using `KPopCount` and `KPopCountDB`:
 ```bash
-$ ls Train/*.fasta | Parallel -l 1 -- awk '{l=split($0,s,"/"); class=substr(s[l],1,length(s[l])-6); system("KPopCount -k 10 -l "class" -f Train/"class".fasta")}' | KPopCountDB -f /dev/stdin -o Classes
+$ ls Train/*.fasta | Parallel -l 1 -- awk '{l=split($0,s,"/"); class=substr(s[l],1,length(s[l])-6); system("KPopCount -k 10 -l "class" -f Train/"class".fasta")}' | KPopCountDB -k /dev/stdin -o Classes
 ```
 
 This produces a `Classes.KPopCounter` file which is \~2.0 GB. The command
@@ -1013,11 +1013,11 @@ The final size of the file `Test.KPopTwisted` containing all the \~650K twisted 
 
 At this point, the analysis proceeds exactly as in the case of [the previous section](#5112-data-analysis), with a command<a name="compute-distances"></a> such as
 ```bash
-$ KPopTwistDB -i t Test -d Classes -o d Test-vs-Classes -v
+$ KPopTwistDB -i T Classes -i t Test -d Classes -o d Test-vs-Classes -v
 ```
 that allows us to compute all the distances of each test sequence from each of the "training" classes. However, given that in this case there is a very large number of distances to be computed, another and perhaps more appropriate strategy would have been not to merge the twisted test files into a single `Test.KPopTwisted` file, but rather to compute the distances from the twisted classes for each of the chunks with commands such as
 ```bash
-$ KPopTwistDB -i t Test.aa -d Classes -o d Test-vs-Classes.aa
+$ KPopTwistDB -i T Classes -i t Test.aa -d Classes -o d Test-vs-Classes.aa
 ```
 and then merge together all the distance files, as in
 ```bash
@@ -1026,7 +1026,7 @@ $ KPopTwistDB -a d Test-vs-Classes.aa -a d Test-vs-Classes.ab ... -o d Test-vs-C
 
 One way or another, once a file `Test-vs-Classes.KPopDMatrix` containing all the distances has been generated, we can run
 ```bash
-$ KPopTwistDB -i d Test-vs-Classes -s Test-vs-Classes -v
+$ KPopTwistDB -i d Test-vs-Classes -s Test.aa Test-vs-Classes -v
 ```
 in order to produce the usual textual summary of the distances. The resulting file will be \~118 MB in size.
 
@@ -1063,7 +1063,7 @@ Briefly, we can generate and twist new spectra (top left), find out their neares
 
 Here we illustrate the approach taking the previous exercise on COVID-19 as a starting point. For the sake of simplicity, we'll take as existing database the twisted test sequences (half of the GISAID database) in the file `Test.KPopTwisted`. The classifier will be the one we generated in [the previous section](#513-classifier-for-covid-19-sequences-hyena) and contained in the file `Classes.KPopTwister`. The command
 ```bash
-cat Train/C.36.3.fasta | fasta-tabular | shuf | head -1 | awk -F '\t' '{print $1 > "/dev/stderr"; print ">"$1"\n"$2}' | KPopCount -k 10 -f /dev/stdin -l "C.36.3" | KPopTwistDB -i T Classes -k /dev/stdin -d Test --keep-at-most 300 -s Related
+cat Train/C.36.3.fasta | fasta-tabular | shuf | head -1 | awk -F '\t' '{print $1 > "/dev/stderr"; print ">"$1"\n"$2}' | KPopCount -k 10 -f /dev/stdin -l "C.36.3" | KPopTwistDB -i T Classes -i t Classes -k /dev/stdin -d Test --keep-at-most 300 -s Test Related
 ```
 will then randomly select one sequence from the `C.36.3` lineage and find the 300 sequences closest to it. A summary in the usual format will be output to file `Related.KPopSummary.txt`. Note that loading this specific database in memory is going to take long as the file is \~8.4 G, but one only needs to do it once when sequences are processed in batches.
 
