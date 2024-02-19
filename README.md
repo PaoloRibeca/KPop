@@ -212,7 +212,7 @@ dev.off()
 
 </details>
 
-![Scatterplot Matrix using Quick Start Results using KPop](images/KPop-ScatterplotMatrix-RR.png)
+![Scatterplot Matrix from Quick Start Results produced by KPop](images/KPop-QuickStart-Sections.5-RR.png)
 
 As mentioned previously, this is a great way to visually check that test sequences cluster in the correct class &mdash; however, it wouldn't be as useful on a dataset with 1000 dimensions! 
 
