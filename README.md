@@ -220,7 +220,7 @@ As mentioned previously, this is a great way to visually check that test sequenc
 
 ### There are no binaries available for my OS, what do I do?
 
-`KPop` is mostly implemented in [OCaml](https://ocaml.org), an industry-strength functional statically-typed programming language that offers remarkable concision, symbolic power, robustness, compiled speed, and portability. Due mostly to historical reasons, a small part of `KPop` is still written in R, although we hope to eventually migrate everything to OCaml.
+`KPop` is almost entirely implemented in [OCaml](https://ocaml.org), an industry-strength functional statically-typed programming language that offers remarkable concision, symbolic power, robustness, compiled speed, and portability. Due mostly to historical reasons, a small part of `KPop` is still written in R, although we hope to eventually migrate everything to OCaml.
 
 Both OCaml and R are highly portable and you might be able to manually compile/install everything successfully on other platforms. See the [Installation](#0-installation) section below.
 
