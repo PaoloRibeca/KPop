@@ -3,33 +3,15 @@
 
 `KPop` is an assembly-free and scalable method for the comparative analysis of microbial genomes and environmental samples. It is based on full *k*-mer spectra and dataset-specific transformations; it allows to accurately compare hundreds of thousands of assembled, or thousands of unassembled microbial genomes or sequenced samples, in a matter of hours. It provides excellent resolution across a very large number of use cases and applications. More details can be found in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v1).
 
-## Frequently asked questions
-
-### How does `KPop` compare with minimiser-based methods?
-
-`KPop` is much more sensitive than minimiser-based methods, allowing out-of-the-box accurate comparison of assembled or unassembled long sequences irrespective of whether they differ by single nucleotides or by large portions. This is usually not true for minimiser-based methods, irrespective of the hashing scheme they use, as they only produce a much coarser comparison. A number of comparisons and a detailed explanation of the differences between the two approaches can be found in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v1).
-
-Crucially, while minimiser-based methods are geared towards providing distances between sequences, `KPop` explicitly produces *embeddings*, i.e., it is able to turn sequences into points of a low-dimensionality latent space. Having an explicit latent space is important for many reasons &mdash; it helps explainability; it also makes it possible to perform direct clustering and use vector [DBs](https://milvus.io/) or [libraries](https://github.com/facebookresearch/faiss) to store and search embedded sequences.
-
-### Can I run it on my laptop?
-
-Depending on the problem at hand, `KPop` analysis can require a relatively large amount of resources, memory in particular. That is a conscious design choice &mdash; one could not leverage the power of full *k*-mer spectra otherwise. If you need to explore datasets with millions of sequences, we recommend that you do so on a robustly sized HPC node. However, not everything is expensive &mdash; for instance, and similar to what happens with other big-data frameworks, while the "training" phase needed to create `KPop`-based classifiers is typically resource-intensive, the classifiers themselves can typically be run on lower-end machines.
-
-All `KPop` programs are parallelised and will automatically use as many CPUs as are available on your machine, in order to reduce as much as possible the wallclock time taken by your tasks.
-
-### There are no binaries available for my OS, what do I do?
-
-`KPop` is mostly implemented in [OCaml](https://ocaml.org), an industry-strength functional statically-typed programming language that offers remarkable concision, symbolic power, robustness, compiled speed, and portability. Due mostly to historical reasons, a small part of `KPop` is still written in R, although we hope to eventually migrate everything to OCaml.
-
-Both OCaml and R are highly portable and you might be able to manually compile/install everything successfully on other platforms. See the [Installation](#1-installation) section below.
-
 ## Table of contents
 
-[1. Installation](#1-installation)<br>
-&emsp; [1.1. Conda channel](#11-conda-channel)<br>
-&emsp; [1.2. Pre-compiled binaries](#12-pre-compiled-binaries)<br>
-&emsp; [1.3. Manual install](#13-manual-install)<br>
-[2. Quick start](#2-quick-start)<br>
+[0. Installation](#0-installation)<br>
+&emsp; [0.1. Conda channel](#01-conda-channel)<br>
+&emsp; [0.2. Pre-compiled binaries](#02-pre-compiled-binaries)<br>
+&emsp; [0.3. Manual install](#03-manual-install)<br>
+[1. Quick start](#1-quick-start)<br>
+&emsp; [1.2. Visualisation of Quick Start results](#12-visualisation-of-quick-start-results)<br>
+[2. Frequently asked questions](#2-frequently-asked-questions)<br>
 [3. Overview of commands](#3-overview-of-commands)<br>
 &emsp; [3.1. General design](#31-general-design)<br>
 &emsp; [3.2. Building workflows](#32-building-workflows)<br>
@@ -46,7 +28,7 @@ Both OCaml and R are highly portable and you might be able to manually compile/i
 &emsp; [5.2. Relatedness engine](#52-relatedness-engine)<br>
 &emsp; [5.3. Pseudo-phylogenetic trees](#53-pseudo-phylogenetic-trees)<br>
 
-## 1. Installation
+## 0. Installation
 
 There are several possible ways of installing the software on your machine: through `conda`; by downloading pre-compiled binaries (Linux and MacOS x86_64 only); or manually.
 
@@ -54,31 +36,31 @@ There are several possible ways of installing the software on your machine: thro
 >
 > Both OCaml and R are highly portable and you might be able to manually compile/install everything successfully on other platforms (for instance, Windows). Please let us know if you succeed or if you encounter some unexpected behaviour. However, please note that in general we are unable to provide installation-relaated support or troubleshooting on specific hardware/software combinations. 
 
-### 1.1. Conda channel
+### 0.1. Conda channel
 
 > :construction: Coming soon! :construction:
 
-### 1.2. Pre-compiled binaries
+### 0.2. Pre-compiled binaries
 
 You can download pre-compiled binaries for Linux and MacOS x86_64 from our [releases](https://github.com/PaoloRibeca/KPop/releases).
 
-### 1.3. Manual install
+### 0.3. Manual install
 
 Alternatively, you can install `KPop` manually by cloning and compiling its sources. You'll need an up-to-date distribution of the OCaml compiler and the [Dune package manager](https://github.com/ocaml/dune) for that. Both can be installed through [OPAM](https://opam.ocaml.org/), the official OCaml distribution system. Once you have a working OPAM distribution you'll also have a working OCaml compiler, and Dune can be installed with the command
-```
-$ opam install dune
+```bash
+opam install dune
 ```
 if it is not already present. Make sure that you install OCaml version 4.12 or later.
 
 Cloning should be done with the option --recursive, as in
-```
-$ git clone --recursive git@github.com:PaoloRibeca/KPop.git
+```bash
+git clone --recursive git@github.com:PaoloRibeca/KPop.git
 ```
 so as to make sure that all the subrepositories get correctly pulled.
 
 Then go to the directory into which you have downloaded the latest `KPop` sources, and type
-```
-$ ./BUILD
+```bash
+./BUILD
 ```
 
 That should generate all the executables you'll need (as of this writing, `KPopCount`, `KPopCounterDB`, `KPopTwist_`, `KPopTwist`, `KPopTwistDB`) in the directory `./build`. Copy them to some favourite location in your PATH, for instance `~/.local/bin`.
@@ -89,7 +71,7 @@ data.table
 ca
 ```
 
-## 2. Quick start
+## 1. Quick start
 
 Download file `clusters-small.fasta` from the directory `test`. Then run the following commands in `bash`:
 
@@ -108,16 +90,16 @@ That should produce an output such as this one:
 ```
 Wed 14 Feb 16:46:55 GMT 2024
 This is KPopCountDB version 38 [07-Feb-2024]
- │ compiled against: BiOCamLib version 242 [23-Jan-2024];
-                     KPop version 368 [07-Feb-2024]
- │ (c) 2020-2024 Paolo Ribeca <paolo.ribeca@gmail.com>
+ compiled against: BiOCamLib version 242 [23-Jan-2024];
+                   KPop version 368 [07-Feb-2024]
+ (c) 2020-2024 Paolo Ribeca <paolo.ribeca@gmail.com>
 (Dune__exe__KPopCountDB.KMerDB.add_files.(fun)): [1/1] File '/dev/stdin': Read 10 spectra on 5127 lines.
 (Dune__exe__KPopCountDB.KMerDB.to_binary): Outputting DB to file 'Classes.5.KPopCounter'... done.
 
 This is KPopTwist version 17 [02-Jan-2024]
- │ compiled against: BiOCamLib version 242 [23-Jan-2024];
-                     KPop version 368 [07-Feb-2024]
- │ (c) 2022-2024 Paolo Ribeca <paolo.ribeca@gmail.com>
+ compiled against: BiOCamLib version 242 [23-Jan-2024];
+                   KPop version 368 [07-Feb-2024]
+ (c) 2022-2024 Paolo Ribeca <paolo.ribeca@gmail.com>
 Wed 14 Feb 2024 16:47:19 GMT: [1/13] Exporting table...
 Wed 14 Feb 2024 16:47:19 GMT: [2/13] Splitting table...
 Wed 14 Feb 2024 16:47:19 GMT: [3/13] Reading table...
@@ -133,9 +115,9 @@ Wed 14 Feb 2024 16:47:19 GMT: [12/13] Encoding twister...
 Wed 14 Feb 2024 16:47:19 GMT: [13/13] Cleaning up...
 Wed 14 Feb 2024 16:47:19 GMT: All done.
 This is KPopTwistDB version 27 [17-Jan-2024]
- │ compiled against: BiOCamLib version 242 [23-Jan-2024];
-                     KPop version 368 [07-Feb-2024]
- │ (c) 2022-2024 Paolo Ribeca <paolo.ribeca@gmail.com>
+ compiled against: BiOCamLib version 242 [23-Jan-2024];
+                   KPop version 368 [07-Feb-2024]
+ (c) 2022-2024 Paolo Ribeca <paolo.ribeca@gmail.com>
 (Dune__exe__KPopTwistDB.Twister.of_binary): Reading DB from file 'Classes.5.KPopTwister'... done.
 (KPop__Matrix.of_binary): Reading DB from file 'Classes.5.KPopTwisted'... done.
 (KPop__Matrix.of_binary): Reading DB from file '/dev/stdin'... done.
@@ -150,36 +132,38 @@ This is an example of `KPop`-based classifier. The input FASTA file [`clusters-s
 1. Sequences with an odd index are taken to be part of the training set, sequences with an even index are considered part of the test set
 2. For each class `C1`, `C2`, ... `C10`, if the variable CLASS contains the name of the class, the command
    ```bash
-   $ cat clusters-small.fasta | awk -v CLASS=$CLASS '{nr=(NR-1)%4; ok=(nr==0?$0~("-"CLASS"$"):nr==1&&ok); if (ok) print}' | KPopCount -k $K -L -f /dev/stdin | KPopCountDB -k /dev/stdin -R "~." -A $CLASS -L $CLASS -N -D --table-transform none -t /dev/stdout
+   cat clusters-small.fasta | awk -v CLASS=$CLASS '{nr=(NR-1)%4; ok=(nr==0?$0~("-"CLASS"$"):nr==1&&ok); if (ok) print}' | KPopCount -k $K -L -f /dev/stdin | KPopCountDB -k /dev/stdin -R "~." -A $CLASS -L $CLASS -N -D --table-transform none -t /dev/stdout
    ```
    runs `KPopCount` (with *k*=5) on each training sequence belonging to CLASS; the results, which are text files each one containing a list of *k*-mers with their respective frequencies, are concatenated and sent to `KPopCountDB` through a pipe &mdash; if you wanted to look into the format, you could do so with the command
    ```bash
-   $ cat clusters-small.fasta | awk -v CLASS=$CLASS '{nr=(NR-1)%4; ok=(nr==0?$0~("-"CLASS"$"):nr==1&&ok); if (ok) print}' | KPopCount -k $K -L -f /dev/stdin | less
+   cat clusters-small.fasta | awk -v CLASS=$CLASS '{nr=(NR-1)%4; ok=(nr==0?$0~("-"CLASS"$"):nr==1&&ok); if (ok) print}' | KPopCount -k $K -L -f /dev/stdin | less
    ```
    After that, `KPopCountDB` collects all spectra for each class into a temporary database, replaces them with a combination of the input spectra, names the combined spectrum `$CLASS`, and re-outputs it in the same format used before for the spectra produced by `KPopCount`
 3. The command
    ```bash
-   $ KPopCountDB -k /dev/stdin -o Classes.$K -v
+   KPopCountDB -k /dev/stdin -o Classes.$K -v
    ```
    receives the 10 spectra, one per class, and outputs them to a binary database called `Classes.5` (actually that corresponds to a file, which gets automatically named `Classes.5.KPopCounter`)
 4. The command
    ```bash
-   $ KPopTwist -i Classes.$K -v
+   KPopTwist -i Classes.$K -v
    ```
    "twists" spectra to a reduced-dimensionality space, storing the results in binary form (actually that corresponds to two files, which are automatically named `Classes.5.KPopTwister` and `Classes.5.KPopTwisted`). Both the twisted spectra and the "twister" &mdash; i.e., the operator that can be used to convert the original spectra to twisted space &mdash; are stored and can be reused later on
 5. The command
    ```bash
-   $ cat clusters-small.fasta | awk -v K="$K" '{nr=(NR-1)%4; if (nr==2) split($0,s,"[>-]"); if (nr==3) print ">"s[2]"-"s[3]"\n"$0}' | KPopCount -k $K -L -f /dev/stdin | KPopTwistDB -i T Classes.$K -k /dev/stdin -o t /dev/stdout | KPopTwistDB -i T Classes.$K -i t Classes.$K -s /dev/stdin Class_prediction.$K -v
+   cat clusters-small.fasta | awk -v K="$K" '{nr=(NR-1)%4; if (nr==2) split($0,s,"[>-]"); if (nr==3) print ">"s[2]"-"s[3]"\n"$0}' | KPopCount -k $K -L -f /dev/stdin | KPopTwistDB -i T Classes.$K -k /dev/stdin -o t /dev/stdout | KPopTwistDB -i T Classes.$K -i t Classes.$K -s /dev/stdin Class_prediction.$K -v
    ```
    selects test sequences, runs each of them separately through `KPopCount` to produce a spectrum, and concatenates and pipes all the spectra thus generated to `KPopTwistDB`, which twists them according to the twister generated at the previous stage (named `Classes.5`). The results are output to a summary text file, which gets automatically named `Class_prediction.5.KPopSummary.txt`. The file contains information about the two closest classes for each sequence
 6. Finally, the command
    ```bash
-   $ echo -n ">>> Misclassified sequences: "; cat Class_prediction.$K.KPopSummary.txt | awk -F '\t' 'BEGIN{OFS="\t"} {$1=gensub("-","\"\t\"",1,$1); print}' | awk -F '\t' '{if ($2!=$7) print}' | wc -l
+   echo -n ">>> Misclassified sequences: "; cat Class_prediction.$K.KPopSummary.txt | awk -F '\t' 'BEGIN{OFS="\t"} {$1=gensub("-","\"\t\"",1,$1); print}' | awk -F '\t' '{if ($2!=$7) print}' | wc -l
    ```
    parses the results in `Class_prediction.5.KPopSummary.txt` and computes the number of misclassified sequences.
+
 Congratulations! You have now moved your first steps in the fascinating world of `KPop`.
 
-### 2.1. Visualization of Quick Start results
+### 1.2. Visualisation of Quick Start results
+
 Now we can use the predictions with the dimensions for each test sequence to visualise the results as a scatterplot matrix. This normally wouldn't be recommended as there will likely be a large number of dimensions, but in this example we only have 9. 
 
 It should be noted that to use the information from `.KPopTwisted.txt` (generated with `-O t`), we will always need to multiply the vectors by weight values generated by KPop. This is because coordinates are not weighted by the twister transformation in the text file. 
@@ -187,7 +171,7 @@ It should be noted that to use the information from `.KPopTwisted.txt` (generate
 Do do this, we firstly create a `new_data.5.KPopTwisted.txt` using KPopTwistDB with only the test sequences:
 
 ```bash
- $ cat clusters-small.fasta | awk -v K="$K" '{nr=(NR-1)%4; if (nr==2) split($0,s,"[>-]"); if (nr==3) print ">"s[2]"-"s[3]"\n"$0}' | KPopCount -k $K -L -f /dev/stdin | KPopTwistDB -i T Classes.$K -k /dev/stdin -o t /dev/stdout | KPopTwistDB -i t /dev/stdin -O t new_data.$K
+cat clusters-small.fasta | awk -v K="$K" '{nr=(NR-1)%4; if (nr==2) split($0,s,"[>-]"); if (nr==3) print ">"s[2]"-"s[3]"\n"$0}' | KPopCount -k $K -L -f /dev/stdin | KPopTwistDB -i T Classes.$K -k /dev/stdin -o t /dev/stdout | KPopTwistDB -i t /dev/stdin -O t new_data.$K
 ```
 Weights are then calculated for `Classes.5.KPopTwister` (with no normalization and no adjustment of the metrics), and stored in `Classes.5.KPopMetrics.txt`:
 
@@ -197,19 +181,12 @@ KPopTwistDB -i T Classes.$K --distance euclidean --distance-normalize false -m "
 We then visualise the results as a scatterplot matrix using `R`:
 
 ```R
-suppressPackageStartupMessages(library(dplyr))
-suppressPackageStartupMessages(library(RColorBrewer))
-suppressPackageStartupMessages(library(optparse))
+library(dplyr)
+library(RColorBrewer)
 
-dim_df <- read.table("new_data.KPopTwisted.txt", 
-                           header = TRUE,
-                           row.names = 1)
-class_df <- read.table("Class_prediction.KPopSummary.txt", 
-                       header = FALSE,
-                       row.names = 1) %>% select(V6)
-metrics <- read.table("Classes.5.KPopMetrics.txt", 
-                           header = TRUE,
-                           row.names = 1)
+dim_df <- read.table("new_data.KPopTwisted.txt", header = TRUE, row.names = 1)
+class_df <- read.table("Class_prediction.KPopSummary.txt", header = FALSE, row.names = 1) %>% select(V6)
+metrics <- read.table("Classes.5.KPopMetrics.txt", header = TRUE, row.names = 1)
 
 weighted_dim_df <- mapply(`*`, dim_df, metrics) %>% as.data.frame()
 rownames(weighted_dim_df) <- rownames(dim_df)
@@ -219,8 +196,7 @@ merged_df <- merge(weighted_dim_df, class_df, by = 0)
 class_df <- merged_df %>% select(colnames(class_df))
 uniq_class_df <- distinct(class_df)
 weighted_dim_df <- merged_df %>% select(colnames(weighted_dim_df))
-order_class = c("C1", "C10", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9")
-
+order_class = c("C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10")
 
 palette("Paired")
 pairs(weighted_dim_df, pch = c(21), bg = factor(class_df$V6, levels = order_class), col = factor(class_df$V6, levels = order_class), 
@@ -232,6 +208,29 @@ legend(0.9, 0.9, order_class, fill = factor(uniq_class_df$V6, levels = order_cla
 ![Scatterplot Matrix using Quick Start Results using KPop](images/KPop-ScatterplotMatrix-RR.png)
 
 As mentioned previously, this is a great way to visually check that test sequences cluster in the correct class! However, be warned, it wouldn't be as useful on a dataset with 1000 dimensions! 
+
+## 2. Frequently asked questions
+
+### There are no binaries available for my OS, what do I do?
+
+`KPop` is mostly implemented in [OCaml](https://ocaml.org), an industry-strength functional statically-typed programming language that offers remarkable concision, symbolic power, robustness, compiled speed, and portability. Due mostly to historical reasons, a small part of `KPop` is still written in R, although we hope to eventually migrate everything to OCaml.
+
+Both OCaml and R are highly portable and you might be able to manually compile/install everything successfully on other platforms. See the [Installation](#0-installation) section below.
+
+### How does `KPop` compare with minimiser-based methods?
+
+`KPop` is much more sensitive than minimiser-based methods, allowing out-of-the-box accurate comparison of assembled or unassembled long sequences irrespective of whether they differ by single nucleotides or by large portions. This is usually not true for minimiser-based methods, irrespective of the hashing scheme they use, as they only produce a much coarser comparison. A number of benchmarks and a detailed explanation of the differences between the two approaches can be found in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v1).
+
+Crucially, while minimiser-based methods are geared towards providing distances between sequences, `KPop` explicitly produces *embeddings*, i.e., it is able to turn sequences into points of a low-dimensionality latent space. Having an explicit latent space is important for many reasons &mdash; it helps explainability; it also makes it possible to perform direct clustering and use vector [DBs](https://milvus.io/) or [libraries](https://github.com/facebookresearch/faiss) to store and search embedded sequences.
+
+### Can I run it on my laptop?
+
+Depending on the problem at hand, `KPop` analysis can require a relatively large amount of resources, memory in particular. That is a conscious design choice &mdash; one could not leverage the power of full *k*-mer spectra otherwise. If you need to explore datasets with millions of sequences, we recommend that you do so on a robustly sized HPC node. However, not everything is expensive &mdash; for instance, and similar to what happens with other big-data frameworks, while the "training" phase needed to create `KPop`-based classifiers is typically resource-intensive, the classifiers themselves can typically be run on lower-end machines.
+
+All `KPop` programs are parallelised and will automatically use as many CPUs as are available on your machine, in order to reduce as much as possible the wallclock time taken by your tasks.
+
+### How do I choose *k*?
+
 
 ## 3. Overview of commands
 
@@ -264,11 +263,11 @@ The following figure summarises the main typical data transformations that are p
 
 There are many more possible ways of using `KPopCountDB` and `KPopTwistDB`. For instance, with `KPopCountDB` one can compute distances between untwisted *k*-mer spectra; with `KPopTwistDB` one can accumulate twisted *k*-mer spectra or distances into existing databases, and convert binary files from/to plain-text tab-separated tables. In the latter case, as explained, automatic naming rules are applied depending on the type of the register being used &mdash; for example, a command such as
 ```bash
-$ KPopTwistDB ... -o t Classes
+KPopTwistDB ... -o t Classes
 ```
 would result in the production of a binary file named `Classes.KPopTwisted` containing twisted *k*-mer spectra, while the command
 ```bash
-$ KPopTwistDB ... -O t Classes
+KPopTwistDB ... -O t Classes
 ```
 will produce the same results but output them to a tab-separated tabular file named `Classes.KPopTwisted.txt`. In general, in the style of BLAST indices, you do not have to worry about formats or extensions as long as you consistently use the same prefix (in this case, `Classes`) to indicate logically related files.
 
@@ -278,7 +277,7 @@ will produce the same results but output them to a tab-separated tabular file na
 
 This is the list of command line options available for the program `KPopCount`. You can visualise the list by typing
 ```bash
-$ KPopCount -h
+KPopCount -h
 ```
 in your terminal. You will see a header containing information about the version:
 ```
@@ -323,7 +322,7 @@ KPopCount -l <output_vector_label>|-L [OPTIONS]
 
 This is the list of command line options available for the program `KPopCountDB`. You can visualise the list by typing
 ```bash
-$ KPopCountDB -h
+KPopCountDB -h
 ```
 in your terminal. You will see a header containing information about the version:
 ```
@@ -392,7 +391,7 @@ They are set immediately
 
 This is the list of command line options available for the program `KPopTwist`. You can visualise the list by typing
 ```bash
-$ KPopTwist -h
+KPopTwist -h
 ```
 in your terminal. You will see a header containing information about the version:
 ```
@@ -435,7 +434,7 @@ KPopTwist -i|--input <input_table_prefix> [OPTIONS]
 
 This is the list of command line options available for the program `KPopTwistDB`. You can visualise the list by typing
 ```bash
-$ KPopTwistDB -h
+KPopTwistDB -h
 ```
 in your terminal. You will see a header containing information about the version:
 ```
@@ -515,7 +514,7 @@ Train/10
 ```
 For instance, directory `Train/8` will contain input files for all the samples used as training data for sequence class `8`, and command
 ```bash
-$ ls Train/8
+ls Train/8
 ```
 will return
 ```
@@ -554,16 +553,16 @@ The script takes as input a list of directories. For each directory, the script 
 
 So, for instance,
 ```bash
-$ echo Train/8 | ./process_classes
+echo Train/8 | ./process_classes
 ```
 would process all files present in directory `Train/8`.
 
 Note that the script is implicitly parallelised, in that both `Parallel` and `KPopCountDB` will automatically check for the number of available processors, and start an adequate number of computing threads to take full advantage of them. `KPopCount` is not by itself parallel, but multiple copies of it will be invoked through `Parallel`.
 
-At this point, in order to perform the "training" phase, we need to issue the two commands
+At this point, in order to perform the "training" phase, we need to issue the commands
 ```bash
-$ ls -d Train/*/ | Parallel --lines-per-block 1 -- ./process_classes | KPopCountDB -k /dev/stdin -o Classes
-$ KPopTwist -i Classes
+ls -d Train/*/ | Parallel --lines-per-block 1 -- ./process_classes | KPopCountDB -k /dev/stdin -o Classes
+KPopTwist -i Classes
 ```
 The first command will generate one combined, representative spectrum for each class in the training set, and subsequently, thanks to `KPopCountDB`, combine the spectra for all the representatives into a database having prefix `Classes` and full name `Classes.KPopCounter`.
 
@@ -571,7 +570,7 @@ The second command will "twist" the database, i.e., generate a dataset-specific 
 
 Once that has been done, the command
 ```bash
-$ ls Test/*/*_1.fastq | Parallel --lines-per-block 1 -- awk '{l=split($0,s,"/"); system("KPopCount -k 12 -l "gensub("_1.fastq$","",1,s[l])" -p "$0" "gensub("_1.fastq$","_2.fastq",1))}' | KPopTwistDB -i T Classes -k /dev/stdin -o t Test -v
+ls Test/*/*_1.fastq | Parallel --lines-per-block 1 -- awk '{l=split($0,s,"/"); system("KPopCount -k 12 -l "gensub("_1.fastq$","",1,s[l])" -p "$0" "gensub("_1.fastq$","_2.fastq",1))}' | KPopTwistDB -i T Classes -k /dev/stdin -o t Test -v
 ```
 will generate separate *k*-mer spectra for each file in the test set, and twist them according to the "classifying" transformation stored in file `Classes.KPopTwister`. The results will be stored in an additional file, `Test.KPopTwisted`.
 
@@ -579,7 +578,7 @@ All the files generated so far are binary &mdash; their content is laid out acco
 
 Should you be curious to see what the content looks like in human-readable format, you can always use `KPopTwistDB` to convert the file (or any other file generated by `KPopTwist` or `KPopTwistDB`) to a tab-separate textual table as those you can import into, or export from, R. For instance, the command
 ```bash
-$ KPopTwistDB -i t Test -O t Test
+KPopTwistDB -i t Test -O t Test
 ```
 will load a binary file (hence option `-i`) of the "twisted" type (hence option `-i t`) with prefix `Test` (hence option `-i t Test`), i.e., according to the automatic naming conventions enforced by `KPop`, it will load file `Test.KPopTwisted` into the "twisted" register of `KPopTwistDB`. After that, the command will output the content of the "twisted" register in tabular form (hence option `-O t`) to a file with prefix `Test`, i.e., according to `KPop`'s automatic naming conventions, to file `Test.KPopTwisted.txt`. You can see how such naming conventions free you from thinking about files extensions, and avoid name clashes between files having the same prefix but a different content.
 
@@ -606,7 +605,7 @@ Test.KPopTwisted.txt
 
 What is left to do in order to classify the sequences in our test set is to compute the distance in twisted space between each sequence (rows of file `Test.KPopTwisted`) and the representative of each equivalence class of the training set (rows of file `Classes.KPopTwisted`); the classification for each given sequence will be the closest equivalence class (provided that the closest and second closest match are separated by some reasonable margin). Computing all pairwise distances in twisted space between sequences and classes also requires transformation values from `Classes.KPopTwister`, and is accomplished by the command
 ```bash
-$ KPopTwistDB -i t Test -i T Classes -d Classes -O d Test-vs-Classes
+KPopTwistDB -i t Test -i T Classes -d Classes -O d Test-vs-Classes
 ```
 which reads "load twisted file `Test.KPopTwisted`, compute pairwise distances with the contents of `Classes.KPopTwisted` &mdash; the results will be placed in the "distance" register of `KPopTwistDB` &mdash;, and write results into tabular file `Test-vs-Classes.KPopDMatrix.txt` (we write to a text rather than binary file for illustration). File `Test-vs-Classes.KPopDMatrix.txt` will contain a header
 ```
@@ -657,13 +656,13 @@ For this example, we are mainly interested in performing a pre-processing step t
 
 ```bash
 # First, trim
-$ trim_galore -j 8 --paired ERR275184_1.fastq.gz ERR275184_2.fastq.gz
+trim_galore -j 8 --paired ERR275184_1.fastq.gz ERR275184_2.fastq.gz
 # Second, filter
-$ FASTools e -p <(zcat ERR275184_1_val_1.fq.gz) <(zcat ERR275184_2_val_2.fq.gz) | FASTools -S | awk -F '\t' 'function round(x){return (x%1>=0.5?x+(1-x%1):x-x%1)} BEGIN{MIN_LEN=50; SEGM_LEN=25} {l=length($2); if (l>=MIN_LEN) {n=round(l/SEGM_LEN); segm_len=round(l/n); n=round(l/segm_len); split($1,s," "); for (i=1;i<=n;++i) {lo=1+segm_len*(i-1); hi=(i==n?l:segm_len*i); print "@"(i==1?s[1]"~"$2"~"$3:s[1])"\n"substr($2,lo,hi-lo+1)"\n+\n"substr($3,lo,hi-lo+1)}}}' | gem3-mapper -I Mycobacterium.CompleteGenomes.gem -t ${__CPUS__} -F MAP | awk -F '\t' 'BEGIN{current=""} function process_current(){if (current!="") print hits"\t"current} {l=split($1,s,"~"); if (l==3) {process_current(); current=gensub("~","\t","g",$1); hits=0} if ($4~"^(|0:|0:0:)[1-9]") ++hits} END{process_current()}' | awk -F '\t' -v FIRST=ERR275184_1.fastq -v SECOND=ERR275184_2.fastq 'BEGIN{MIN_HITS=3; current=""; found=0} function process_current(){if (current!=""&&hits>=MIN_HITS&&found==2) {print first > FIRST; print second > SECOND}} {if ($2!=current) {process_current(); current=$2; found=1; hits=$1; first="@"$2"\n"$3"\n+\n"$4} else {++found; hits+=$1; second="@"$2"\n"$3"\n+\n"$4}} END{process_current()}'
+FASTools e -p <(zcat ERR275184_1_val_1.fq.gz) <(zcat ERR275184_2_val_2.fq.gz) | FASTools -S | awk -F '\t' 'function round(x){return (x%1>=0.5?x+(1-x%1):x-x%1)} BEGIN{MIN_LEN=50; SEGM_LEN=25} {l=length($2); if (l>=MIN_LEN) {n=round(l/SEGM_LEN); segm_len=round(l/n); n=round(l/segm_len); split($1,s," "); for (i=1;i<=n;++i) {lo=1+segm_len*(i-1); hi=(i==n?l:segm_len*i); print "@"(i==1?s[1]"~"$2"~"$3:s[1])"\n"substr($2,lo,hi-lo+1)"\n+\n"substr($3,lo,hi-lo+1)}}}' | gem3-mapper -I Mycobacterium.CompleteGenomes.gem -t ${__CPUS__} -F MAP | awk -F '\t' 'BEGIN{current=""} function process_current(){if (current!="") print hits"\t"current} {l=split($1,s,"~"); if (l==3) {process_current(); current=gensub("~","\t","g",$1); hits=0} if ($4~"^(|0:|0:0:)[1-9]") ++hits} END{process_current()}' | awk -F '\t' -v FIRST=ERR275184_1.fastq -v SECOND=ERR275184_2.fastq 'BEGIN{MIN_HITS=3; current=""; found=0} function process_current(){if (current!=""&&hits>=MIN_HITS&&found==2) {print first > FIRST; print second > SECOND}} {if ($2!=current) {process_current(); current=$2; found=1; hits=$1; first="@"$2"\n"$3"\n+\n"$4} else {++found; hits+=$1; second="@"$2"\n"$3"\n+\n"$4}} END{process_current()}'
 # Third, merge
-$ flash -m 20 -M 500 ERR275184_1.fastq ERR275184_2.fastq -o ERR275184
+flash -m 20 -M 500 ERR275184_1.fastq ERR275184_2.fastq -o ERR275184
 # Fourth, count k-mers
-$ KPopCount -l ERR275184 -s ERR275184.extendedFrags.fastq -p ERR275184.notCombined_1.fastq ERR275184.notCombined_2.fastq > ERR275184.k12.txt
+KPopCount -l ERR275184 -s ERR275184.extendedFrags.fastq -p ERR275184.notCombined_1.fastq ERR275184.notCombined_2.fastq > ERR275184.k12.txt
 ```
 
 The script requires several additional components, namely:
@@ -698,11 +697,11 @@ However, equivalent techniques that discard extraneous reads using different app
 Once reads have been pre-processed and their *k*-mer spectrum generated for each sample, data analysis proceeds along the lines of the [simulated *M.tuberculosis* example above](#5112-data-analysis) &mdash; we assume that the spectra have been placed in a `Train` and `Test` directory and separated into subdirectory according to their class, as per the convention previously described. We then generate representative spectra for the classes; twist them; and use the resulting transformation to twist the test sequences, processing each directory in parallel. The results are then collected in the database `Test.KPopTwisted`.
 
 ```bash
-$ ls -d Train/*/ | awk '{print substr(gensub("Train/","",1),1,length($0)-7)}' | Parallel -l 1 -t 4 -- awk '{CLASS=$0; system("cat Train/"CLASS"/*.txt | KPopCountDB -k /dev/stdin -R \"~.\" -A "CLASS" -L "CLASS" -N -D -v --table-transform none -t "CLASS)}'
-$ cat M_*.KPopCounter.txt | KPopCountDB -k /dev/stdin -o Classes -v
-$ KPopTwist -i Classes -v
-$ ls -d Test/M_*/ | Parallel -l 1 -t 4 -- awk '{system("cat "$0"*.k12.txt | awk -F \047\\t\047 \047{if ($1==\"\") print $0\"\\001"substr($0,6,length($0)-6)"\"; else print}\047 | KPopTwistDB -i T Classes -k /dev/stdin -o t "substr($0,1,length($0)-1)" -v")}'
-$ KPopTwistDB $(ls Test/*.KPopTwisted | awk '{split($0,s,"[.]"); printf " -a t "s[1]}') -o t Test
+ls -d Train/*/ | awk '{print substr(gensub("Train/","",1),1,length($0)-7)}' | Parallel -l 1 -t 4 -- awk '{CLASS=$0; system("cat Train/"CLASS"/*.txt | KPopCountDB -k /dev/stdin -R \"~.\" -A "CLASS" -L "CLASS" -N -D -v --table-transform none -t "CLASS)}'
+cat M_*.KPopCounter.txt | KPopCountDB -k /dev/stdin -o Classes -v
+KPopTwist -i Classes -v
+ls -d Test/M_*/ | Parallel -l 1 -t 4 -- awk '{system("cat "$0"*.k12.txt | awk -F \047\\t\047 \047{if ($1==\"\") print $0\"\\001"substr($0,6,length($0)-6)"\"; else print}\047 | KPopTwistDB -i T Classes -k /dev/stdin -o t "substr($0,1,length($0)-1)" -v")}'
+KPopTwistDB $(ls Test/*.KPopTwisted | awk '{split($0,s,"[.]"); printf " -a t "s[1]}') -o t Test
 ```
 Note that in this example we annotate the name of each test sequence with its class, by adding to it a non-printable character `\001` followed by the class (`KPop` is fine with non-printable characters in labels, provided that they are not `\000`). We'll do the same below for the training sequences below, so as to be able to count the majority class when we use a *k*-NN approach.
 
@@ -712,8 +711,8 @@ As detailed in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/20
 
 This approach works exactly as in the [simulated *M.tuberculosis* example above](#5112-data-analysis):
 ```bash
-$ KPopTwistDB -i T Classes -i t Test -d Classes -o d Test-vs-Classes -s Test Test-vs-Classes -v
-$ cat Test-vs-Classes.KPopSummary.txt | awk '{print gensub("\001","\"\t\"","g")}' > RESULTS-2C.txt
+KPopTwistDB -i T Classes -i t Test -d Classes -o d Test-vs-Classes -s Test Test-vs-Classes -v
+cat Test-vs-Classes.KPopSummary.txt | awk '{print gensub("\001","\"\t\"","g")}' > RESULTS-2C.txt
 ```
 
 Note the use of the distance capability provided by `KPopTwistDB`, as in the previous example, which produces results with the format explained [above](#distance-summary-line). We also post-process such results to split the name of the test sequence and its annotated class into two separate columns &mdash; as mentioned before, we had joined them through a non-printable character `\001` that we now turn into `\t`.
@@ -722,18 +721,18 @@ Note the use of the distance capability provided by `KPopTwistDB`, as in the pre
 
 In this case, we implement the classifier by using a *k*-NN approach, i.e. by performing a majority call among the *k* nearest neighbours found for each test sequence - the result is the class which is most represented in the *k* closest data points belonging to the training set. In order to be able to do so, we need to separately compute the twisted spectrum of each training sequence &mdash; we also collect them into a database named `Train`:
 ```bash
-$ ls -d Train/M_*/ | Parallel -l 1 -t 4 -- awk '{system("cat "$0"*.k12.txt | awk -F \047\\t\047 \047{if ($1==\"\") print $0\"\\001"substr($0,7,length($0)-7)"\"; else print}\047 | KPopTwistDB -i T Classes -k /dev/stdin -o t "substr($0,1,length($0)-1)" -v")}'
-$ KPopTwistDB $(ls Train/*.KPopTwisted | awk '{split($0,s,"[.]"); printf " -a t "s[1]}') -o t Train
+ls -d Train/M_*/ | Parallel -l 1 -t 4 -- awk '{system("cat "$0"*.k12.txt | awk -F \047\\t\047 \047{if ($1==\"\") print $0\"\\001"substr($0,7,length($0)-7)"\"; else print}\047 | KPopTwistDB -i T Classes -k /dev/stdin -o t "substr($0,1,length($0)-1)" -v")}'
+KPopTwistDB $(ls Train/*.KPopTwisted | awk '{split($0,s,"[.]"); printf " -a t "s[1]}') -o t Train
 ```
 
 We then use the distance capability of `KPopTwist` as before. However, in this case we alter the default to output information about 5 nearest neighbours rather than 2:
 ```bash
-$ KPopTwistDB $(ls Test/*.KPopTwisted | awk '{split($0,s,"[.]"); printf " -a t "s[1]}') -o t Test -d Train -o d Test-vs-Train --keep-at-most 5 -s Test Test-vs-Train -v
+KPopTwistDB $(ls Test/*.KPopTwisted | awk '{split($0,s,"[.]"); printf " -a t "s[1]}') -o t Test -d Train -o d Test-vs-Train --keep-at-most 5 -s Test Test-vs-Train -v
 ```
 This produces the usual digest of the distance matrix containing, in this case, the 5 training sequences that are closest to the test sequence (we adopt a 5-NN classification approach in this example, but of course the number of neighbours could be chosen to be different). At this point we are almost done, but we still have to parse the digest in order to compute how many of the nearest neighbours belong to the most frequent class, which translates into a slightly more complex script:
 
 ```bash
-$ cat Test-vs-Train.KPopSummary.txt | awk '{print gensub("\001","\"\t\"","g")}' | awk '{delete c; delete o; n=0; for (i=8;i<=NF;i+=4) {++n; if (!($i in c)) o[length(c)+1]=$i; ++c[$i]} max=0; max_class=0; l=length(o); for (i=1;i<=l;++i) {if (c[o[i]]>max) {max=c[o[i]]; max_class=o[i]}} print $0"\t"max_class"\t"(max/n)}' > RESULTS-kNN.txt
+cat Test-vs-Train.KPopSummary.txt | awk '{print gensub("\001","\"\t\"","g")}' | awk '{delete c; delete o; n=0; for (i=8;i<=NF;i+=4) {++n; if (!($i in c)) o[length(c)+1]=$i; ++c[$i]} max=0; max_class=0; l=length(o); for (i=1;i<=l;++i) {if (c[o[i]]>max) {max=c[o[i]]; max_class=o[i]}} print $0"\t"max_class"\t"(max/n)}' > RESULTS-kNN.txt
 ```
 Notably, we solve ties by selecting the class that appears first, i.e. which has a sequence that is closer to the test sequence.
 
@@ -741,12 +740,12 @@ Notably, we solve ties by selecting the class that appears first, i.e. which has
 
 This is a more sophisticated approach that uses random forests to implement the predictor. Note that this is possible because `KPop` is capable of producing an explicit embedding of the sequences as a vector in twisted space. As we are going to use an external R library to implement the predictor, we first have to export to a tabular text file the coordinates of the sequences in twisted space &mdash; which we can do with `KPopTwist` &mdash; and then, once more, de-mangle the class information into a separate column:
 ```bash
-$ KPopTwistDB -i t Train -O t Train -i t Test -O t Test
-$ cat Train.KPopTwisted.txt | awk '{print gensub("\001","\"\t\"","g")}' | awk -F '\t' 'BEGIN{OFS="\t"} {if (NR==1) {$1="\"Lineage\""}; print}' > Train.Truth.KPopTwisted.txt
-$ cat Test.KPopTwisted.txt | awk '{print gensub("\001","\"\t\"","g")}' | awk -F '\t' 'BEGIN{OFS="\t"} {if (NR==1) {$1="\"Lineage\""} else $2="\"\""; print}' > Test.Truth.KPopTwisted.txt
+KPopTwistDB -i t Train -O t Train -i t Test -O t Test
+cat Train.KPopTwisted.txt | awk '{print gensub("\001","\"\t\"","g")}' | awk -F '\t' 'BEGIN{OFS="\t"} {if (NR==1) {$1="\"Lineage\""}; print}' > Train.Truth.KPopTwisted.txt
+cat Test.KPopTwisted.txt | awk '{print gensub("\001","\"\t\"","g")}' | awk -F '\t' 'BEGIN{OFS="\t"} {if (NR==1) {$1="\"Lineage\""} else $2="\"\""; print}' > Test.Truth.KPopTwisted.txt
 ```
 
-The files `Train.Truth.KPopTwisted.txt` and `Test.Truth.KPopTwisted.txt` will now contain the coordinates of train and test sequences in twisted space, respectively. We then run the following R commands:
+The files `Train.Truth.KPopTwisted.txt` and `Test.Truth.KPopTwisted.txt` will now contain the coordinates of train and test sequences in twisted space, respectively. We then run the following `R` commands:
 ```R
 library(randomForest)
 train<-read.table("Train.Truth.KPopTwisted.txt")
@@ -758,7 +757,7 @@ which will produce a file `RF.txt` with the preliminary results of the predictor
 
 And finally, this command re-annotates the sequences with their original class for comparison purposes:
 ```bash
-$ cat RF.txt | awk -F '\t' 'BEGIN{while (getline < "NGS-TB-Test.txt") t["\""$1"\""]="\""$2"\""} {if (NR>1) print $1"\t"t[$1]"\t"$2}' > RESULTS-RF.txt
+cat RF.txt | awk -F '\t' 'BEGIN{while (getline < "NGS-TB-Test.txt") t["\""$1"\""]="\""$2"\""} {if (NR>1) print $1"\t"t[$1]"\t"$2}' > RESULTS-RF.txt
 ```
 generating a final result `RESULTS-RF.txt`. The file `NGS-TB-Test.txt` contains the original annotation for each test sequence, and is available from the [`test`](https://github.com/PaoloRibeca/KPop/tree/main/test) directory of this repository.
 
@@ -782,6 +781,7 @@ This is a rather more complex example, that showcases many of the good qualities
 
 ##### 5.1.3.1. Data preparation
 
+<details>
 We assume as a starting point that you have downloaded from [GISAID](https://www.gisaid.org/) and decompressed in your current directory the `sequences.fasta` file containing all the sequences available until that moment (note that the file is _not_ publicly available &mdash; you'll have to obtain access to GISAID if you want to be able to download it). We'll also assume you have downloaded to your local directory the [file `lineages.csv` containing the Pangolin designations of COVID-19 lineages](https://raw.githubusercontent.com/cov-lineages/pango-designation/master/lineages.csv). There are some \~1600 lineages &mdash; i.e., classes to recognise &mdash; that are currently in use.
 
 So you'll have two files in your directory to start with,
@@ -792,10 +792,10 @@ lineages.csv
 
 As a first step, we must extract the actual COVID-19 sequences that we need in order to train and test our classifier - the file `lineages.csv` does not contain the actual sequences, just their classification (which is assumed to be the ground truth). In order to do so, we run the following script:
 ```bash
-$ CHUNK_BLOCKS=125; BLOCK_SIZE=$(( 1024 * 1024 )); rm -rf Split; mkdir Split; echo sequences.fasta | awk -v CHUNK_BLOCKS="$CHUNK_BLOCKS" -v BLOCK_SIZE="$BLOCK_SIZE" 'END{get_size="ls -l \047"$0"\047 | awk \047{print $5}\047" |& getline size; close(get_size); blocks=int((size+BLOCK_SIZE)/BLOCK_SIZE); chunks=int((blocks+CHUNK_BLOCKS)/CHUNK_BLOCKS); for (i=0;i<chunks;++i) print $0"\t"i*CHUNK_BLOCKS}' | Parallel -l 1 -t $(( $(nproc) * 3 )) -- awk -F '\t' -v BLOCK_SIZE="$BLOCK_SIZE" '{get_chunk="dd bs="BLOCK_SIZE" if=\047"$1"\047 skip="$2" 2> /dev/null"; overhang=""; line=""; while (get_chunk |& getline line) {if (line==""||line~"^>") break; overhang=overhang line"\n"} print $1"\t"($2*BLOCK_SIZE)+length(overhang); close(get_chunk)}' | awk -F '\t' -v INPUT="sequences.fasta" '{if (NR>1) print $1"\t"old"\t"($2-old); old=$2} END{get_size="ls -l \047"INPUT"\047 | awk \047{print $5}\047" |& getline size; close(get_size); print $1"\t"old"\t"(size-old)}' | Parallel -l 1 -- awk -F '\t' -v BLOCK_SIZE="$BLOCK_SIZE" 'function remove_spaces(name,     s){split(name,s,"/"); return gensub("[ _]","","g",s[1])"/"s[2]"/"s[3]} BEGIN{nr=0; while (getline < "lineages.csv") {++nr; if (nr>1) {split($0,s,","); t[remove_spaces(gensub("^BHR/","Bahrain/",1,s[1]))]=s[2]}}} function output_sequence(){++counts[offset"/"class]; print ">"name"\n"seq > "Split/"offset"/"class".fasta"; return} {offset=$2; system("mkdir -p Split/"offset); get_chunk="dd bs="BLOCK_SIZE" if=\047"$1"\047 iflag=\"skip_bytes,count_bytes\" skip="offset" count="$3" 2> /dev/null"; first=0; while (get_chunk |& getline) {if ($0~"^>") {if (first&&active) output_sequence(); first=1; active=0; split(substr($0,10),s,"[|]"); res=remove_spaces(s[1]); if (res in t) {active=1; name=res; class=t[res]; seq=""}} else {if (active) seq=seq $0}} if (active) output_sequence()} END{for (i in counts) print i"\t"counts[i]}' | awk -F '\t' '{split($1,s,"/"); offset=s[1]; class=s[2]; system("cat \"Split/"$1".fasta\" >> \"Split/"class".fasta\"; rm \"Split/"$1".fasta\"; rmdir --ignore-fail-on-non-empty Split/"offset); counts[class]+=$2} END{for (i in counts) print i"\t"counts[i]}' > Stats.txt
+CHUNK_BLOCKS=125; BLOCK_SIZE=$(( 1024 * 1024 )); rm -rf Split; mkdir Split; echo sequences.fasta | awk -v CHUNK_BLOCKS="$CHUNK_BLOCKS" -v BLOCK_SIZE="$BLOCK_SIZE" 'END{get_size="ls -l \047"$0"\047 | awk \047{print $5}\047" |& getline size; close(get_size); blocks=int((size+BLOCK_SIZE)/BLOCK_SIZE); chunks=int((blocks+CHUNK_BLOCKS)/CHUNK_BLOCKS); for (i=0;i<chunks;++i) print $0"\t"i*CHUNK_BLOCKS}' | Parallel -l 1 -t $(( $(nproc) * 3 )) -- awk -F '\t' -v BLOCK_SIZE="$BLOCK_SIZE" '{get_chunk="dd bs="BLOCK_SIZE" if=\047"$1"\047 skip="$2" 2> /dev/null"; overhang=""; line=""; while (get_chunk |& getline line) {if (line==""||line~"^>") break; overhang=overhang line"\n"} print $1"\t"($2*BLOCK_SIZE)+length(overhang); close(get_chunk)}' | awk -F '\t' -v INPUT="sequences.fasta" '{if (NR>1) print $1"\t"old"\t"($2-old); old=$2} END{get_size="ls -l \047"INPUT"\047 | awk \047{print $5}\047" |& getline size; close(get_size); print $1"\t"old"\t"(size-old)}' | Parallel -l 1 -- awk -F '\t' -v BLOCK_SIZE="$BLOCK_SIZE" 'function remove_spaces(name,     s){split(name,s,"/"); return gensub("[ _]","","g",s[1])"/"s[2]"/"s[3]} BEGIN{nr=0; while (getline < "lineages.csv") {++nr; if (nr>1) {split($0,s,","); t[remove_spaces(gensub("^BHR/","Bahrain/",1,s[1]))]=s[2]}}} function output_sequence(){++counts[offset"/"class]; print ">"name"\n"seq > "Split/"offset"/"class".fasta"; return} {offset=$2; system("mkdir -p Split/"offset); get_chunk="dd bs="BLOCK_SIZE" if=\047"$1"\047 iflag=\"skip_bytes,count_bytes\" skip="offset" count="$3" 2> /dev/null"; first=0; while (get_chunk |& getline) {if ($0~"^>") {if (first&&active) output_sequence(); first=1; active=0; split(substr($0,10),s,"[|]"); res=remove_spaces(s[1]); if (res in t) {active=1; name=res; class=t[res]; seq=""}} else {if (active) seq=seq $0}} if (active) output_sequence()} END{for (i in counts) print i"\t"counts[i]}' | awk -F '\t' '{split($1,s,"/"); offset=s[1]; class=s[2]; system("cat \"Split/"$1".fasta\" >> \"Split/"class".fasta\"; rm \"Split/"$1".fasta\"; rmdir --ignore-fail-on-non-empty Split/"offset); counts[class]+=$2} END{for (i in counts) print i"\t"counts[i]}' > Stats.txt
 ```
 
-Although apparently daunting, the script is just performing a parallelised scan of the big file, in order to find the sequences specified in `lineages.csv` and write them as files &mdash; one per class &mdash; in the directory `Split`. In particular, the script is made of three parts, each one performing a specific task.
+Although apparently very complex, the script is just performing a parallelised scan of the big file, in order to find the sequences specified in `lineages.csv` and write them as files &mdash; one per class &mdash; in the directory `Split`. In particular, the script is made of three parts, each one performing a specific task.
 
 ###### Indexing
 
@@ -941,7 +941,7 @@ BA.1.15.1.fasta
 
 Each file contains (almost) all the sequences used as the ground truth for that lineage. Note that the procedure we used does not retrieve all sequences because some of the ones used to train Pangolin are not in GISAID. In particular, the following command:
 ```bash
-$ awk -F '\t' 'BEGIN{nr=0; while (getline < "lineages.csv") {++nr; if (nr>1&&$0~",") {split($0,s,","); found[s[2]]; ++lineages[s[2]]}} while (getline < "Stats.txt") {found[$1]; stats[$1]=$2} for (i in found) {print i"\t"(i in lineages?lineages[i]:0)"\t"(i in stats?stats[i]:0)}}' | awk -F '\t' '{if (($3<0.9*$2&&$3<20)||$2<10&&$3!=$2) print}'
+awk -F '\t' 'BEGIN{nr=0; while (getline < "lineages.csv") {++nr; if (nr>1&&$0~",") {split($0,s,","); found[s[2]]; ++lineages[s[2]]}} while (getline < "Stats.txt") {found[$1]; stats[$1]=$2} for (i in found) {print i"\t"(i in lineages?lineages[i]:0)"\t"(i in stats?stats[i]:0)}}' | awk -F '\t' '{if (($3<0.9*$2&&$3<20)||$2<10&&$3!=$2) print}'
 ```
 first generates a table containing the number of sequences in each category both in the Pangolin set and returned by our procedure,
 ```
@@ -965,9 +965,10 @@ for which most of the sequences are unavailable in GISAID (and `B.1.617`, which 
 
 At this point we just have to split each of the files containing lineage-specific sequences into training and test set, as usual. The following command does it:
 ```bash
-$ rm -rf Train Test; mkdir Train Test; for FILE in Split/*.fasta; do BASE=$(basename $FILE); echo $BASE; done | Parallel -l 1 -- awk 'function output_seq(){if (name!="") print name"\n"seq >> (counts%2==1?"Train":"Test")"/"$0} {input="Split/"$0; counts=0; while (getline line < input) if (line~"^>") {output_seq(); ++counts; name=line} else seq=line; output_seq()}'
+rm -rf Train Test; mkdir Train Test; for FILE in Split/*.fasta; do BASE=$(basename $FILE); echo $BASE; done | Parallel -l 1 -- awk 'function output_seq(){if (name!="") print name"\n"seq >> (counts%2==1?"Train":"Test")"/"$0} {input="Split/"$0; counts=0; while (getline line < input) if (line~"^>") {output_seq(); ++counts; name=line} else seq=line; output_seq()}'
 ```
 suitably populating the subdirectories `Test` and `Train`. As in most of the examples so far, we use `Parallel` to perform the splitting on many files in parallel and hence reduce the overall wallclock time taken by the command.
+</details>
 
 ##### 5.1.3.2. Data analysis
 
@@ -975,12 +976,12 @@ Once the preparation stage has been completed, the analysis proceeds exactly as 
 
 First, we compute the spectra for the class representatives using `KPopCount` and `KPopCountDB`:
 ```bash
-$ ls Train/*.fasta | Parallel -l 1 -- awk '{l=split($0,s,"/"); class=substr(s[l],1,length(s[l])-6); system("KPopCount -k 10 -l "class" -f Train/"class".fasta")}' | KPopCountDB -k /dev/stdin -o Classes
+ls Train/*.fasta | Parallel -l 1 -- awk '{l=split($0,s,"/"); class=substr(s[l],1,length(s[l])-6); system("KPopCount -k 10 -l "class" -f Train/"class".fasta")}' | KPopCountDB -k /dev/stdin -o Classes
 ```
 
 This produces a `Classes.KPopCounter` file which is \~2.0 GB. The command
 ```bash
-$ KPopCountDB -i Classes --summary
+KPopCountDB -i Classes --summary
 ```
 confirms that indeed this database contains the spectra for all classes:
 ```
@@ -991,11 +992,11 @@ confirms that indeed this database contains the spectra for all classes:
 According to the usual procedure, we then twist the class representatives with `KPopTwist`:
 
 ```bash
-$ KPopTwist -i Classes -v
+KPopTwist -i Classes -v
 ```
 and we use the resulting classifying twister to twist and accumulate the test sequences into file `Test.KPopTwisted` with `KPopTwistDB`:
 ```bash
-$ cat Test/*.fasta | awk 'BEGIN{ok=1} {if ($0~"^>") {ok=!($0 in t); t[$0]} if (ok) print}' | Parallel -l 2 -- awk '{if (NR==1) {job="KPopCount -k 10 -l \""substr($0,2)"\" -f /dev/stdin"; print $0 |& job} else {print $0 |& job; close(job,"to"); while (job |& getline) print $0}}' | KPopTwistDB -i T Classes -k /dev/stdin -o t Test -v
+cat Test/*.fasta | awk 'BEGIN{ok=1} {if ($0~"^>") {ok=!($0 in t); t[$0]} if (ok) print}' | Parallel -l 2 -- awk '{if (NR==1) {job="KPopCount -k 10 -l \""substr($0,2)"\" -f /dev/stdin"; print $0 |& job} else {print $0 |& job; close(job,"to"); while (job |& getline) print $0}}' | KPopTwistDB -i T Classes -k /dev/stdin -o t Test -v
 ```
 
 Note that right at the beginning of the script, with the part
@@ -1006,34 +1007,34 @@ we are removing repeated sequences (yes, apparently there are repeated sequences
 
 Also, as there are \~650K sequences to be classified, doing so will take long (\~14h on the node I'm using for these tests). So, you might wish to further parallelise the process, as I did, by splitting the input into smaller files and processing them separately on different nodes. After that, you can merge together all the pieces with a command such as
 ```bash
-$ KPopTwistDB -a t Test.aa -a t Test.ab ... -o t Test -v
+KPopTwistDB -a t Test.aa -a t Test.ab ... -o t Test -v
 ```
 
 The final size of the file `Test.KPopTwisted` containing all the \~650K twisted COVID-19 sequences in the test set is \~8.4 GB.
 
 At this point, the analysis proceeds exactly as in the case of [the previous section](#5112-data-analysis), with a command<a name="compute-distances"></a> such as
 ```bash
-$ KPopTwistDB -i T Classes -i t Test -d Classes -o d Test-vs-Classes -v
+KPopTwistDB -i T Classes -i t Test -d Classes -o d Test-vs-Classes -v
 ```
 that allows us to compute all the distances of each test sequence from each of the "training" classes. However, given that in this case there is a very large number of distances to be computed, another and perhaps more appropriate strategy would have been not to merge the twisted test files into a single `Test.KPopTwisted` file, but rather to compute the distances from the twisted classes for each of the chunks with commands such as
 ```bash
-$ KPopTwistDB -i T Classes -i t Test.aa -d Classes -o d Test-vs-Classes.aa
+KPopTwistDB -i T Classes -i t Test.aa -d Classes -o d Test-vs-Classes.aa
 ```
 and then merge together all the distance files, as in
 ```bash
-$ KPopTwistDB -a d Test-vs-Classes.aa -a d Test-vs-Classes.ab ... -o d Test-vs-Classes -v
+KPopTwistDB -a d Test-vs-Classes.aa -a d Test-vs-Classes.ab ... -o d Test-vs-Classes -v
 ```
 
 One way or another, once a file `Test-vs-Classes.KPopDMatrix` containing all the distances has been generated, we can run
 ```bash
-$ KPopTwistDB -i d Test-vs-Classes -s Test.aa Test-vs-Classes -v
+KPopTwistDB -i d Test-vs-Classes -s Test.aa Test-vs-Classes -v
 ```
 in order to produce the usual textual summary of the distances. The resulting file will be \~118 MB in size.
 
 And quite likely, one would also wish to run something like the following commands:
 ```bash
-$ cat Test-vs-Classes.KPopSummary.txt | awk 'function remove_spaces(name,     s){split(name,s,"/"); return gensub("[ _]","","g",s[1])"/"s[2]"/"s[3]} BEGIN{nr=0; while (getline < "lineages.csv") {++nr; if (nr>1) {split($0,s,","); t[remove_spaces(gensub("^BHR/","Bahrain/",1,s[1]))]=s[2]}}} {printf $1"\t\""t[substr($1,2,length($1)-2)]"\""; for (i=2;i<=NF;++i) printf "\t"$i; printf "\n"}' > Test-vs-Classes.KPopSummary.Truth.txt
-$ cat Test-vs-Classes.KPopSummary.Truth.txt | awk -F '\t' 'function strip_quotes(s){return substr(s,2,length(s)-2)} {one=strip_quotes($2); two=strip_quotes($7); print one"\t"two"\t"(substr(two,1,length(one)+1)) > "/dev/null"; if ($2!=$7&&substr(two,1,length(one)+1)!=one".") ++ko; else ++ok} END{printf("%d\t%d\t%.3g%%\t%d\t%.3g%%\n",ok+ko,ok,ok/(ok+ko)*100,ko,ko/(ok+ko)*100)}'
+cat Test-vs-Classes.KPopSummary.txt | awk 'function remove_spaces(name,     s){split(name,s,"/"); return gensub("[ _]","","g",s[1])"/"s[2]"/"s[3]} BEGIN{nr=0; while (getline < "lineages.csv") {++nr; if (nr>1) {split($0,s,","); t[remove_spaces(gensub("^BHR/","Bahrain/",1,s[1]))]=s[2]}}} {printf $1"\t\""t[substr($1,2,length($1)-2)]"\""; for (i=2;i<=NF;++i) printf "\t"$i; printf "\n"}' > Test-vs-Classes.KPopSummary.Truth.txt
+cat Test-vs-Classes.KPopSummary.Truth.txt | awk -F '\t' 'function strip_quotes(s){return substr(s,2,length(s)-2)} {one=strip_quotes($2); two=strip_quotes($7); print one"\t"two"\t"(substr(two,1,length(one)+1)) > "/dev/null"; if ($2!=$7&&substr(two,1,length(one)+1)!=one".") ++ko; else ++ok} END{printf("%d\t%d\t%.3g%%\t%d\t%.3g%%\n",ok+ko,ok,ok/(ok+ko)*100,ko,ko/(ok+ko)*100)}'
 ```
 to, first, annotate the summary with the original "true" classification of the sequences, and, second, generate a one-line summary of the results. The last command will produce something like:
 
@@ -1046,7 +1047,7 @@ Note that as not all the classes describing lineages are disjoint, here we consi
 
 Finally, as discussed in more detail in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v1), for this example you might wish to tune the definition of the distance by modifying the metric used. In order to do so, you would replace the [command to compute distances](#compute-distances) we used previously with something like the following:
 ```bash
-$ KPopTwistDB -m "sigmoid(1,1,5,5)" -i T Classes -i t Test -d Classes -o d Test-vs-Classes.sigmoid_1_1_5_5 -v
+KPopTwistDB -m "sigmoid(1,1,5,5)" -i T Classes -i t Test -d Classes -o d Test-vs-Classes.sigmoid_1_1_5_5 -v
 ```
 
 That takes into account in a different way the estimated importance of the different directions in twisted space, resulting in slightly better overall predictions.
