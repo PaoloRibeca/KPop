@@ -180,6 +180,10 @@ KPopTwistDB -i T Classes.$K --distance euclidean --distance-normalize false -m "
 ```
 We then visualise the results as a scatterplot matrix using `R`:
 
+<details>
+ 
+<summary>Script to visualise Quick Start results</summary>
+
 ```R
 library(dplyr)
 library(RColorBrewer)
@@ -205,9 +209,11 @@ par(xpd=TRUE)
 legend(0.9, 0.9, order_class, fill = factor(uniq_class_df$V6, levels = order_class), title = "Class", cex = 0.6)
 ```
 
+</details>
+
 ![Scatterplot Matrix using Quick Start Results using KPop](images/KPop-ScatterplotMatrix-RR.png)
 
-As mentioned previously, this is a great way to visually check that test sequences cluster in the correct class! However, be warned, it wouldn't be as useful on a dataset with 1000 dimensions! 
+As mentioned previously, this is a great way to visually check that test sequences cluster in the correct class &mdash; however, it wouldn't be as useful on a dataset with 1000 dimensions! 
 
 ## 2. Frequently asked questions
 
@@ -231,6 +237,20 @@ All `KPop` programs are parallelised and will automatically use as many CPUs as 
 
 ### How do I choose *k*?
 
+As explained in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v1), the choice of *k* can be tricky, and you should always make sure you try different results and select the lowest value of *k* for which results become stable. One empirical criterion that might help you in most cases is to choose
+```math
+    k := {
+        \mathrm{argmax}_k \displaystyle
+            \mathrm{min}_s \frac{
+                \mathrm{max}_h C^k_{h s}
+            }{
+                \left(
+                    \prod_{h} C^k_{h s}
+                \right)^{1/{n_h}}
+            }
+    }
+```
+where $C^k_{h s}$ is a non-zero count for *k*-mer $h$ in sample $s$ and there are $n_h$ *k*-mers. I.e., you would select the $k$ maximising the minimum across samples of the ratio between the maximum non-zero count and the (harmonic) mean of the non-zero counts for each sample.
 
 ## 3. Overview of commands
 
