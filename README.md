@@ -73,15 +73,15 @@ ca
 
 ## 1. Quick start
 
-Download file `clusters-small.fasta` from the directory `test`. Then run the following commands in `bash`:
+Download file `clusters-small.fasta` from the directory `test`. Then run the following commands (throughout this documentation we'll assume that you're using a fairly up-to-date version of `bash`):
 
 ```bash
 export K=5
 date
 for CLASS in C1 C2 C3 C4 C5 C6 C7 C8 C9 C10; do cat clusters-small.fasta | awk -v CLASS=$CLASS '{nr=(NR-1)%4; ok=(nr==0?$0~("-"CLASS"$"):nr==1&&ok); if (ok) print}' | KPopCount -k $K -L -f /dev/stdin | KPopCountDB -k /dev/stdin -R "~." -A $CLASS -L $CLASS -N -D --table-transform none -t /dev/stdout; done | KPopCountDB -k /dev/stdin -o Classes.$K -v
 KPopTwist -i Classes.$K -v
-cat clusters-small.fasta | awk -v K="$K" '{nr=(NR-1)%4; if (nr==2) split($0,s,"[>-]"); if (nr==3) print ">"s[2]"-"s[3]"\n"$0}' | KPopCount -k $K -L -f /dev/stdin | KPopTwistDB -i T Classes.$K -k /dev/stdin -o t /dev/stdout | KPopTwistDB -i T Classes.$K -i t Classes.$K -s /dev/stdin Class_prediction.$K -v
-echo -n ">>> Misclassified sequences: "; cat Class_prediction.$K.KPopSummary.txt | awk -F '\t' 'BEGIN{OFS="\t"} {$1=gensub("-","\"\t\"",1,$1); print}' | awk -F '\t' '{if ($2!=$7) print}' | wc -l
+cat clusters-small.fasta | awk -v K="$K" '{nr=(NR-1)%4; if (nr==2) split($0,s,"[>-]"); if (nr==3) print ">"s[2]"-"s[3]"\n"$0}' | KPopCount -k $K -L -f /dev/stdin | KPopTwistDB -i T Classes.$K -k /dev/stdin -o t /dev/stdout | KPopTwistDB -i T Classes.$K -i t Classes.$K -s /dev/stdin Test_prediction.$K -v
+echo -n ">>> Misclassified sequences: "; cat Test_prediction.$K.KPopSummary.txt | awk -F '\t' 'BEGIN{OFS="\t"} {$1=gensub("-","\"\t\"",1,$1); print}' | awk -F '\t' '{if ($2!=$7) print}' | wc -l
 date
 ```
 
@@ -123,7 +123,7 @@ This is KPopTwistDB version 27 [17-Jan-2024]
 (KPop__Matrix.of_binary): Reading DB from file '/dev/stdin'... done.
 (KPop__Matrix.Base.get_normalizations): Done 500/500 rows.
 (KPop__Matrix.Base.get_normalizations): Done 10/10 rows.
-(KPop__Matrix.summarize_rowwise): Writing distance digest to file 'Class_prediction.5.KPopSummary.txt': done 500/500 rows.
+(KPop__Matrix.summarize_rowwise): Writing distance digest to file 'Test_prediction.5.KPopSummary.txt': done 500/500 rows.
 >>> Misclassified sequences: 0
 Wed 14 Feb 16:47:41 GMT 2024
 ```
@@ -151,32 +151,32 @@ This is an example of `KPop`-based classifier. The input FASTA file [`clusters-s
    "twists" spectra to a reduced-dimensionality space, storing the results in binary form (actually that corresponds to two files, which are automatically named `Classes.5.KPopTwister` and `Classes.5.KPopTwisted`). Both the twisted spectra and the "twister" &mdash; i.e., the operator that can be used to convert the original spectra to twisted space &mdash; are stored and can be reused later on
 5. The command
    ```bash
-   cat clusters-small.fasta | awk -v K="$K" '{nr=(NR-1)%4; if (nr==2) split($0,s,"[>-]"); if (nr==3) print ">"s[2]"-"s[3]"\n"$0}' | KPopCount -k $K -L -f /dev/stdin | KPopTwistDB -i T Classes.$K -k /dev/stdin -o t /dev/stdout | KPopTwistDB -i T Classes.$K -i t Classes.$K -s /dev/stdin Class_prediction.$K -v
+   cat clusters-small.fasta | awk -v K="$K" '{nr=(NR-1)%4; if (nr==2) split($0,s,"[>-]"); if (nr==3) print ">"s[2]"-"s[3]"\n"$0}' | KPopCount -k $K -L -f /dev/stdin | KPopTwistDB -i T Classes.$K -k /dev/stdin -o t /dev/stdout | KPopTwistDB -i T Classes.$K -i t Classes.$K -s /dev/stdin Test_prediction.$K -v
    ```
-   selects test sequences, runs each of them separately through `KPopCount` to produce a spectrum, and concatenates and pipes all the spectra thus generated to `KPopTwistDB`, which twists them according to the twister generated at the previous stage (named `Classes.5`). The results are output to a summary text file, which gets automatically named `Class_prediction.5.KPopSummary.txt`. The file contains information about the two closest classes for each sequence
+   selects test sequences, runs each of them separately through `KPopCount` to produce a spectrum, and concatenates and pipes all the spectra thus generated to `KPopTwistDB`, which twists them according to the twister generated at the previous stage (named `Classes.5`). The results are output to a summary text file, which gets automatically named `Test_prediction.5.KPopSummary.txt`. The file contains information about the two closest classes for each sequence
 6. Finally, the command
    ```bash
-   echo -n ">>> Misclassified sequences: "; cat Class_prediction.$K.KPopSummary.txt | awk -F '\t' 'BEGIN{OFS="\t"} {$1=gensub("-","\"\t\"",1,$1); print}' | awk -F '\t' '{if ($2!=$7) print}' | wc -l
+   echo -n ">>> Misclassified sequences: "; cat Test_prediction.$K.KPopSummary.txt | awk -F '\t' 'BEGIN{OFS="\t"} {$1=gensub("-","\"\t\"",1,$1); print}' | awk -F '\t' '{if ($2!=$7) print}' | wc -l
    ```
-   parses the results in `Class_prediction.5.KPopSummary.txt` and computes the number of misclassified sequences.
+   parses the results in `Test_prediction.5.KPopSummary.txt` and computes the number of misclassified sequences.
 
 Congratulations! You have now moved your first steps in the fascinating world of `KPop`.
 
 ### 1.2. Visualisation of Quick Start results
 
-Now we can use the predictions with the dimensions for each test sequence to visualise the results as a scatterplot matrix. This normally wouldn't be recommended as there will likely be a large number of dimensions, but in this example we only have 9. 
+Now we can visualise the embeddings (a.k.a. twisted spectra, or multidimensional vectors in `KPop` space) generated by `KPop` for each test sequence as a scatterplot matrix for all possible 2-dimensional projections of the `KPop` space. This normally wouldn't be recommended as there will likely be a large number of dimensions, but in this example we only have 9. 
 
 It should be noted that to use the information from `.KPopTwisted.txt` (generated with `-O t`), we will always need to multiply the vectors by weight values generated by KPop. This is because coordinates are not weighted by the twister transformation in the text file. 
 
 Do do this, we firstly create a `new_data.5.KPopTwisted.txt` using KPopTwistDB with only the test sequences:
 
 ```bash
-cat clusters-small.fasta | awk -v K="$K" '{nr=(NR-1)%4; if (nr==2) split($0,s,"[>-]"); if (nr==3) print ">"s[2]"-"s[3]"\n"$0}' | KPopCount -k $K -L -f /dev/stdin | KPopTwistDB -i T Classes.$K -k /dev/stdin -o t /dev/stdout | KPopTwistDB -i t /dev/stdin -O t new_data.$K
+cat clusters-small.fasta | awk -v K="$K" '{nr=(NR-1)%4; if (nr==2) split($0,s,"[>-]"); if (nr==3) print ">"s[2]"-"s[3]"\n"$0}' | KPopCount -k $K -L -f /dev/stdin | KPopTwistDB -i T Classes.$K -k /dev/stdin -o t /dev/stdout -v | KPopTwistDB -i t /dev/stdin -O t Test.$K
 ```
 Weights are then calculated for `Classes.5.KPopTwister` (with no normalization and no adjustment of the metrics), and stored in `Classes.5.KPopMetrics.txt`:
 
 ```bash
-KPopTwistDB -i T Classes.$K --distance euclidean --distance-normalize false -m "powers(1,1,1)" -O m Classes.$K
+KPopTwistDB -i T Classes.$K --distance euclidean --distance-normalization false -m "powers(1,1,2)" -O m Classes.$K -v
 ```
 We then visualise the results as a scatterplot matrix using `R`:
 
@@ -188,8 +188,8 @@ We then visualise the results as a scatterplot matrix using `R`:
 library(dplyr)
 library(RColorBrewer)
 
-dim_df <- read.table("new_data.KPopTwisted.txt", header = TRUE, row.names = 1)
-class_df <- read.table("Class_prediction.KPopSummary.txt", header = FALSE, row.names = 1) %>% select(V6)
+dim_df <- read.table("Test.5.KPopTwisted.txt", header = TRUE, row.names = 1)
+class_df <- read.table("Test_prediction.5.KPopSummary.txt", header = FALSE, row.names = 1) %>% select(V6)
 metrics <- read.table("Classes.5.KPopMetrics.txt", header = TRUE, row.names = 1)
 
 weighted_dim_df <- mapply(`*`, dim_df, metrics) %>% as.data.frame()
@@ -202,11 +202,12 @@ uniq_class_df <- distinct(class_df)
 weighted_dim_df <- merged_df %>% select(colnames(weighted_dim_df))
 order_class = c("C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10")
 
+pdf("Sections.5.pdf",title="Sections.5",useDingbats=FALSE)
 palette("Paired")
-pairs(weighted_dim_df, pch = c(21), bg = factor(class_df$V6, levels = order_class), col = factor(class_df$V6, levels = order_class), 
-      oma=c(4,4,4,10), cex.labels = 1, cex.axis = 0.7, cex = 0.3, gap = 0)
-par(xpd=TRUE)
-legend(0.9, 0.9, order_class, fill = factor(uniq_class_df$V6, levels = order_class), title = "Class", cex = 0.6)
+pairs(weighted_dim_df, pch = c(21), pty="s", bg = factor(class_df$V6, levels = order_class), col = factor(class_df$V6, levels = order_class),
+      mar=c(0,0,0,0), oma=c(6,4,6,8), cex.labels = 1, cex.axis = 0.7, cex = 0.3, gap = 0)
+legend("topleft", inset=c(0.9,0.3625), order_class, fill = factor(uniq_class_df$V6, levels = order_class), title = "Class", xpd=TRUE, cex = 0.6)
+dev.off()
 ```
 
 </details>
