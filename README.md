@@ -24,7 +24,7 @@
 &emsp; [5.1. Sequence classification](#51-sequence-classification)<br>
 &emsp; &emsp; [5.1.1. Classifier for simulated *M.tuberculosis* sequencing reads](#511-classifier-for-simulated-mtuberculosis-sequencing-reads)<br>
 &emsp; &emsp; [5.1.2. Classifier for deep-sequencing *M.tuberculosis* samples](#512-classifier-for-deep-sequencing-mtuberculosis-samples)<br>
-&emsp; &emsp; [5.1.3. Classifier for COVID-19 sequences (Hyena)](#513-classifier-for-covid-19-sequences-hyena)<br>
+&emsp; &emsp; [5.1.3. Classifier for SARS-CoV-2 sequences (Hyena)](#513-classifier-for-sars-cov-2-sequences-hyena)<br>
 &emsp; [5.2. Relatedness engine](#52-relatedness-engine)<br>
 &emsp; [5.3. Pseudo-phylogenetic trees](#53-pseudo-phylogenetic-trees)<br>
 
@@ -1086,7 +1086,7 @@ The overall strategy is illustrated in the following figure, which assumes that 
 
 Briefly, we can generate and twist new spectra (top left), find out their nearest neighbours in the database of twisted sequences (central line and bottom left), and add the new twisted spectra to the database (bottom right).
 
-Here we illustrate the approach taking the previous exercise on COVID-19 as a starting point. For the sake of simplicity, we'll take as existing database the twisted test sequences (half of the GISAID database) in the file `Test.KPopTwisted`. The classifier will be the one we generated in [the previous section](#513-classifier-for-covid-19-sequences-hyena) and contained in the file `Classes.KPopTwister`. The command
+Here we illustrate the approach taking the previous exercise on COVID-19 as a starting point. For the sake of simplicity, we'll take as existing database the twisted test sequences (half of the GISAID database) in the file `Test.KPopTwisted`. The classifier will be the one we generated in [the previous section](#513-classifier-for-sars-cov-2-sequences-hyena) and contained in the file `Classes.KPopTwister`. The command
 ```bash
 cat Train/C.36.3.fasta | fasta-tabular | shuf | head -1 | awk -F '\t' '{print $1 > "/dev/stderr"; print ">"$1"\n"$2}' | KPopCount -k 10 -f /dev/stdin -l "C.36.3" | KPopTwistDB -i T Classes -i t Classes -k /dev/stdin -d Test --keep-at-most 300 -s Test Related
 ```
