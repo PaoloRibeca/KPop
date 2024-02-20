@@ -271,7 +271,15 @@ In response to such needs, `KPopCountDB` and `KPopTwistDB` are able to execute a
 
 In addition, both `KPopCountDB` and `KPopTwistDB` have *registers*, i.e., slots to/from which the contents of external files and the results of computations can be loaded/saved. You can see registers as program variables, each one having a specific type. For instance, the `KPop` programs know that only twisters can be loaded to/saved from twister registers, and will enforce that by requiring and checking that your external file has the correct extension (`.KPopTwister`) and format when doing I/O to/from a twister register.
 
-`KPopCountDB` has xxx registers:
+`KPopCountDB` has two registers:
+* a *database* register, holding a set of *k*-mer spectra (i.e., a set of *k*-mers and their associated frequencies). There is one spectrum per sample, and additional metadata in the form of strings or numbers can be associated to the samples (see our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v1) for more information). Due to space optimisation reasons, modifications of the database happen in-place
+* a *selection* register, holding a set of sample labels. Labels can be specified on the command line or read from the database present in the database register. Collective operations (selection, deletion, combination, and so on) can be performed on the samples belonging to the database present in the database register according to the set of samples specified by the selection register, which acts as a guide to specify and perform complex operations on the database. For instance, one might select from the database all the sample names containing some regular expression, put them in the selection register, add some more sample names to the selection register, and finally delete from the database all the samples having names appearing in the selection register.
+
+`KPopTwistDB` has four registers:
+* a *twister* register holding a twister, i.e., an object able to transform *k*-mer spectra to "twisted" embeddings/vectors in an abstract `KPop` space (note that the transformation is dataset-dependent and specified by the user when runnning `KPopTwist` on a set of spectra, as explained in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v1) and [the next section](###32-building-workflows))
+* a *twisted* register holding "twisted" vectors, i.e., `KPop` embeddings of biological sequences into an abstract `KPop` space
+* a *metrics* register holding a metric, i.e., a vector of numbers specifying the relevance of each one of the dimensions of the `KPop` space (see our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v1) for more details)
+* a *distance* register holding a distance matrix between couples of samples. The matrix can be computed from the vectors present on the twisted register and themselves, or from the vectors present in the twisted register and an external  
 
 
 In addition to registers, both `KPopCountDB` and `KPopTwistDB` are able to read and process external files containing *k*-mer spectra in the format produced by `KPopCount` &mdash; this ensures that new spectra/twisted spectra can be added to their respective databases.
