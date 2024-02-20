@@ -214,6 +214,8 @@ dev.off()
 
 ![Scatterplot Matrix from Quick Start Results produced by KPop](images/KPop-QuickStart-Sections.5-RR.png)
 
+One can see how `KPop` is able to embed sequences (i.e., to map them to an abstract multi-dimensional space) in such a way that they cluster according to their original colouring. As the clusters are well-defined and have neat boundaries along a suitable number of dimensions, as shown by the projections, that results in a good (actually perfect) classifier for this example.
+
 As mentioned previously, this is a great way to visually check that test sequences cluster in the correct class &mdash; however, it wouldn't be as useful on a dataset with 1000 dimensions! 
 
 ## 2. Frequently asked questions
