@@ -866,6 +866,8 @@ and KMerDB:
           precision = 15
         }
       end
+    let re_quote = Str.regexp "\""
+    let escape_quotes = Str.global_replace re_quote "\\\""
     let to_table
         ?(filter = TableFilter.default) ?(threads = 1) ?(elements_per_step = 40000) ?(verbose = false) db fname =
       let transform = Transformation.compute ~which:filter.transform
@@ -897,23 +899,25 @@ and KMerDB:
       let meta = Tools.Array.of_rlist !meta and rows = Tools.Array.of_rlist !rows
       and cols = Tools.Array.of_rlist !cols in
       let n_rows = Array.length rows and n_cols = Array.length cols in
-      (* There must be at least one row and one column to print *)
-      if (Array.length meta + n_rows) > 0 && n_cols > 0 then begin
+      (* There must be at least one row to print.
+         If there are no columns, we just print metadata/row names  *)
+      if (Array.length meta + n_rows) > 0 then begin
         if filter.transpose then begin
-          (* There is at least one row *)
           if filter.print_col_names then begin
-            (* We print the row names *)
-            if filter.print_row_names then
-              Printf.fprintf output "\t";
+            (* We print row names - there is always at least one row *)
             let first_done = ref false in
             Array.iter
               (fun (meta_name, _) ->
-                Printf.fprintf output "%s%s" (if !first_done then "\t" else "") meta_name;
+                escape_quotes meta_name |>
+                  Printf.fprintf output "%s\"%s\""
+                    (if !first_done || filter.print_row_names then "\t" else "");
                 first_done := true)
               meta;
             Array.iter
               (fun (row_name, _) ->
-                Printf.fprintf output "%s%s" (if !first_done then "\t" else "") row_name;
+                escape_quotes row_name |>
+                  Printf.fprintf output "%s\"%s\""
+                    (if !first_done || filter.print_row_names then "\t" else "");
                 first_done := true)
               rows;
             Printf.fprintf output "\n"
@@ -935,21 +939,23 @@ and KMerDB:
               for i = lo_col to hi_col do
                 let col_name, col_idx = cols.(i) in
                 if filter.print_row_names then
-                  Printf.bprintf buf "%s\t" col_name;
+                  escape_quotes col_name |> Printf.bprintf buf "\"%s\"";
                 let first_done = ref false in
                 Array.iter
                   (fun (_, meta_idx) ->
-                    Printf.bprintf buf "%s\"%s\"" (if !first_done then "\t" else "") db.core.meta.(col_idx).(meta_idx);
+                    escape_quotes db.core.meta.(col_idx).(meta_idx) |>
+                      Printf.bprintf buf "%s\"%s\"" (if !first_done || filter.print_row_names then "\t" else "");
                     first_done := true)
                   meta;
                 Array.iter
                   (fun (_, row_idx) ->
-                    Printf.bprintf buf "%s%.*g" (if !first_done then "\t" else "") filter.precision begin
-                      IBAVector.N.to_int db.core.storage.(col_idx).IBAVector.@(row_idx) |>
-                        transform
-                          ~col_num:db.core.n_cols ~col_stats:stats.col_stats.(col_idx)
-                          ~row_num:db.core.n_rows ~row_stats:stats.row_stats.(row_idx)
-                    end;
+                    Printf.bprintf buf "%s%.*g"
+                      (if !first_done || filter.print_row_names then "\t" else "") filter.precision begin
+                        IBAVector.N.to_int db.core.storage.(col_idx).IBAVector.@(row_idx) |>
+                          transform
+                            ~col_num:db.core.n_cols ~col_stats:stats.col_stats.(col_idx)
+                            ~row_num:db.core.n_rows ~row_stats:stats.row_stats.(row_idx)
+                      end;
                     first_done := true)
                   rows;
                 Printf.bprintf buf "\n"
@@ -965,12 +971,11 @@ and KMerDB:
             threads
         end else begin
           if filter.print_col_names then begin
-            (* We print column names - there is at least one column *)
-            if filter.print_row_names then
-              Printf.fprintf output "\t";
+            (* We print column names *)
             Array.iteri
               (fun i (col_name, _) ->
-                Printf.fprintf output "%s%s" (if i = 0 then "" else "\t") col_name)
+                escape_quotes col_name |>
+                  Printf.fprintf output "%s\"%s\"" (if i = 0 && not filter.print_row_names then "" else "\t"))
               cols;
             Printf.fprintf output "\n"
           end;
@@ -978,10 +983,11 @@ and KMerDB:
           Array.iter
             (fun (meta_name, meta_idx) ->
               if filter.print_row_names then
-                Printf.fprintf output "%s\t" meta_name;
+                escape_quotes meta_name |> Printf.fprintf output "\"%s\"";
               Array.iteri
                 (fun i (_, col_idx) ->
-                  Printf.fprintf output "%s\"%s\"" (if i = 0 then "" else "\t") db.core.meta.(col_idx).(meta_idx))
+                  escape_quotes db.core.meta.(col_idx).(meta_idx) |>
+                    Printf.fprintf output "%s\"%s\"" (if i = 0 && not filter.print_row_names then "" else "\t"))
                 cols;
               Printf.fprintf output "\n")
             meta;
@@ -990,7 +996,7 @@ and KMerDB:
           Processes.Parallel.process_stream_chunkwise
             (fun () ->
               if !processed_rows < n_rows then
-                let to_do = max 1 (elements_per_step / n_cols) |> min (n_rows - !processed_rows) in
+                let to_do = max 1 (elements_per_step / (max 1 n_cols)) |> min (n_rows - !processed_rows) in
                 let new_processed_rows = !processed_rows + to_do in
                 let res = !processed_rows, new_processed_rows - 1 in
                 processed_rows := new_processed_rows;
@@ -1002,15 +1008,16 @@ and KMerDB:
               for i = lo_row to hi_row do
                 let row_name, row_idx = rows.(i) in
                 if filter.print_row_names then
-                  Printf.bprintf buf "%s\t" row_name;
+                  escape_quotes row_name |> Printf.bprintf buf "\"%s\"";
                 Array.iteri
-                  (fun j (_, col_idx) ->
-                    Printf.bprintf buf "%s%.*g" (if j = 0 then "" else "\t") filter.precision begin
-                      IBAVector.N.to_int db.core.storage.(col_idx).IBAVector.@(row_idx) |>
-                        transform
-                          ~col_num:db.core.n_cols ~col_stats:stats.col_stats.(col_idx)
-                          ~row_num:db.core.n_rows ~row_stats:stats.row_stats.(row_idx)
-                    end)
+                  (fun i (_, col_idx) ->
+                    Printf.bprintf buf "%s%.*g"
+                      (if i = 0 && not filter.print_row_names then "" else "\t") filter.precision begin
+                        IBAVector.N.to_int db.core.storage.(col_idx).IBAVector.@(row_idx) |>
+                          transform
+                            ~col_num:db.core.n_cols ~col_stats:stats.col_stats.(col_idx)
+                            ~row_num:db.core.n_rows ~row_stats:stats.row_stats.(row_idx)
+                      end)
                   cols;
                 Printf.bprintf buf "\n"
               done;
@@ -1095,14 +1102,14 @@ type to_do_t =
   | Selected_clear
   | Selected_to_filter
   | To_file of string
-  | Table_emit_row_names of bool
-  | Table_emit_col_names of bool
-  | Table_emit_metadata of bool
+  | Table_output_row_names of bool
+  | Table_output_col_names of bool
+  | Table_output_metadata of bool
   | Table_transpose of bool
   | Table_transform_threshold of int
   | Table_transform_power of float
   | Table_transform_which of string
-  | Table_emit_zero_rows of bool
+  | Table_output_zero_rows of bool
   | Table_precision of int
   | To_table of string
   | Distance_set of Space.Distance.t
@@ -1127,8 +1134,8 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopCountDB";
-  version = "38";
-  date = "07-Feb-2024"
+  version = "39";
+  date = "28-Feb-2024"
 } and authors = [
   "2020-2024", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
@@ -1211,24 +1218,24 @@ let () =
         let regexps_1 = TA.get_parameter () |> parse_regexp_selector "-d" in
         let regexps_2 = TA.get_parameter () |> parse_regexp_selector "-d" in
         To_distances (regexps_1, regexps_2, TA.get_parameter ()) |> Tools.List.accum Parameters.program);
-    [ "--table-emit-row-names" ],
+    [ "--table-output-row-names" ],
       Some "'true'|'false'",
-      [ "whether to emit row names for the database present in the register";
+      [ "whether to output row names for the database present in the register";
         "when writing it as a tab-separated file" ],
       TA.Default (fun () -> string_of_bool Defaults.filter.print_row_names),
-      (fun _ -> Table_emit_row_names (TA.get_parameter_boolean ()) |> Tools.List.accum Parameters.program);
-    [ "--table-emit-col-names" ],
+      (fun _ -> Table_output_row_names (TA.get_parameter_boolean ()) |> Tools.List.accum Parameters.program);
+    [ "--table-output-col-names" ],
       Some "'true'|'false'",
-      [ "whether to emit column names for the database present in the register";
+      [ "whether to output column names for the database present in the register";
         "when writing it as a tab-separated file" ],
       TA.Default (fun () -> string_of_bool Defaults.filter.print_col_names),
-      (fun _ -> Table_emit_col_names (TA.get_parameter_boolean ()) |> Tools.List.accum Parameters.program);
-    [ "--table-emit-metadata" ],
+      (fun _ -> Table_output_col_names (TA.get_parameter_boolean ()) |> Tools.List.accum Parameters.program);
+    [ "--table-output-metadata" ],
       Some "'true'|'false'",
-      [ "whether to emit metadata for the database present in the register";
+      [ "whether to output metadata for the database present in the register";
         "when writing it as a tab-separated file" ],
       TA.Default (fun () -> string_of_bool Defaults.filter.print_metadata),
-      (fun _ -> Table_emit_metadata (TA.get_parameter_boolean ()) |> Tools.List.accum Parameters.program);
+      (fun _ -> Table_output_metadata (TA.get_parameter_boolean ()) |> Tools.List.accum Parameters.program);
     [ "--table-transpose" ],
       Some "'true'|'false'",
       [ "whether to transpose the database present in the register";
@@ -1258,12 +1265,12 @@ let () =
       TA.Default (fun () -> (Transformation.to_parameters Defaults.filter.transform).which),
       (fun _ ->
         Table_transform_which (TA.get_parameter ()) |> Tools.List.accum Parameters.program);
-    [ "--table-emit-zero-rows" ],
+    [ "--table-output-zero-rows" ],
       Some "'true'|'false'",
-      [ "whether to emit rows whose elements are all zero";
+      [ "whether to output rows whose elements are all zero";
         "when writing the database as a tab-separated file" ],
       TA.Default (fun () -> string_of_bool Defaults.filter.print_zero_rows),
-      (fun _ -> Table_emit_zero_rows (TA.get_parameter_boolean ()) |> Tools.List.accum Parameters.program);
+      (fun _ -> Table_output_zero_rows (TA.get_parameter_boolean ()) |> Tools.List.accum Parameters.program);
     [ "--table-precision" ],
       Some "<positive_integer>",
       [ "set the number of precision digits to be used when outputting counts" ],
@@ -1357,7 +1364,7 @@ let () =
       [ "print version and exit" ],
       TA.Optional,
       (fun _ -> Printf.printf "%s\n%!" info.version; exit 0);
-    (* Hidden option to emit help in markdown format *)
+    (* Hidden option to output help in markdown format *)
     [ "--markdown" ], None, [], TA.Optional, (fun _ -> TA.markdown (); exit 0);
     [ "-h"; "--help" ],
       None,
@@ -1413,11 +1420,11 @@ let () =
           selected := StringSet.empty
         | Selected_to_filter ->
           filter := { !filter with filter_columns = !selected }
-        | Table_emit_row_names print_row_names ->
+        | Table_output_row_names print_row_names ->
           filter := { !filter with print_row_names }
-        | Table_emit_col_names print_col_names ->
+        | Table_output_col_names print_col_names ->
           filter := { !filter with print_col_names }
-        | Table_emit_metadata print_metadata ->
+        | Table_output_metadata print_metadata ->
           filter := { !filter with print_metadata }
         | Table_transpose transpose ->
           filter := { !filter with transpose }
@@ -1430,7 +1437,7 @@ let () =
         | Table_transform_which which ->
           transform := { !transform with which };
           filter := { !filter with transform = Transformation.of_parameters !transform }
-        | Table_emit_zero_rows print_zero_rows ->
+        | Table_output_zero_rows print_zero_rows ->
           filter := { !filter with print_zero_rows }
         | Table_precision precision ->
           filter := { !filter with precision }
