@@ -19,11 +19,12 @@ module Parameters =
   struct
     let input = ref ""
     (* The following three are KPopCountDB.TableFilter.default *)
-    let transformation = ref "normalize"
-    let threshold = ref 1
-    let power = ref 1.
     let sampling = ref 1.
+    let threshold_counts = ref 1
+    let power = ref 1.
     (*let precision = 15*)
+    let transformation = ref "normalize"
+    let threshold_kmers = ref 1.e-6
     let threads = Processes.Parallel.get_nproc () |> ref
     let temporaries = ref false
     let verbose = ref false
@@ -31,8 +32,8 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopTwist";
-  version = "17";
-  date = "02-Jan-2024"
+  version = "18";
+  date = "28-Feb-2024"
 } and authors = [
   "2022-2024", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
@@ -45,15 +46,15 @@ let () =
     TA.make_separator "Algorithmic parameters";
     [ "-f"; "-F"; "-s"; "-S"; "--fraction"; "--sampling"; "--sampling-fraction" ],
       Some "<fractional_float>",
-      [ "fraction of the rows to be considered and resampled before twisting" ],
+      [ "fraction of the k-mers to be considered and resampled before twisting" ],
       TA.Default (fun () -> string_of_float !Parameters.sampling),
       (fun _ -> Parameters.sampling := TA.get_parameter_float_fraction ());
-    [ "--threshold" ],
+    [ "--threshold-counts" ],
       Some "<non_negative_integer>",
       [ "set to zero all counts that are less than this threshold";
         "before transforming them" ],
-      TA.Default (fun () -> string_of_int !Parameters.threshold),
-      (fun _ -> Parameters.threshold := TA.get_parameter_int_non_neg ());
+      TA.Default (fun () -> string_of_int !Parameters.threshold_counts),
+      (fun _ -> Parameters.threshold_counts := TA.get_parameter_int_non_neg ());
     [ "--power" ],
       Some "<non_negative_float>",
       [ "raise counts to this power before transforming them.";
@@ -66,6 +67,13 @@ let () =
       [ "transformation to apply to table elements" ],
       TA.Default (fun () -> !Parameters.transformation),
       (fun _ -> Parameters.transformation := TA.get_parameter ());
+    [ "--threshold-kmers" ],
+      Some "<non_negative_integer>",
+      [ "sum transformed counts for each sample and k-mer, and";
+        "eliminate all k-mers such that their corresponding sum is less than";
+        "the maximum sum over samples rescaled by this threshold" ],
+      TA.Default (fun () -> string_of_float !Parameters.threshold_kmers),
+      (fun _ -> Parameters.threshold_kmers := TA.get_parameter_float_non_neg ());
     TA.make_separator "Input/Output";
     [ "-i"; "--input" ],
       Some "<binary_file_prefix>",
@@ -123,7 +131,7 @@ let () =
     TA.header ();
     raise e
   end;
-  Printf.printf "%s\001%s\001%d\001%.12g\001%.12g\001%d\001%b\001%b\n%!"
-    !Parameters.input !Parameters.transformation !Parameters.threshold !Parameters.power
-    !Parameters.sampling !Parameters.threads !Parameters.temporaries !Parameters.verbose
+  Printf.printf "%s\001%.12g\001%d\001%.12g\001%s\001%.12g\001%d\001%b\001%b\n%!"
+    !Parameters.input !Parameters.sampling !Parameters.threshold_counts !Parameters.power !Parameters.transformation
+    !Parameters.threshold_kmers !Parameters.threads !Parameters.temporaries !Parameters.verbose
 
