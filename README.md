@@ -621,9 +621,9 @@ Test.KPopTwisted.txt
 
 What is left to do in order to classify the sequences in our test set is to compute the distance in twisted space between each sequence (rows of file `Test.KPopTwisted`) and the representative of each equivalence class of the training set (rows of file `Classes.KPopTwisted`); the classification for each given sequence will be the closest equivalence class (provided that the closest and second closest match are separated by some reasonable margin). Computing all pairwise distances in twisted space between sequences and classes also requires transformation values from `Classes.KPopTwister`, and is accomplished by the command
 ```bash
-KPopTwistDB -i t Test -i T Classes -d Classes -O d Test-vs-Classes
+KPopTwistDB -i t Classes -i T Classes -d Test -O d Test-vs-Classes -o d Test-vs-Classes
 ```
-which reads "load twisted file `Test.KPopTwisted`, compute pairwise distances with the contents of `Classes.KPopTwisted` &mdash; the results will be placed in the "distance" register of `KPopTwistDB` &mdash;, and write results into tabular file `Test-vs-Classes.KPopDMatrix.txt` (we write to a text rather than binary file for illustration). File `Test-vs-Classes.KPopDMatrix.txt` will contain a header
+which loads the twisted file `Classes.KPopTwisted`, computes pairwise distances with the contents of `Test.KPopTwisted` &mdash; the results will be placed in the "distance" register of `KPopTwistDB` &mdash;, and writes results into a binary file `Test-vs-Classes.KPopDMatrix` and a tabular file `Test-vs-Classes.KPopDMatrix.txt` (we write to a text here for illustration). File `Test-vs-Classes.KPopDMatrix.txt` will contain a header
 ```
 ""      "10"    "1"     "2"     "3"     "4"     "5"     "6"     "7"     "8"     "9"
 ```
@@ -636,7 +636,7 @@ In this case, for instance, sequence `121` has distance in twisted space of \~1.
 
 In fact, an automated way of summarising distances and finding the $n$ closest ones is implemented in the option `-s` of `KPopTwistDB`, and that is what one would probably use in real life. The command
 ```bash
-KPopTwistDB -i T Classes -i d Test-vs-Classes -s Test Test-vs-Classes
+KPopTwistDB -i T Classes -i t Classes -s Test Test-vs-Classes
 ```
 will produce a file `Test-vs-Classes.KPopSummary.txt` made of tab-separated lines<a name="distance-summary-line"></a>, one per sequence, such as
 ```
@@ -656,7 +656,12 @@ Those are followed by groups of 3 fields (how many groups depends on the paramet
 3. _z_-score of the distance from this class for the sequence being considered.
 The groups list the classes closest to the sequence (2 by default). They are sorted by increasing distance.
 
-For instance, in the [example line shown above](#distance-summary-line) the summary examines sequence `121`, revealing that its mean distance from classes is 3.18; the closest class is `2`, at a distance of 1.85 (corresponding to a _z_-score of -2.84) while the second closest class is `10`, at a distance of 3.30 (corresponding to a _z_-score of 0.25). This line confirms in a statistically more sound way what we had glimpsed by eye above from the complete list of distances.
+For instance, in the [example line shown above](#distance-summary-line) the summary examines sequence `121`, revealing that its mean distance from classes is 3.18; the closest class is `2`, at a distance of 1.85 (corresponding to a _z_-score of -2.84) while the second closest class is `10`, at a distance of 3.30 (corresponding to a _z_-score of 0.25). This line confirms in a statistically more sound way what we had glimpsed by eye above from the complete list of distances. 
+
+Alternatively, `Test-vs-Classes.KPopSummary.txt` can be generated using `Test-vs-Classes.KPopDMatrix.txt` with the `KPopTwistDB` option `-i d`, as follows
+```bash
+KPopTwistDB -i T Classes -i d Test-vs-Classes -S Test-vs-Classes
+```
 
 #### 5.1.2. Classifier for deep-sequencing *M.tuberculosis* samples
 
