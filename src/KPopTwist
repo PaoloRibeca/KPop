@@ -18,7 +18,7 @@ set -e
 
 OLD_IFS="$IFS"
 IFS=$'\x1'
-read -r PREFIX SAMPLING_FRACTION THRESHOLD_COUNTS POWER TRANSFORM THRESHOLD_KMERS THREADS TEMPORARIES VERBOSE <<< "$(KPopTwist_ "$@")"
+read -r PREFIX_IN SAMPLING_FRACTION THRESHOLD_COUNTS POWER TRANSFORM THRESHOLD_KMERS PREFIX_OUT THREADS TEMPORARIES VERBOSE <<< "$(KPopTwist_ "$@")"
 IFS="$OLD_IFS"
 
 function conditional_echo {
@@ -30,7 +30,7 @@ function conditional_echo {
 # We generate and split the plain text table, so that R can import it
 conditional_echo "$(date +"%c"): [1/15] Exporting table..."
 TMPDIR=$(mktemp -d -p . KPopTwist-XXXXXXXXXX)
-KPopCountDB -T "$THREADS" -i "$PREFIX" --table-transform "$TRANSFORM" --table-threshold "$THRESHOLD_COUNTS" --table-power "$POWER" --table-output-row-names false -t "${TMPDIR}/TABLE" -R "~." -D --table-output-row-names true --table-output-zero-rows true --table-transform none -t /dev/stdout | tail -n +2 > "${TMPDIR}/NAMES.KPopCounter.txt"
+KPopCountDB -T "$THREADS" -i "$PREFIX_IN" --table-transform "$TRANSFORM" --table-threshold "$THRESHOLD_COUNTS" --table-power "$POWER" --table-output-row-names false -t "${TMPDIR}/TABLE" -R "~." -D --table-output-row-names true --table-output-zero-rows true --table-transform none -t /dev/stdout | tail -n +2 > "${TMPDIR}/NAMES.KPopCounter.txt"
 
 export R_DATATABLE_NUM_PROCS_PERCENT=100
 #export R_DATATABLE_THROTTLE=1000000
@@ -40,6 +40,7 @@ cat <<'_____'
   library(data.table)
   library(ca)
   args<-commandArgs(trailingOnly=TRUE)
+  output<-args[3]
   if (is.na(args[4])||args[4]=="")
     args[4]<-"1."
   fraction<-as.numeric(args[4])
@@ -71,12 +72,12 @@ cat <<'_____'
   stuff_ca<-ca(stuff)
   conditional_echo("[8/15] Writing twisted")
   coords<-cacoord(stuff_ca,cols=TRUE)
-  data.table::fwrite(as.data.table(coords,keep.rownames=TRUE),paste0(args[3],".KPopTwisted.txt"),quote=TRUE,sep="\t",buffMB=64)
+  data.table::fwrite(as.data.table(coords,keep.rownames=TRUE),paste0(output,".KPopTwisted.txt"),quote=TRUE,sep="\t",buffMB=64)
   conditional_echo("[9/15] Writing inertia")
   inertia<-t(stuff_ca$sv^2/sum(stuff_ca$sv^2))
   colnames(inertia)<-colnames(coords)
   rownames(inertia)<-c("inertia")
-  data.table::fwrite(as.data.table(inertia,keep.rownames=TRUE),paste0(args[3],".KPopInertia.txt"),quote=TRUE,sep="\t",buffMB=64)
+  data.table::fwrite(as.data.table(inertia,keep.rownames=TRUE),paste0(output,".KPopInertia.txt"),quote=TRUE,sep="\t",buffMB=64)
   conditional_echo("[10/15] Normalizing twister")
   twister<-as.data.table(stuff_ca$rowcoord)[,Map("/",.SD,data.table::transpose(as.data.table(stuff_ca$sv)))]
   conditional_echo("[11/15] Transposing twister")
@@ -84,20 +85,20 @@ cat <<'_____'
   colnames(twister)<-names
   rownames(twister)<-colnames(coords)
   conditional_echo("[12/15] Writing twister")
-  data.table::fwrite(twister,paste0(args[3],".KPopTwister.txt"),row.names=TRUE,quote=TRUE,sep="\t",buffMB=64)
+  data.table::fwrite(twister,paste0(output,".KPopTwister.txt"),row.names=TRUE,quote=TRUE,sep="\t",buffMB=64)
 _____
-) "${TMPDIR}/TABLE.KPopCounter.txt" "${TMPDIR}/NAMES.KPopCounter.txt" "$PREFIX" "$SAMPLING_FRACTION" "$THRESHOLD_KMERS" "$THREADS" "$TEMPORARIES" "$VERBOSE"
+) "${TMPDIR}/TABLE.KPopCounter.txt" "${TMPDIR}/NAMES.KPopCounter.txt" "$PREFIX_OUT" "$SAMPLING_FRACTION" "$THRESHOLD_KMERS" "$THREADS" "$TEMPORARIES" "$VERBOSE"
 
 # We convert the results to binary form and remove temporary files
 conditional_echo "$(date +"%c"): [13/15] Encoding twisted..."
-KPopTwistDB -T "$THREADS" -I t "$PREFIX" -o t "$PREFIX" > /dev/null 2>&1
+KPopTwistDB -T "$THREADS" -I t "$PREFIX_OUT" -o t "$PREFIX_OUT" > /dev/null 2>&1
 conditional_echo "$(date +"%c"): [14/15] Encoding twister..."
-KPopTwistDB -T "$THREADS" -I T "$PREFIX" -o T "$PREFIX" > /dev/null 2>&1
+KPopTwistDB -T "$THREADS" -I T "$PREFIX_OUT" -o T "$PREFIX_OUT" > /dev/null 2>&1
 conditional_echo "$(date +"%c"): [15/15] Cleaning up..."
 if [[ "$TEMPORARIES" == "false" ]]; then
   rm "${TMPDIR}/TABLE.KPopCounter.txt" "${TMPDIR}/NAMES.KPopCounter.txt"
   rmdir "${TMPDIR}"
-  rm "${PREFIX}.KPopTwisted.txt" "${PREFIX}.KPopInertia.txt" "${PREFIX}.KPopTwister.txt"
+  rm "${PREFIX_OUT}.KPopTwisted.txt" "${PREFIX_OUT}.KPopInertia.txt" "${PREFIX_OUT}.KPopTwister.txt"
 fi
 
 conditional_echo "$(date +"%c"): All done."

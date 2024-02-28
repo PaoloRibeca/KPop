@@ -18,6 +18,7 @@ open BiOCamLib
 module Parameters =
   struct
     let input = ref ""
+    let output = ref ""
     (* The following three are KPopCountDB.TableFilter.default *)
     let sampling = ref 1.
     let threshold_counts = ref 1
@@ -32,7 +33,7 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopTwist";
-  version = "18";
+  version = "19";
   date = "28-Feb-2024"
 } and authors = [
   "2022-2024", "Paolo Ribeca", "paolo.ribeca@gmail.com"
@@ -85,6 +86,13 @@ let () =
         "  .KPopTwister and .KPopTwisted)" ],
       TA.Mandatory,
       (fun _ -> Parameters.input := TA.get_parameter ());
+    [ "-o"; "--output" ],
+      Some "<binary_file_prefix>",
+      [ "use this prefix when dumping generated twister and twisted sequences.";
+        "File extensions are automatically determined";
+        " (will be .KPopTwister and .KPopTwisted)" ],
+      TA.Mandatory,
+      (fun _ -> Parameters.output := TA.get_parameter ());
     TA.make_separator "Miscellaneous";
     [ "-T"; "--threads" ],
       Some "<computing_threads>",
@@ -131,7 +139,7 @@ let () =
     TA.header ();
     raise e
   end;
-  Printf.printf "%s\001%.12g\001%d\001%.12g\001%s\001%.12g\001%d\001%b\001%b\n%!"
+  Printf.printf "%s\001%.12g\001%d\001%.12g\001%s\001%.12g\001%s\001%d\001%b\001%b\n%!"
     !Parameters.input !Parameters.sampling !Parameters.threshold_counts !Parameters.power !Parameters.transformation
-    !Parameters.threshold_kmers !Parameters.threads !Parameters.temporaries !Parameters.verbose
+    !Parameters.threshold_kmers !Parameters.output !Parameters.threads !Parameters.temporaries !Parameters.verbose
 
