@@ -332,8 +332,8 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopTwistDB";
-  version = "27";
-  date = "17-Jan-2024"
+  version = "28";
+  date = "28-Feb-2024"
 } and authors = [
   "2022-2024", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
@@ -545,12 +545,11 @@ let () =
     (function
       | Binary_to_register (Twister, _) | Tables_to_register (Twister, _) ->
         twister_loaded := true
-      | Register_to_tables (Metrics, _)
-      | Distances_from_twisted_binary _ | Summary_from_twisted_binary _ | Summary_from_distances _ ->
+      | Register_to_tables (Metrics, _) | Distances_from_twisted_binary _ | Summary_from_twisted_binary _ ->
         (* A twister must have been loaded to provide the metric induced by inertia *)
         if not !twister_loaded then
           TA.parse_error
-            "Options '-O m', '-d', '-s', and '-S' require a twister in the twister register to provide a metric!"
+            "Options '-O m', '-d', and '-s' require a twister in the twister register to provide a metric!"
       | Register_to_binary (Metrics, _) ->
         (* This is not really an option *)
         assert false
@@ -563,7 +562,7 @@ let () =
       | Add_binary_to_register _ | Add_tables_to_register _ | Add_kmer_files_to_twisted _
       | Register_to_tables (Twister, _) | Register_to_tables (Twisted, _) | Register_to_tables (Distances, _)
       | Register_to_binary (Twister, _) | Register_to_binary (Twisted, _) | Register_to_binary (Distances, _)
-      | Set_precision _ | Set_keep_at_most _ ->
+      | Set_precision _ | Set_keep_at_most _ | Summary_from_distances _ ->
         ())
     program;
   (* These are the registers available to the program *)
