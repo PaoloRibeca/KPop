@@ -21,11 +21,12 @@ module Parameters =
     let output = ref ""
     (* The following three are KPopCountDB.TableFilter.default *)
     let sampling = ref 1.
-    let threshold_counts = ref 1
+    let threshold_counts = ref 1.
     let power = ref 1.
     (*let precision = 15*)
-    let transformation = ref "normalize"
-    let threshold_kmers = ref 1.e-6
+    let transformation = ref "power"
+    let normalize = ref true
+    let threshold_kmers = ref 0.
     let threads = Processes.Parallel.get_nproc () |> ref
     let temporaries = ref false
     let verbose = ref false
@@ -33,8 +34,8 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopTwist";
-  version = "19";
-  date = "28-Feb-2024"
+  version = "20";
+  date = "29-Feb-2024"
 } and authors = [
   "2022-2024", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
@@ -53,9 +54,11 @@ let () =
     [ "--threshold-counts" ],
       Some "<non_negative_integer>",
       [ "set to zero all counts that are less than this threshold";
-        "before transforming them" ],
-      TA.Default (fun () -> string_of_int !Parameters.threshold_counts),
-      (fun _ -> Parameters.threshold_counts := TA.get_parameter_int_non_neg ());
+        "before transforming them.";
+        "A fractional threshold between 0. and 1. is taken as a relative one";
+        "with respect to the sum of all counts in the spectrum" ],
+      TA.Default (fun () -> string_of_float !Parameters.threshold_counts),
+      (fun _ -> Parameters.threshold_counts := TA.get_parameter_float_non_neg ());
     [ "--power" ],
       Some "<non_negative_float>",
       [ "raise counts to this power before transforming them.";
@@ -64,15 +67,22 @@ let () =
       TA.Default (fun () -> string_of_float !Parameters.power),
       (fun _ -> Parameters.power := TA.get_parameter_float_non_neg ());
     [ "--transform"; "--transformation" ],
-      Some "'none'|'normalize'|'pseudocount'|'clr'",
+      Some "'binary'|'power'|'pseudocount'|'clr'",
       [ "transformation to apply to table elements" ],
       TA.Default (fun () -> !Parameters.transformation),
       (fun _ -> Parameters.transformation := TA.get_parameter ());
+    [ "-n"; "--normalize"; "--normalize-counts" ],
+      Some "'true'|'false'",
+      [ "whether to normalize spectra after transformation and before twisting" ],
+      TA.Default (fun () -> string_of_bool !Parameters.normalize),
+      (fun _ -> Parameters.normalize := TA.get_parameter_boolean ());
     [ "--threshold-kmers" ],
       Some "<non_negative_integer>",
-      [ "sum transformed counts for each sample and k-mer, and";
-        "eliminate all k-mers such that their corresponding sum is less than";
-        "the maximum sum over samples rescaled by this threshold" ],
+      [ "separately sum transformed (and possibly normalized) counts";
+        "for each spectrum and k-mer, and eliminate all k-mers such that";
+        "their corresponding sum is less than the maximum sum over spectra";
+        "rescaled by this threshold.";
+        "This filters out k-mers having low frequencies across all spectra" ],
       TA.Default (fun () -> string_of_float !Parameters.threshold_kmers),
       (fun _ -> Parameters.threshold_kmers := TA.get_parameter_float_non_neg ());
     TA.make_separator "Input/Output";
@@ -139,7 +149,8 @@ let () =
     TA.header ();
     raise e
   end;
-  Printf.printf "%s\001%.12g\001%d\001%.12g\001%s\001%.12g\001%s\001%d\001%b\001%b\n%!"
+  Printf.printf "%s\001%.12g\001%.12g\001%.12g\001%s\001%b\001%.12g\001%s\001%d\001%b\001%b\n%!"
     !Parameters.input !Parameters.sampling !Parameters.threshold_counts !Parameters.power !Parameters.transformation
-    !Parameters.threshold_kmers !Parameters.output !Parameters.threads !Parameters.temporaries !Parameters.verbose
+    !Parameters.normalize !Parameters.threshold_kmers !Parameters.output !Parameters.threads !Parameters.temporaries
+    !Parameters.verbose
 

@@ -16,9 +16,14 @@
 # If we fail, we want to fail royally
 set -e
 
+PARAMETERS="$(KPopTwist_ "$@")"
+if [[ "$PARAMETERS" == "" ]]; then
+  exit 1
+fi
+# We parse the parameters returned by KPopTwist_
 OLD_IFS="$IFS"
 IFS=$'\x1'
-read -r PREFIX_IN SAMPLING_FRACTION THRESHOLD_COUNTS POWER TRANSFORM THRESHOLD_KMERS PREFIX_OUT THREADS TEMPORARIES VERBOSE <<< "$(KPopTwist_ "$@")"
+read -r PREFIX_IN SAMPLING_FRACTION THRESHOLD_COUNTS POWER TRANSFORM NORMALIZE THRESHOLD_KMERS PREFIX_OUT THREADS TEMPORARIES VERBOSE <<< "$PARAMETERS"
 IFS="$OLD_IFS"
 
 function conditional_echo {
@@ -44,10 +49,11 @@ cat <<'_____'
   if (is.na(args[4])||args[4]=="")
     args[4]<-"1."
   fraction<-as.numeric(args[4])
-  threshold<-as.numeric(args[5])
-  threads<-as.integer(args[6]) # Not really used at the moment
-  temporaries<-as.logical(args[7]) # Not really used at the moment
-  verbose<-as.logical(args[8])
+  normalize<-as.logical(args[5])
+  threshold<-as.numeric(args[6])
+  threads<-as.integer(args[7]) # Not really used at the moment
+  temporaries<-as.logical(args[8]) # Not really used at the moment
+  verbose<-as.logical(args[9])
   conditional_echo<-function(s){
     if (verbose)
       cat(format(Sys.time(),paste0("%c: ",s,"...\n")))
@@ -67,7 +73,7 @@ cat <<'_____'
   stuff<-stuff[sampled,]
   conditional_echo("[6/15] Normalizing counts")
   sums<-colSums(stuff)
-  stuff<-stuff[,Map("/",.SD,data.table::transpose(as.data.table(sums)))]
+  stuff<-ifelse(normalize,stuff[,Map("/",.SD,data.table::transpose(as.data.table(sums)))],stuff)
   conditional_echo("[7/15] Twisting counts")
   stuff_ca<-ca(stuff)
   conditional_echo("[8/15] Writing twisted")
@@ -87,7 +93,7 @@ cat <<'_____'
   conditional_echo("[12/15] Writing twister")
   data.table::fwrite(twister,paste0(output,".KPopTwister.txt"),row.names=TRUE,quote=TRUE,sep="\t",buffMB=64)
 _____
-) "${TMPDIR}/TABLE.KPopCounter.txt" "${TMPDIR}/NAMES.KPopCounter.txt" "$PREFIX_OUT" "$SAMPLING_FRACTION" "$THRESHOLD_KMERS" "$THREADS" "$TEMPORARIES" "$VERBOSE"
+) "${TMPDIR}/TABLE.KPopCounter.txt" "${TMPDIR}/NAMES.KPopCounter.txt" "$PREFIX_OUT" "$SAMPLING_FRACTION" "$NORMALIZE" "$THRESHOLD_KMERS" "$THREADS" "$TEMPORARIES" "$VERBOSE"
 
 # We convert the results to binary form and remove temporary files
 conditional_echo "$(date +"%c"): [13/15] Encoding twisted..."

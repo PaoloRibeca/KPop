@@ -42,15 +42,16 @@ module [@warning "-32"] rec Transformation:
   sig
     (* Transformation function *)
     type t =
-      | None
-      | Normalize of int * float
-      | CLR of int * float
-      | Pseudo of int * float
-    exception Invalid_transformation of string * int * float
+      | Binary of float
+      | Power of float * float
+      | CLR of float * float
+      | Pseudo of float * float
+    exception Invalid_transformation of string * float * float
     val compute: which:t -> col_num:int -> col_stats:Statistics.t -> row_num:int -> row_stats:Statistics.t -> int -> float
     type parameters_t = {
       which: string;
-      threshold: int;
+      (* A value in the interval (0.,1.) is taken as a relative threshold *)
+      threshold: float;
       power: float
     }
     exception Unknown_transformation of string
@@ -59,57 +60,72 @@ module [@warning "-32"] rec Transformation:
   end
 = struct
     type t =
-      | None
-      | Normalize of int * float
-      | CLR of int * float
-      | Pseudo of int * float
-    exception Invalid_transformation of string * int * float
+      | Binary of float
+      | Power of float * float
+      | CLR of float * float
+      | Pseudo of float * float
+    exception Invalid_transformation of string * float * float
     let epsilon = 0.1
     let [@warning "-27"] compute ~which ~col_num ~col_stats ~row_num ~row_stats counts =
+      let counts = float_of_int counts
+      and threshold =
+        match which with
+        | Binary threshold | Power (threshold, _) | CLR (threshold, _) | Pseudo (threshold, _) ->
+          if threshold < 1. then
+            threshold *. col_stats.Statistics.sum
+          else
+            threshold in
       match which with
-      | None ->
-        float_of_int counts
-      | Normalize (threshold, power) ->
+      | Binary _ ->
         if counts >= threshold then
-          (float_of_int counts ** power) /. col_stats.Statistics.sum
+          1.
         else
           0.
-      | CLR (threshold, power) ->
+      | Power (_, 1.) -> (* Optimisation *)
+        if counts >= threshold then
+          counts
+        else
+          0.
+      | Power (_, power) ->
+        if counts >= threshold then
+          counts ** power
+        else
+          0.
+      | CLR (_, power) ->
         let v =
           if counts >= threshold then
-            float_of_int counts
+            counts
           else
             0. in
         let v = max v epsilon in
         (log v *. power) -. (col_stats.Statistics.sum_log /. float_of_int col_stats.non_zero)
-      | Pseudo (threshold, power) ->
+      | Pseudo (thr, power) ->
         if power < 0. then
-          Invalid_transformation ("pseudocounts", threshold, power) |> raise;
-        let counts = float_of_int counts in
+          Invalid_transformation ("pseudocounts", thr, power) |> raise;
         let v =
           if power = 0. then
-            (float_of_int col_stats.Statistics.max) *. log ((counts +. 1.) /. float_of_int threshold)
+            (float_of_int col_stats.Statistics.max) *. log ((counts +. 1.) /. threshold)
           else begin
-            let red_threshold = threshold - 1 |> float_of_int |> max 0. in
+            let red_threshold = threshold -. 1. |> max 0. in
             let c_p = red_threshold ** power in
             if power < 1. then
               ((counts ** power) -. c_p) *. ((float_of_int col_stats.Statistics.max) ** (1. -. power)) /. power
             else
-              ((counts ** power) -. c_p) /. ((float_of_int threshold ** power) -. c_p)
+              ((counts ** power) -. c_p) /. ((threshold ** power) -. c_p)
           end in
         floor v /. col_stats.sum |> max 0.
     type parameters_t = {
       which: string;
-      threshold: int;
+      threshold: float;
       power: float
     }
     exception Unknown_transformation of string
     let of_parameters { which; threshold; power } =
       match which with
-      | "none" ->
-        None
-      | "normalize" | "normalise" | "norm" ->
-        Normalize (threshold, power)
+      | "binary" ->
+        Binary threshold
+      | "power" | "pow" ->
+        Power (threshold, power)
       | "clr" | "CLR" ->
         CLR (threshold, power)
       | "pseudocounts" | "pseudo" ->
@@ -117,8 +133,8 @@ module [@warning "-32"] rec Transformation:
       | s ->
         Unknown_transformation s |> raise
     let to_parameters = function
-      | None -> { which = "none"; threshold = 1; power = 1. }
-      | Normalize (threshold, power) -> { which = "normalize"; threshold; power }
+      | Binary threshold -> { which = "binary"; threshold; power = 1. }
+      | Power (threshold, power) -> { which = "power"; threshold; power }
       | CLR (threshold, power) -> { which = "clr"; threshold; power }
       | Pseudo (threshold, power) -> { which = "pseudocounts"; threshold; power }
   end
@@ -184,13 +200,14 @@ and [@warning "-32"] Statistics:
       let { Transformation.threshold; power; _ } = Transformation.to_parameters transf in
       let core = db.KMerDB.core in
       let compute_one what n =
-        let non_zero = ref 0 and min = ref 0 and max = ref 0 and sum = ref 0. and sum_log = ref 0.
-        and red_len =
+        let red_len =
           match what with
           | Col ->
             core.n_rows - 1
           | Row ->
             core.n_cols - 1 in
+        (* Here in order to compute the threshold we have to pre-compute the normalisation *)
+        let sum = ref 0. in
         for i = 0 to red_len do
           let v =
             match what with
@@ -198,14 +215,24 @@ and [@warning "-32"] Statistics:
               IBAVector.N.to_int core.storage.(n).IBAVector.@(i)
             | Row ->
               IBAVector.N.to_int core.storage.(i).IBAVector.@(n) in
+          sum := !sum +. (float_of_int v ** power)
+        done;
+        let threshold =
+          if threshold < 1. then
+            threshold *. !sum
+          else
+            threshold in
+        let non_zero = ref 0 and min = ref 0 and max = ref 0 and sum = ref 0. and sum_log = ref 0. in
+        for i = 0 to red_len do
           let v =
-            if v >= threshold then
-              v
-            else
-              0 in
-          if v <> 0 then begin
+            match what with
+            | Col ->
+              IBAVector.N.to_int core.storage.(n).IBAVector.@(i)
+            | Row ->
+              IBAVector.N.to_int core.storage.(i).IBAVector.@(n) in
+          let f_v = float_of_int v in
+          if f_v >= threshold then begin
             incr non_zero;
-            let f_v = float_of_int v in
             min := Stdlib.min !min v;
             max := Stdlib.max !max v;
             sum := !sum +. (f_v ** power);
@@ -712,7 +739,7 @@ and KMerDB:
     let add_combined_selected ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false)
         db new_label selection criterion =
       (* Here we want no thresholding and linear statistics *)
-      let transf = Transformation.of_parameters { which = "normalize"; threshold = 1; power = 1. } in
+      let transf = Transformation.of_parameters { which = "power"; threshold = 1.; power = 1. } in
       let stats = Statistics.table_of_db ~threads ~verbose transf db and db = ref db in
       if verbose then
         Printf.eprintf "(%s): Adding/replacing spectrum '%s': [%!" __FUNCTION__ new_label;
@@ -860,7 +887,7 @@ and KMerDB:
           print_col_names = true;
           print_metadata = false;
           transpose = false;
-          transform = Transformation.of_parameters { which = "normalize"; threshold = 1; power = 1. };
+          transform = Transformation.of_parameters { which = "power"; threshold = 1.; power = 1. };
           print_zero_rows = false;
           filter_columns = StringSet.empty;
           precision = 15
@@ -1047,7 +1074,7 @@ and KMerDB:
     let to_distances
         ?(normalise = true) ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false)
         distance db selection_1 selection_2 prefix =
-      let transf = Transformation.of_parameters { which = "normalize"; threshold = 1; power = 1. } in
+      let transf = Transformation.of_parameters { which = "power"; threshold = 1.; power = 1. } in
       let stats = Statistics.table_of_db ~threads ~verbose transf db
       and n_r = db.core.n_rows in (* Does not change *)
       let make_submatrix selection =
@@ -1106,7 +1133,7 @@ type to_do_t =
   | Table_output_col_names of bool
   | Table_output_metadata of bool
   | Table_transpose of bool
-  | Table_transform_threshold of int
+  | Table_transform_threshold of float
   | Table_transform_power of float
   | Table_transform_which of string
   | Table_output_zero_rows of bool
@@ -1134,8 +1161,8 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopCountDB";
-  version = "39";
-  date = "28-Feb-2024"
+  version = "40";
+  date = "29-Feb-2024"
 } and authors = [
   "2020-2024", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
@@ -1247,10 +1274,12 @@ let () =
     [ "--table-threshold" ],
       Some "<non_negative_integer>",
       [ "set to zero all counts that are less than this threshold";
-        "before transforming and outputting them" ],
-      TA.Default (fun () -> (Transformation.to_parameters Defaults.filter.transform).threshold |> string_of_int),
+        "before transforming and outputting them.";
+        "A fractional threshold between 0. and 1. is taken as a relative one";
+        "with respect to the sum of all counts in the spectrum" ],
+      TA.Default (fun () -> (Transformation.to_parameters Defaults.filter.transform).threshold |> string_of_float),
       (fun _ ->
-        Table_transform_threshold (TA.get_parameter_int_non_neg ()) |> Tools.List.accum Parameters.program);
+        Table_transform_threshold (TA.get_parameter_float_non_neg ()) |> Tools.List.accum Parameters.program);
     [ "--table-power" ],
       Some "<non_negative_float>",
       [ "raise counts to this power before transforming and outputting them.";
@@ -1260,7 +1289,7 @@ let () =
       (fun _ ->
         Table_transform_power (TA.get_parameter_float_non_neg ()) |> Tools.List.accum Parameters.program);
     [ "--table-transform"; "--table-transformation" ],
-      Some "'none'|'normalize'|'pseudocount'|'clr'",
+      Some "'binary'|'power'|'pseudocount'|'clr'",
       [ "transformation to apply to table elements before outputting them" ],
       TA.Default (fun () -> (Transformation.to_parameters Defaults.filter.transform).which),
       (fun _ ->
