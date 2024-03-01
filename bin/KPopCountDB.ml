@@ -937,14 +937,14 @@ and KMerDB:
               (fun (meta_name, _) ->
                 escape_quotes meta_name |>
                   Printf.fprintf output "%s\"%s\""
-                    (if !first_done || filter.print_row_names then "\t" else "");
+                    (if !first_done then "\t" else (if filter.print_row_names then "\"\"\t" else ""));
                 first_done := true)
               meta;
             Array.iter
               (fun (row_name, _) ->
                 escape_quotes row_name |>
                   Printf.fprintf output "%s\"%s\""
-                    (if !first_done || filter.print_row_names then "\t" else "");
+                    (if !first_done then "\t" else (if filter.print_row_names then "\"\"\t" else ""));
                 first_done := true)
               rows;
             Printf.fprintf output "\n"
@@ -1002,7 +1002,7 @@ and KMerDB:
             Array.iteri
               (fun i (col_name, _) ->
                 escape_quotes col_name |>
-                  Printf.fprintf output "%s\"%s\"" (if i = 0 && not filter.print_row_names then "" else "\t"))
+                  Printf.fprintf output "%s\"%s\"" (if i = 0 then (if filter.print_row_names then "\"\"\t" else "") else "\t"))
               cols;
             Printf.fprintf output "\n"
           end;
