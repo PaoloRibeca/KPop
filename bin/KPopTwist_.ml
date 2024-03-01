@@ -78,10 +78,9 @@ let () =
       (fun _ -> Parameters.normalize := TA.get_parameter_boolean ());
     [ "--threshold-kmers" ],
       Some "<non_negative_integer>",
-      [ "separately sum transformed (and possibly normalized) counts";
-        "for each spectrum and k-mer, and eliminate all k-mers such that";
-        "their corresponding sum is less than the maximum sum over spectra";
-        "rescaled by this threshold.";
+      [ "compute the sum of all transformed (and possibly normalized) counts";
+        "for each k-mer, and eliminate k-mers such that the corresponding sum";
+        "is less than the largest sum rescaled by this threshold.";
         "This filters out k-mers having low frequencies across all spectra" ],
       TA.Default (fun () -> string_of_float !Parameters.threshold_kmers),
       (fun _ -> Parameters.threshold_kmers := TA.get_parameter_float_non_neg ());

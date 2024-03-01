@@ -35,7 +35,7 @@ function conditional_echo {
 # We generate and split the plain text table, so that R can import it
 conditional_echo "$(date +"%c"): [1/15] Exporting table..."
 TMPDIR=$(mktemp -d -p . KPopTwist-XXXXXXXXXX)
-KPopCountDB -T "$THREADS" -i "$PREFIX_IN" --table-transform "$TRANSFORM" --table-threshold "$THRESHOLD_COUNTS" --table-power "$POWER" --table-output-row-names false -t "${TMPDIR}/TABLE" -R "~." -D --table-output-row-names true --table-output-zero-rows true --table-transform none -t /dev/stdout | tail -n +2 > "${TMPDIR}/NAMES.KPopCounter.txt"
+KPopCountDB -T "$THREADS" -i "$PREFIX_IN" --table-threshold "$THRESHOLD_COUNTS" --table-power "$POWER" --table-transform "$TRANSFORM" --table-output-row-names false -t "${TMPDIR}/TABLE" -R "~." -D --table-output-row-names true --table-output-zero-rows true --table-threshold 1. --table-power 1. --table-transform power -t /dev/stdout | tail -n +2 > "${TMPDIR}/NAMES.KPopCounter.txt"
 
 export R_DATATABLE_NUM_PROCS_PERCENT=100
 #export R_DATATABLE_THROTTLE=1000000
@@ -62,18 +62,19 @@ cat <<'_____'
   names<-t(data.table::fread(args[2],sep="\t",header=FALSE)) # Why t() would work so much better here is anybody's guess
   conditional_echo("[3/15] Reading counts")
   stuff<-data.table::fread(args[1],sep="\t",header=TRUE)
-  conditional_echo("[4/15] Resampling counts")
+  conditional_echo("[4/15] Resampling k-mers")
   sampled<-sort(sample(nrow(stuff),as.integer(nrow(stuff)*fraction)))
   names<-names[sampled]
   stuff<-stuff[sampled,]
-  conditional_echo("[5/15] Thresholding counts")
+  conditional_echo("[5/15] Thresholding k-mers")
   sums<-rowSums(stuff)
   sampled<-which(sums>=(max(sums)*threshold))
   names<-names[sampled]
   stuff<-stuff[sampled,]
   conditional_echo("[6/15] Normalizing counts")
   sums<-colSums(stuff)
-  stuff<-ifelse(normalize,stuff[,Map("/",.SD,data.table::transpose(as.data.table(sums)))],stuff)
+  if (normalize)
+    stuff<-stuff[,Map("/",.SD,data.table::transpose(as.data.table(sums)))]
   conditional_echo("[7/15] Twisting counts")
   stuff_ca<-ca(stuff)
   conditional_echo("[8/15] Writing twisted")
