@@ -1283,13 +1283,13 @@ let () =
     [ "--table-power" ],
       Some "<non_negative_float>",
       [ "raise counts to this power before transforming and outputting them.";
-        "A power of 0 when the 'pseudocount' method is used";
+        "A power of 0 when the 'pseudocounts' method is used";
         "performs a logarithmic transformation" ],
       TA.Default (fun () -> (Transformation.to_parameters Defaults.filter.transform).power |> string_of_float),
       (fun _ ->
         Table_transform_power (TA.get_parameter_float_non_neg ()) |> Tools.List.accum Parameters.program);
     [ "--table-transform"; "--table-transformation" ],
-      Some "'binary'|'power'|'pseudocount'|'clr'",
+      Some "'binary'|'power'|'pseudocounts'|'clr'",
       [ "transformation to apply to table elements before outputting them" ],
       TA.Default (fun () -> (Transformation.to_parameters Defaults.filter.transform).which),
       (fun _ ->
@@ -1344,9 +1344,10 @@ let () =
         Combination_criterion_set (TA.get_parameter () |> KMerDB.CombinationCriterion.of_string)
           |> Tools.List.accum Parameters.program);
     [ "-A"; "--add-combined-selection"; "--selection-combine-and-add" ],
-      Some "<new_spectrum_label>",
-      [ "add to the database present in the register (or replace if new label exists)";
-        "a combination of the spectra whose labels are in the selection register" ],
+      Some "<spectrum_label>",
+      [ "combine the spectra whose labels are in the selection register ";
+        "and add the result (or replace it if a spectrum named <spectrum_label>";
+        "already exists) to the database present in the database register" ],
       TA.Optional,
       (fun _ -> Add_combined_selected (TA.get_parameter ()) |> Tools.List.accum Parameters.program);
     [ "-D"; "--delete"; "--selection-delete" ],

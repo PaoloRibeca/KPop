@@ -62,12 +62,12 @@ let () =
     [ "--power" ],
       Some "<non_negative_float>",
       [ "raise counts to this power before transforming them.";
-        "A power of 0 when the 'pseudocount' method is used";
+        "A power of 0 when the 'pseudocounts' method is used";
         "performs a logarithmic transformation" ],
       TA.Default (fun () -> string_of_float !Parameters.power),
       (fun _ -> Parameters.power := TA.get_parameter_float_non_neg ());
     [ "--transform"; "--transformation" ],
-      Some "'binary'|'power'|'pseudocount'|'clr'",
+      Some "'binary'|'power'|'pseudocounts'|'clr'",
       [ "transformation to apply to table elements" ],
       TA.Default (fun () -> !Parameters.transformation),
       (fun _ -> Parameters.transformation := TA.get_parameter ());

@@ -162,7 +162,7 @@ let () =
       (fun _ -> Parameters.option_l_or_L := true; Parameters.label := TA.get_parameter());
     [ "-L"; "--one-spectrum-per-sequence" ],
       None,
-      [ "emit one spectrum per sequence; the label will be the sequence name.";
+      [ "output one spectrum per sequence; the label will be the sequence name.";
         "Either option '-l' or option '-L' is mandatory" ],
       TA.Optional,
       (fun _ -> Parameters.option_l_or_L := true);
@@ -190,7 +190,7 @@ let () =
       [ "print version and exit" ],
       TA.Optional,
       (fun _ -> Printf.printf "%s\n%!" info.version; exit 0);
-    (* Hidden option to emit help in markdown format *)
+    (* Hidden option to output help in markdown format *)
     [ "--markdown" ], None, [], TA.Optional, (fun _ -> TA.markdown (); exit 0);
     [ "-h"; "--help" ],
       None,
