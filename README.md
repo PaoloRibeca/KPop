@@ -1,7 +1,7 @@
 
 # `KPop`: Unleash the full power of your *k*-mers!
 
-`KPop` is an assembly-free and scalable method for the comparative analysis of microbial genomes and environmental samples. It is based on full *k*-mer spectra and dataset-specific transformations; it allows to accurately compare hundreds of thousands of assembled, or thousands of unassembled microbial genomes or sequenced samples, in a matter of hours. It provides excellent resolution across a very large number of use cases and applications. More details can be found in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v1).
+`KPop` is an assembly-free and scalable method for the comparative analysis of microbial genomes and environmental samples. It is based on full *k*-mer spectra and dataset-specific transformations; it allows to accurately compare hundreds of thousands of assembled, or thousands of unassembled microbial genomes or sequenced samples, in a matter of hours. It provides excellent resolution across a very large number of use cases and applications. More details can be found in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v2).
 
 ## Table of contents
 
@@ -34,7 +34,7 @@ There are several possible ways of installing the software on your machine: thro
 
 > :warning: Note that the only operating systems we officially support are Linux and MacOS. :warning:
 >
-> Both OCaml and R are highly portable and you might be able to manually compile/install everything successfully on other platforms (for instance, Windows). Please let us know if you succeed or if you encounter some unexpected behaviour. However, please note that in general we are unable to provide installation-relaated support or troubleshooting on specific hardware/software combinations. 
+> Both OCaml and R are highly portable and you might be able to manually compile/install everything successfully on other platforms (for instance, Windows). Please let us know if you succeed or if you encounter some unexpected behaviour. However, please note that in general we are unable to provide installation-related support or troubleshooting on specific hardware/software combinations. 
 
 ### 0.1. Conda channel
 
@@ -42,7 +42,13 @@ There are several possible ways of installing the software on your machine: thro
 
 ### 0.2. Pre-compiled binaries
 
-You can download pre-compiled binaries for Linux and MacOS x86_64 from our [releases](https://github.com/PaoloRibeca/KPop/releases).
+You can download pre-compiled binaries for Linux and MacOS x86_64 from our [releases](https://github.com/PaoloRibeca/KPop/releases). After doing so, just copy or move them to a directory which is accessible from your PATH.
+
+For instance, supposing that you've downloaded programs to directory `~/.local/bin/`, in order to make them accessible from everywhere you'll have to execute a command such as
+```bash
+export PATH=~/.local/bin:$PATH
+```
+or add it to one of your login scripts (such as `~/.bashrc` or similar for `bash`).
 
 ### 0.3. Manual install
 
@@ -214,7 +220,7 @@ Both OCaml and R are highly portable and you might be able to manually compile/i
 
 ### How does `KPop` compare with minimiser-based methods?
 
-`KPop` is much more sensitive than minimiser-based methods, allowing out-of-the-box accurate comparison of assembled or unassembled long sequences irrespective of whether they differ by single nucleotides or by large portions. This is usually not true for minimiser-based methods, irrespective of the hashing scheme they use, as they only produce a much coarser comparison. A number of benchmarks and a detailed explanation of the differences between the two approaches can be found in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v1).
+`KPop` is much more sensitive than minimiser-based methods, allowing out-of-the-box accurate comparison of assembled or unassembled long sequences irrespective of whether they differ by single nucleotides or by large portions. This is usually not true for minimiser-based methods, irrespective of the hashing scheme they use, as they only produce a much coarser comparison. A number of benchmarks and a detailed explanation of the differences between the two approaches can be found in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v2).
 
 Crucially, while minimiser-based methods are geared towards providing distances between sequences, `KPop` explicitly produces *embeddings*, i.e., it is able to turn sequences into points of a low-dimensionality latent space. Having an explicit latent space is important for many reasons &mdash; it helps explainability; it also makes it possible to perform direct clustering and use vector [DBs](https://milvus.io/) or [libraries](https://github.com/facebookresearch/faiss) to store and search embedded sequences.
 
@@ -226,7 +232,7 @@ All `KPop` programs are parallelised and will automatically use as many CPUs as 
 
 ### How do I choose *k*?
 
-As explained in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v1), the choice of *k* can be tricky, and you should always make sure you try different results and select the lowest value of *k* for which results become stable. One empirical criterion that might help you in most cases is to choose
+As explained in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v2), the choice of *k* can be tricky, and you should always make sure you try different results and select the lowest value of *k* for which results become stable. One empirical criterion that might help you in most cases is to choose
 $$
   k := {
     \mathrm{argmax}_k \displaystyle
@@ -258,13 +264,13 @@ In response to such needs, `KPopCountDB` and `KPopTwistDB` are able to execute a
 In addition, both `KPopCountDB` and `KPopTwistDB` have *registers*, i.e., slots to/from which the contents of external files and the results of computations can be loaded/saved. You can see registers as program variables, each one having a specific type. For instance, the `KPop` programs know that only twisters can be loaded to/saved from twister registers, and will enforce that by requiring and checking that your external file has the correct extension (`.KPopTwister`) and format when doing I/O to/from a twister register.
 
 `KPopCountDB` has two registers:
-* a *database* register, holding a set of *k*-mer spectra (i.e., a set of *k*-mers and their associated frequencies). There is one spectrum per sample, and additional metadata in the form of strings or numbers can be associated to the samples (see our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v1) for more information). Due to space optimisation reasons, modifications of the database happen in-place
+* a *database* register, holding a set of *k*-mer spectra (i.e., a set of *k*-mers and their associated frequencies). There is one spectrum per sample, and additional metadata in the form of strings or numbers can be associated to the samples (see our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v2) for more information). Due to space optimisation reasons, modifications of the database happen in-place
 * a *selection* register, holding a set of sample labels. Labels can be specified on the command line or read from the database present in the database register. Collective operations (selection, deletion, combination, and so on) can be performed on the samples present in the database register according to the set of sample names specified by the selection register, which acts as a guide to enable complex operations on the database. For instance, one might extract from the database all the sample names matching some regular expression and put them in the selection register, add some more sample names to the selection register, and finally delete from the database all the samples whose names do not appear in the selection register.
 
 `KPopTwistDB` has four registers:
-* a *twister* register holding a twister, i.e., an object able to transform *k*-mer spectra to "twisted" embeddings/vectors in an abstract `KPop` space (note that the transformation is dataset-dependent and generated by the user when runnning `KPopTwist` on a set of spectra, as explained in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v1) and [the next section](#32-building-workflows))
+* a *twister* register holding a twister, i.e., an object able to transform *k*-mer spectra to "twisted" embeddings/vectors in an abstract `KPop` space (note that the transformation is dataset-dependent and generated by the user when runnning `KPopTwist` on a set of spectra, as explained in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v2) and [the next section](#32-building-workflows))
 * a *twisted* register holding "twisted" vectors, i.e., `KPop` embeddings of biological sequences into an abstract `KPop` space
-* a *metrics* register holding a metric, i.e., a vector of numbers specifying the relevance of each one of the dimensions of the `KPop` space (see our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v1) for more details)
+* a *metrics* register holding a metric, i.e., a vector of numbers specifying the relevance of each one of the dimensions of the `KPop` space (see our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v2) for more details)
 * a *distance* register holding a distance matrix between couples of samples. The matrix can be computed between the vectors present in the twisted register and themselves, or between the vectors present in the twisted register and those present in an external file containing twisted vectors.
 
 Options are provided to write content from/to these registers, both in binary and textual form &mdash; the latter can be used, for instance, to import/export data from/to `R`. In addition to input/output to/from registers, both `KPopCountDB` and `KPopTwistDB` are able to read and process external files containing *k*-mer spectra in the format produced by `KPopCount` &mdash; this ensures that new spectra/twisted spectra can be added to their respective databases. A figure showing some of the available data transformations and formats can be found in [the next section](#32-building-workflows).
@@ -287,6 +293,8 @@ KPopTwistDB ... -O t Classes
 ```
 will produce the same results but output them to a tab-separated tabular file named `Classes.KPopTwisted.txt`. In general, in the style of BLAST indices, you do not have to worry about formats or extensions as long as you consistently use the same prefix (in this case, `Classes`) to indicate logically related files.
 
+Note that as a rule, sequence/sample names, as well as metadata field names and field values, cannot contain double quote `'"'` or tabulation `'\t'` characters.
+
 ## 4. Command line syntax
 
 ### 4.1. `KPopCount`
@@ -297,9 +305,9 @@ KPopCount -h
 ```
 in your terminal. You will see a header containing information about the version:
 ```
-This is KPopCount version 13 [21-Jan-2024]
- compiled against: BiOCamLib version 242 [23-Jan-2024];
-                   KPop version 368 [07-Feb-2024]
+This is KPopCount version 14 [18-Mar-2024]
+ compiled against: BiOCamLib version 248 [18-Mar-2024];
+                   KPop version 417 [05-Mar-2024]
  (c) 2017-2024 Paolo Ribeca <paolo.ribeca@gmail.com>
 ```
 followed by detailed information. The general form the command can be used is:
@@ -312,7 +320,7 @@ KPopCount -l <output_vector_label>|-L [OPTIONS]
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
 | `-k`<br>`-K`<br>`--k-mer-size`<br>`--k-mer-length` | _k\_mer\_length_ |  *k*\-mer length (must be positive, and &lt;= 30 for DNA or &lt;= 12 for protein) | <ins>default=<mark>_12_</mark></ins> |
-| `-M`<br>`--max-results-size` | _positive\_integer_ |  maximum number of *k*\-mer signatures to be kept in memory at any given time\.<br>If more are present, the ones corresponding to the lowest cardinality will be removed from memory and printed out, and there will be repeated signatures in the output | <ins>default=<mark>_16777216_</mark></ins> |
+| `-M`<br>`--max-results-size` | _positive\_integer_ |  maximum number of *k*\-mer hashes to be kept in memory at any given time\.<br>If more are present, the ones corresponding to the lowest cardinality will be removed from memory and printed out, and there will be repeated hashes in the output | <ins>default=<mark>_16777216_</mark></ins> |
 
 **Input/Output**
 
@@ -322,8 +330,8 @@ KPopCount -l <output_vector_label>|-L [OPTIONS]
 | `-f`<br>`--fasta` | _fasta\_file\_name_ |  FASTA input file containing sequences\.<br>You can specify more than one FASTA input, but not FASTA and FASTQ inputs at the same time\. Contents are expected to be homogeneous across inputs |  |
 | `-s`<br>`--single-end` | _fastq\_file\_name_ |  FASTQ input file containing single\-end sequencing reads You can specify more than one FASTQ input, but not FASTQ and FASTA inputs at the same time\. Contents are expected to be homogeneous across inputs |  |
 | `-p`<br>`--paired-end` | _fastq\_file\_name1 fastq\_file\_name2_ |  FASTQ input files containing paired\-end sequencing reads You can specify more than one FASTQ input, but not FASTQ and FASTA inputs at the same time\. Contents are expected to be homogeneous across inputs |  |
-| `-l`<br>`--label` | _output\_vector\_label_ |  label to be given to the *k*\-mer vector in the output file\.<br>Either option `-l` or option `-L` is mandatory |  |
-| `-L`<br>`--one-spectrum-per-sequence` |  |  output one spectrum per sequence; the label will be the sequence name\.<br>Either option `-l` or option `-L` is mandatory |  |
+| `-l`<br>`--label` | _output\_vector\_label_ |  label to be given to the *k*\-mer spectrum in the output file\.<br>It must not contain double quote `'"'` characters\.<br>Either option `-l` or option `-L` is mandatory |  |
+| `-L`<br>`--one-spectrum-per-sequence` |  |  output one spectrum per input sequence, using the sequence name as label\.<br>Sequence names must not contain double quote `'"'` characters\.<br>Either option `-l` or option `-L` is mandatory |  |
 | `-o`<br>`--output` | _output\_file\_name_ |  name of generated output file | <ins>default=<mark>_stdout_</mark></ins> |
 
 **Miscellaneous**
@@ -342,9 +350,9 @@ KPopCountDB -h
 ```
 in your terminal. You will see a header containing information about the version:
 ```
-This is KPopCountDB version 40 [29-Feb-2024]
- compiled against: BiOCamLib version 245 [14-Feb-2024];
-                   KPop version 411 [01-Mar-2024]
+This is KPopCountDB version 41 [18-Mar-2024]
+ compiled against: BiOCamLib version 248 [18-Mar-2024];
+                   KPop version 417 [05-Mar-2024]
  (c) 2020-2024 Paolo Ribeca <paolo.ribeca@gmail.com>
 ```
 followed by detailed information. The general form the command can be used is:
@@ -361,13 +369,13 @@ Actions on the database register:
 |-|-|-|-|
 | `-e`<br>`--empty` |  |  put an empty database into the register |  |
 | `-i`<br>`--input` | _binary\_file\_prefix_ |  load into the register the database present in the specified file  (which must have extension `.KPopCounter`) |  |
-| `-m`<br>`--metadata`<br>`--add-metadata` | _metadata\_table\_file\_name_ |  add to the database present in the register metadata from the specified file |  |
+| `-m`<br>`--metadata`<br>`--add-metadata` | _metadata\_table\_file\_name_ |  add to the database present in the register metadata from the specified file\.<br>Metadata field names and values must not contain double quote `'"'` characters |  |
 | `-k`<br>`--kmers`<br>`--add-kmers`<br>`--add-kmer-files` | _k\-mer\_table\_file\_name\[_`,`_\.\.\._`,`_k\-mer\_table\_file\_name\]_ |  add to the database present in the register *k*\-mers from the specified files |  |
 | `--summary` |  |  print a summary of the database present in the register |  |
 | `-o`<br>`--output` | _binary\_file\_prefix_ |  dump the database present in the register to the specified file  (which will be given extension `.KPopCounter`) |  |
 | `--distance`<br>`--distance-function` | `euclidean` _&#124;_ `minkowski(`_non\_negative\_float_`)` |  set the function to be used when computing distances\.<br>The parameter for `minkowski()` is the power | <ins>default=<mark>_euclidean_</mark></ins> |
 | `--distance-normalize`<br>`--normalize-distances`<br>`--distance-normalization` | `true` _&#124;_ `false` |  whether spectra should be normalized prior to computing distances |  |
-| `-d`<br>`--distances`<br>`--compute-distances`<br>`--compute-spectral-distances` | _REGEXP\_SELECTOR REGEXP\_SELECTOR binary\_file\_prefix_ |  where _REGEXP\_SELECTOR :=  metadata\_field_`~`_regexp\[_`,`_\.\.\._`,`_metadata\_field_`~`_regexp\]_ and regexps are defined as in [https://ocaml.org/api/Str.html](https://ocaml.org/api/Str.html):<br>select two sets of spectra from the register and compute and output distances between all possible pairs<br>(metadata fields must match the regexps specified in the selector;   an empty metadata field makes the regexp match labels\.<br>  The result will have extension `.KPopDMatrix`) |  |
+| `-d`<br>`--distances`<br>`--compute-distances`<br>`--compute-spectral-distances` | _REGEXP\_SELECTOR REGEXP\_SELECTOR binary\_file\_prefix_ |  where _REGEXP\_SELECTOR :=  metadata\_field_`~`_regexp\[_`,`_\.\.\._`,`_metadata\_field_`~`_regexp\]_ and regexps are defined according to [https://ocaml.org/api/Str.html](https://ocaml.org/api/Str.html):<br>select two sets of spectra from the register and compute and output distances between all possible pairs<br>(metadata fields must match the regexps specified in the selector;   an empty metadata field makes the regexp match labels\.<br>  The result will have extension `.KPopDMatrix`) |  |
 | `--table-output-row-names` | `true` _&#124;_ `false` |  whether to output row names for the database present in the register when writing it as a tab\-separated file | <ins>default=<mark>_true_</mark></ins> |
 | `--table-output-col-names` | `true` _&#124;_ `false` |  whether to output column names for the database present in the register when writing it as a tab\-separated file | <ins>default=<mark>_true_</mark></ins> |
 | `--table-output-metadata` | `true` _&#124;_ `false` |  whether to output metadata for the database present in the register when writing it as a tab\-separated file | <ins>default=<mark>_false_</mark></ins> |
@@ -384,7 +392,7 @@ Actions involving the selection register:
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
 | `-L`<br>`--labels`<br>`--selection-from-labels` | _spectrum\_label\[_`,`_\.\.\._`,`_spectrum\_label\]_ |  put into the selection register the specified labels |  |
-| `-R`<br>`--regexps`<br>`--selection-from-regexps` | _metadata\_field_`~`_regexp\[_`,`_\.\.\._`,`_metadata\_field_`~`_regexp\]_ |  put into the selection register the labels of the spectra whose metadata fields match the specified regexps and regexps are defined as in [https://ocaml.org/api/Str.html](https://ocaml.org/api/Str.html)\.<br>An empty metadata field makes the regexp match labels |  |
+| `-R`<br>`--regexps`<br>`--selection-from-regexps` | _metadata\_field_`~`_regexp\[_`,`_\.\.\._`,`_metadata\_field_`~`_regexp\]_ |  put into the selection register the labels of the spectra whose metadata fields match the specified regexps and where regexps are defined according to [https://ocaml.org/api/Str.html](https://ocaml.org/api/Str.html)\.<br>An empty metadata field makes the regexp match labels |  |
 | `--selection-combination-criterion`<br>`--combination-criterion` | `mean` _&#124;_ `median` |  set the criterion used to combine the *k*\-mer frequencies of selected spectra\.<br>To avoid rounding issues, each *k*\-mer frequency is also rescaled by the largest normalization across spectra  (`mean` averages frequencies across spectra; `median` computes the median across spectra) | <ins>default=<mark>_mean_</mark></ins> |
 | `-A`<br>`--add-combined-selection`<br>`--selection-combine-and-add` | _spectrum\_label_ |  combine the spectra whose labels are in the selection register and add the result (or replace it if a spectrum named _spectrum\_label_ already exists) to the database present in the database register |  |
 | `-D`<br>`--delete`<br>`--selection-delete` |  |  drop the spectra whose labels are in the selection register from the database present in the register |  |
@@ -501,7 +509,7 @@ They are set immediately.
 
 ## 5. Examples
 
-By using the programs just described, it is possible to implement a number of interesting high-throughput workflows. We illustrate some examples here - for a more general description, please refer to our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v1).
+By using the programs just described, it is possible to implement a number of interesting high-throughput workflows. We illustrate some examples here - for a more general description, please refer to our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v2).
 
 ### 5.1. Sequence classification
 
@@ -515,7 +523,7 @@ Note that the classifier should be generated according to the data type of the i
 
 #### 5.1.1. Classifier for simulated *M.tuberculosis* sequencing reads
 
-As described in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v1), we simulated sequencing reads for 1,000 *M.tuberculosis* genomes. The data thus generated is large (~127 GB) and hence we are not making it directly available for download. However, the scripts used to (re-)generate it can be found in the [`test`](https://github.com/PaoloRibeca/KPop/tree/main/test) directory of this repository.
+As described in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v2), we simulated sequencing reads for 1,000 *M.tuberculosis* genomes. The data thus generated is large (~127 GB) and hence we are not making it directly available for download. However, the scripts used to (re-)generate it can be found in the [`test`](https://github.com/PaoloRibeca/KPop/tree/main/test) directory of this repository.
 
 ##### 5.1.1.1. Data preparation
 
@@ -674,7 +682,7 @@ This example requires a large sequencing dataset available from the [Short Read 
 
 ##### 5.1.2.1. Data preparation
 
-As described in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v1), one of the advantages offered by `KPop` is its versatility. In particular, by pre-processing reads one can easily have the method focus on particular regions or features of the genome of interest, as shown in the following figure:
+As described in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v2), one of the advantages offered by `KPop` is its versatility. In particular, by pre-processing reads one can easily have the method focus on particular regions or features of the genome of interest, as shown in the following figure:
 
 ![Preprocessing for KPop-based deep-sequencing classifiers](images/KPop-Preprocessing-RR.png)
 
@@ -731,7 +739,7 @@ KPopTwistDB $(ls Test/*.KPopTwisted | awk '{split($0,s,"[.]"); printf " -a t "s[
 ```
 Note that in this example we annotate the name of each test sequence with its class, by adding to it a non-printable character `\001` followed by the class (`KPop` is fine with non-printable characters in labels, provided that they are not `\000`). We'll do the same below for the training sequences below, so as to be able to count the majority class when we use a *k*-NN approach.
 
-As detailed in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v1), for this example we explored three different classifiers. Although they all provide very good performance, these alternative approaches are easy to implement using `KPop` tools and illustrate the versatility of our framework.
+As detailed in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v2), for this example we explored three different classifiers. Although they all provide very good performance, these alternative approaches are easy to implement using `KPop` tools and illustrate the versatility of our framework.
 
 ###### Two-class workflow
 
@@ -1074,7 +1082,7 @@ meaning that, of the 641,847 sequences present in the `Test` set, 611,770 (95.3%
 
 Note that as not all the classes describing lineages are disjoint, here we consider a classification correct if it is the same as, or a sublineage of, the original one (for instance, `B.1.1` would be accepted if the initial category is `B.1`).
 
-Finally, as discussed in more detail in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v1), for this example you might wish to tune the definition of the distance by modifying the metric used. In order to do so, you would replace the [command to compute distances](#compute-distances) we used previously with something like the following:
+Finally, as discussed in more detail in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v2), for this example you might wish to tune the definition of the distance by modifying the metric used. In order to do so, you would replace the [command to compute distances](#compute-distances) we used previously with something like the following:
 ```bash
 KPopTwistDB -m "sigmoid(1,1,5,5)" -i T Classes -i t Test -d Classes -o d Test-vs-Classes.sigmoid_1_1_5_5 -v
 ```

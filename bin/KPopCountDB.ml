@@ -550,7 +550,9 @@ and KMerDB:
     exception Wrong_number_of_columns of int * int * int
     let add_meta ?(verbose = false) db fname =
       let input = open_in fname and line_num = ref 0 in
-      let header = input_line input |> Tools.Split.on_char_as_array '\t' in
+      let header =
+        input_line input
+          |> Tools.Split.on_char_as_array '\t' |> Array.map Matrix.Base.strip_external_quotes_and_check in
       incr line_num;
       (* We add the names *)
       let missing = ref [] in
@@ -589,7 +591,9 @@ and KMerDB:
           header in
       begin try
         while true do
-          let line = input_line input |> Tools.Split.on_char_as_array '\t' in
+          let line =
+            input_line input
+              |> Tools.Split.on_char_as_array '\t' |> Array.map Matrix.Base.strip_external_quotes_and_check in
           incr line_num;
           (* A regular line. The first element is the spectrum name, the others the values of meta-data fields *)
           let l = Array.length line in
@@ -615,6 +619,7 @@ and KMerDB:
       !db
     exception Header_expected of string
     exception Wrong_format of int * string
+    (* Here we cannot easily parallelise because of DB memory management *)
     let add_files ?(verbose = false) db fnames =
       let db = ref db and n = List.length fnames and num_spectra = ref (-1) in
       List.iteri
@@ -634,8 +639,9 @@ and KMerDB:
                 Header_expected line_s |> raise;
               if line.(0) = "" then begin
                 (* Header *)
-                add_empty_column_if_needed db line.(1);
-                col_idx := Hashtbl.find !db.col_names_to_idx line.(1);
+                let label = Matrix.Base.strip_external_quotes_and_check line.(1) in
+                add_empty_column_if_needed db label;
+                col_idx := Hashtbl.find !db.col_names_to_idx label;
                 incr num_spectra;
                 if verbose then
                   Printf.eprintf "%s\r(%s): [%d/%d] File '%s': Read %d %s on %d %s%!"
@@ -893,8 +899,6 @@ and KMerDB:
           precision = 15
         }
       end
-    let re_quote = Str.regexp "\""
-    let escape_quotes = Str.global_replace re_quote "\\\""
     let to_table
         ?(filter = TableFilter.default) ?(threads = 1) ?(elements_per_step = 40000) ?(verbose = false) db fname =
       let transform = Transformation.compute ~which:filter.transform
@@ -935,16 +939,12 @@ and KMerDB:
             let first_done = ref false in
             Array.iter
               (fun (meta_name, _) ->
-                escape_quotes meta_name |>
-                  Printf.fprintf output "%s\"%s\""
-                    (if !first_done then "\t" else (if filter.print_row_names then "\"\"\t" else ""));
+                Printf.fprintf output "%s%s" (if !first_done || filter.print_row_names then "\t" else "") meta_name;
                 first_done := true)
               meta;
             Array.iter
               (fun (row_name, _) ->
-                escape_quotes row_name |>
-                  Printf.fprintf output "%s\"%s\""
-                    (if !first_done then "\t" else (if filter.print_row_names then "\"\"\t" else ""));
+                Printf.fprintf output "%s%s" (if !first_done || filter.print_row_names then "\t" else "") row_name;
                 first_done := true)
               rows;
             Printf.fprintf output "\n"
@@ -966,12 +966,12 @@ and KMerDB:
               for i = lo_col to hi_col do
                 let col_name, col_idx = cols.(i) in
                 if filter.print_row_names then
-                  escape_quotes col_name |> Printf.bprintf buf "\"%s\"";
+                  Printf.bprintf buf "%s" col_name;
                 let first_done = ref false in
                 Array.iter
                   (fun (_, meta_idx) ->
-                    escape_quotes db.core.meta.(col_idx).(meta_idx) |>
-                      Printf.bprintf buf "%s\"%s\"" (if !first_done || filter.print_row_names then "\t" else "");
+                    Printf.bprintf buf "%s%s"
+                      (if !first_done || filter.print_row_names then "\t" else "") db.core.meta.(col_idx).(meta_idx);
                     first_done := true)
                   meta;
                 Array.iter
@@ -1001,8 +1001,7 @@ and KMerDB:
             (* We print column names *)
             Array.iteri
               (fun i (col_name, _) ->
-                escape_quotes col_name |>
-                  Printf.fprintf output "%s\"%s\"" (if i = 0 then (if filter.print_row_names then "\"\"\t" else "") else "\t"))
+                Printf.fprintf output "%s%s" (if i > 0 || filter.print_row_names then "\t" else "") col_name)
               cols;
             Printf.fprintf output "\n"
           end;
@@ -1010,11 +1009,11 @@ and KMerDB:
           Array.iter
             (fun (meta_name, meta_idx) ->
               if filter.print_row_names then
-                escape_quotes meta_name |> Printf.fprintf output "\"%s\"";
+                Printf.fprintf output "%s" meta_name;
               Array.iteri
                 (fun i (_, col_idx) ->
-                  escape_quotes db.core.meta.(col_idx).(meta_idx) |>
-                    Printf.fprintf output "%s\"%s\"" (if i = 0 && not filter.print_row_names then "" else "\t"))
+                  Printf.fprintf output "%s%s"
+                    (if i > 0 || filter.print_row_names then "\t" else "") db.core.meta.(col_idx).(meta_idx))
                 cols;
               Printf.fprintf output "\n")
             meta;
@@ -1035,11 +1034,11 @@ and KMerDB:
               for i = lo_row to hi_row do
                 let row_name, row_idx = rows.(i) in
                 if filter.print_row_names then
-                  escape_quotes row_name |> Printf.bprintf buf "\"%s\"";
+                  Printf.bprintf buf "%s" row_name;
                 Array.iteri
                   (fun i (_, col_idx) ->
                     Printf.bprintf buf "%s%.*g"
-                      (if i = 0 && not filter.print_row_names then "" else "\t") filter.precision begin
+                      (if i > 0 || filter.print_row_names then "\t" else "") filter.precision begin
                         IBAVector.N.to_int db.core.storage.(col_idx).IBAVector.@(row_idx) |>
                           transform
                             ~col_num:db.core.n_cols ~col_stats:stats.col_stats.(col_idx)
@@ -1161,8 +1160,8 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopCountDB";
-  version = "40";
-  date = "29-Feb-2024"
+  version = "41";
+  date = "18-Mar-2024"
 } and authors = [
   "2020-2024", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
@@ -1199,7 +1198,8 @@ let () =
       (fun _ -> Of_file (TA.get_parameter () |> KMerDB.make_filename_binary) |> Tools.List.accum Parameters.program);
     [ "-m"; "--metadata"; "--add-metadata" ],
       Some "<metadata_table_file_name>",
-      [ "add to the database present in the register metadata from the specified file" ],
+      [ "add to the database present in the register metadata from the specified file.";
+        "Metadata field names and values must not contain double quote '\"' characters" ],
       TA.Optional,
       (fun _ -> Add_meta (TA.get_parameter ()) |> Tools.List.accum Parameters.program);
     [ "-k"; "--kmers"; "--add-kmers"; "--add-kmer-files" ],
@@ -1234,7 +1234,7 @@ let () =
       Some "REGEXP_SELECTOR REGEXP_SELECTOR <binary_file_prefix>",
       [ "where REGEXP_SELECTOR :=";
         " <metadata_field>'~'<regexp>[','...','<metadata_field>'~'<regexp>]";
-        "and regexps are defined as in <https://ocaml.org/api/Str.html>:";
+        "and regexps are defined according to <https://ocaml.org/api/Str.html>:";
         "select two sets of spectra from the register";
         "and compute and output distances between all possible pairs";
         " (metadata fields must match the regexps specified in the selector;";
@@ -1326,7 +1326,7 @@ let () =
       Some "<metadata_field>'~'<regexp>[','...','<metadata_field>'~'<regexp>]",
       [ "put into the selection register the labels of the spectra";
         "whose metadata fields match the specified regexps";
-        "and regexps are defined as in <https://ocaml.org/api/Str.html>.";
+        "and where regexps are defined according to <https://ocaml.org/api/Str.html>.";
         "An empty metadata field makes the regexp match labels" ],
       TA.Optional,
       (fun _ ->

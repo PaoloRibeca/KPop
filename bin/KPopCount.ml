@@ -14,6 +14,7 @@
 *)
 
 open BiOCamLib
+open KPop
 
 module KMerCounter (KIH: KMers.IntHash_t):
   sig
@@ -41,7 +42,7 @@ module KMerCounter (KIH: KMers.IntHash_t):
               Printf.eprintf "%s\r(%s): Maximum size (%d) reached. Outputting and removing hashes...%!"
                 Tools.String.TermIO.clear __FUNCTION__ max_results_size;
             if label = "" then
-              Printf.fprintf output "\t%s\n" read.tag;
+              Matrix.Base.strip_external_quotes_and_check read.tag |> Printf.fprintf output "\t%s\n";
             KIHF.iter (Printf.fprintf output output_format) res;
             if verbose && label <> "" then
               Printf.eprintf " done.\n%!";
@@ -95,8 +96,8 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopCount";
-  version = "13";
-  date = "21-Jan-2024"
+  version = "14";
+  date = "18-Mar-2024"
 } and authors = [
   "2017-2024", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
@@ -114,10 +115,10 @@ let () =
       (fun _ -> Parameters.k := TA.get_parameter_int_pos ());
     [ "-M"; "--max-results-size" ],
       Some "<positive_integer>",
-      [ "maximum number of k-mer signatures to be kept in memory at any given time.";
+      [ "maximum number of k-mer hashes to be kept in memory at any given time.";
         "If more are present, the ones corresponding to the lowest cardinality";
         "will be removed from memory and printed out, and there will be";
-        "repeated signatures in the output" ],
+        "repeated hashes in the output" ],
       TA.Default (fun () -> string_of_int !Parameters.max_results_size),
       (fun _ -> Parameters.max_results_size := TA.get_parameter_int_pos ());
     TA.make_separator "Input/Output";
@@ -156,13 +157,23 @@ let () =
         PairedEndFASTQ (name1, name2) |> Tools.List.accum Parameters.inputs);
     [ "-l"; "--label" ],
       Some "<output_vector_label>",
-      [ "label to be given to the k-mer vector in the output file.";
+      [ "label to be given to the k-mer spectrum in the output file.";
+        "It must not contain double quote '\"' characters.";
         "Either option '-l' or option '-L' is mandatory" ],
       TA.Optional,
-      (fun _ -> Parameters.option_l_or_L := true; Parameters.label := TA.get_parameter());
+      (fun _ ->
+        Parameters.option_l_or_L := true;
+        Parameters.label :=
+          let res = TA.get_parameter () in
+          try
+            Matrix.Base.strip_external_quotes_and_check res
+          with Matrix.Base.Quotes_in_name _ ->
+            TA.parse_error "Spectrum labels must not contain quotes";
+            assert false); (* To keep the compiler happy *)
     [ "-L"; "--one-spectrum-per-sequence" ],
       None,
-      [ "output one spectrum per sequence; the label will be the sequence name.";
+      [ "output one spectrum per input sequence, using the sequence name as label.";
+        "Sequence names must not contain double quote '\"' characters.";
         "Either option '-l' or option '-L' is mandatory" ],
       TA.Optional,
       (fun _ -> Parameters.option_l_or_L := true);
@@ -170,7 +181,7 @@ let () =
       Some "<output_file_name>",
       [ "name of generated output file" ],
       TA.Default (fun () -> if !Parameters.output = "" then "<stdout>" else !Parameters.output),
-      (fun _ -> Parameters.output := TA.get_parameter() );
+      (fun _ -> Parameters.output := TA.get_parameter ());
     TA.make_separator "Miscellaneous";
 (*
     [ "-t"; "-T"; "--threads" ],

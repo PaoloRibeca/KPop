@@ -31,6 +31,8 @@ module Base:
        In keeping with the convention accepted by R, the first row would be a header,
         and the first column the row names.
        Names might be quoted *)
+    exception Quotes_in_name of string
+    val strip_external_quotes_and_check: string -> string
     exception Wrong_number_of_columns of int * int * int
     val of_file: ?threads:int -> ?bytes_per_step:int -> ?verbose:bool -> string -> t
     val to_file: ?precision:int -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> string -> unit
@@ -85,10 +87,10 @@ module Base:
       and output = open_out fname in
       if n_rows > 0 && n_cols > 0 then begin
         (* We output column names *)
-        Printf.fprintf output "\"\"";
+        Printf.fprintf output "";
         Array.iter
           (fun name ->
-            Printf.fprintf output "\t\"%s\"" name)
+            Printf.fprintf output "\t%s" name)
           m.idx_to_col_names;
         Printf.fprintf output "\n%!";
         let rows_per_step = max 1 (elements_per_step / n_cols) and processed_rows = ref 0
@@ -108,7 +110,7 @@ module Base:
             (* We output rows *)
             for i = lo_row to hi_row do
               (* We output the row name *)
-              m.idx_to_row_names.(i) |> Printf.bprintf buf "\"%s\"";
+              m.idx_to_row_names.(i) |> Printf.bprintf buf "%s";
               Float.Array.iter (Printf.bprintf buf "\t%.*g" precision) m.storage.(i);
               Printf.bprintf buf "\n"
             done;
@@ -126,24 +128,23 @@ module Base:
         Printf.eprintf "%s\r(%s): Writing table to file '%s': done %d/%d rows.\n%!"
           Tools.String.TermIO.clear __FUNCTION__ fname n_rows n_rows;
       close_out output
-    let strip_quotes s =
-      let l = String.length s in
-      if l = 0 then
-        ""
-      else
+    exception Quotes_in_name of string
+    let re_quote = Str.regexp "\""
+    let strip_external_quotes_and_check s =
+      match String.length s, s with
+      | 0, _ -> ""
+      | 1, "\"" -> Quotes_in_name s |> raise
+      | l, _ ->
         let s =
-          if s.[0] = '"' then
-            String.sub s 1 (l - 1)
+          if s.[0] = '"' && s.[l - 1] = '"' then
+            String.sub s 1 (l - 2)
           else
             s in
-        let l = String.length s in
-        if l = 0 then
-          ""
-        else
-          if s.[l - 1] = '"' then
-            String.sub s 0 (l - 1)
-          else
-            s
+        try
+          Str.search_forward re_quote s 0 |> ignore;
+          Quotes_in_name s |> raise
+        with Not_found ->
+          s
     exception Wrong_number_of_columns of int * int * int
     let of_file ?(threads = 1) ?(bytes_per_step = 4194304) ?(verbose = false) filename =
       let input = open_in filename and line_num = ref 0
@@ -159,7 +160,7 @@ module Base:
         Array.iteri
           (fun i name ->
             if i > 0 then
-              !idx_to_col_names.(i - 1) <- strip_quotes name)
+              !idx_to_col_names.(i - 1) <- strip_external_quotes_and_check name)
           line;
         (* We process the rest of the lines in parallel. The first element will be the name *)
         let end_reached = ref false and elts_read = ref 0 in
@@ -196,7 +197,7 @@ module Base:
                     (* The first element is the name *)
                     float_of_string el |> Float.Array.set array (i - 1))
                 line;
-              line_num, strip_quotes line.(0), array))
+              line_num, strip_external_quotes_and_check line.(0), array))
           (List.iter
             (fun (obs_line_num, name, numbers) ->
               incr line_num;
@@ -843,11 +844,11 @@ include [@warning "-32"] (
           !acc /. (f_n_cols -. 1.) |> sqrt
         else
           0. in
-      Printf.bprintf buf "\"%s\"\t%.15g\t%.15g\t%.15g\t%.15g" row_name mean stddev median mad;
+      Printf.bprintf buf "%s\t%.15g\t%.15g\t%.15g\t%.15g" row_name mean stddev median mad;
       FloatIntMultimap.iteri
         (fun i dist col_idx ->
           if i < eff_len then
-            Printf.bprintf buf "\t\"%s\"\t%.15g\t%.15g" col_names.(col_idx) dist ((dist -. mean) /. stddev))
+            Printf.bprintf buf "\t%s\t%.15g\t%.15g" col_names.(col_idx) dist ((dist -. mean) /. stddev))
         !distr;
       Printf.bprintf buf "\n"
     exception Unexpected_type of Type.t * Type.t

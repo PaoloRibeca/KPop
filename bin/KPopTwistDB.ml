@@ -126,7 +126,7 @@ module [@warning "-32"] Twister:
                   Header_expected line_s |> raise;
                 if line.(0) = "" then begin
                   (* New header *)
-                  labels := snd !labels, line.(1);
+                  labels := snd !labels, Matrix.Base.strip_external_quotes_and_check line.(1);
                   if !line_num > 1 then begin
                     incr num_spectra;
                     raise Exit
@@ -332,8 +332,8 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopTwistDB";
-  version = "28";
-  date = "28-Feb-2024"
+  version = "29";
+  date = "18-Mar-2024"
 } and authors = [
   "2022-2024", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
