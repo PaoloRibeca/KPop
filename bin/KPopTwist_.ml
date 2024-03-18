@@ -43,7 +43,7 @@ let info = {
 let () =
   let module TA = Tools.Argv in
   TA.set_header (info, authors, [ BiOCamLib.Info.info; KPop.Info.info ]);
-  TA.set_synopsis "-i|--input <input_table_prefix> [OPTIONS]";
+  TA.set_synopsis "-i|--input <binary_input_prefix> -o|--output <binary_output_prefix> [OPTIONS]";
   TA.parse [
     TA.make_separator "Algorithmic parameters";
     [ "-f"; "-F"; "-s"; "-S"; "--fraction"; "--sampling"; "--sampling-fraction" ],

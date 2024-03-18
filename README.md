@@ -84,10 +84,10 @@ Download file `clusters-small.fasta` from the directory `test`. Then run the fol
 ```bash
 export K=5
 date
-for CLASS in C1 C2 C3 C4 C5 C6 C7 C8 C9 C10; do cat clusters-small.fasta | awk -v CLASS=$CLASS '{nr=(NR-1)%4; ok=(nr==0?$0~("-"CLASS"$"):nr==1&&ok); if (ok) print}' | KPopCount -k $K -L -f /dev/stdin | KPopCountDB -k /dev/stdin -R "~." -A $CLASS -L $CLASS -N -D --table-transform none -t /dev/stdout; done | KPopCountDB -k /dev/stdin -o Classes.$K -v
-KPopTwist -i Classes.$K -v
+for CLASS in C1 C2 C3 C4 C5 C6 C7 C8 C9 C10; do cat clusters-small.fasta | awk -v CLASS=$CLASS '{nr=(NR-1)%4; ok=(nr==0?$0~("-"CLASS"$"):nr==1&&ok); if (ok) print}' | KPopCount -k $K -L -f /dev/stdin | KPopCountDB -k /dev/stdin -R "~." -A $CLASS -L $CLASS -N -D -t /dev/stdout; done | KPopCountDB -k /dev/stdin -o Classes.$K -v
+KPopTwist -i Classes.$K -o Classes.$K -v
 cat clusters-small.fasta | awk -v K="$K" '{nr=(NR-1)%4; if (nr==2) split($0,s,"[>-]"); if (nr==3) print ">"s[2]"-"s[3]"\n"$0}' | KPopCount -k $K -L -f /dev/stdin | KPopTwistDB -i T Classes.$K -k /dev/stdin -o t /dev/stdout | KPopTwistDB -i T Classes.$K -i t Classes.$K -s /dev/stdin Test_prediction.$K -v
-echo -n ">>> Misclassified sequences: "; cat Test_prediction.$K.KPopSummary.txt | awk -F '\t' 'BEGIN{OFS="\t"} {$1=gensub("-","\"\t\"",1,$1); print}' | awk -F '\t' '{if ($2!=$7) print}' | wc -l
+echo -n ">>> Misclassified sequences: "; cat Test_prediction.$K.KPopSummary.txt | awk -F '\t' 'BEGIN{OFS="\t"} {$1=gensub("-","\t",1,$1); print}' | awk -F '\t' '{if ($2!=$7) print}' | wc -l
 date
 ```
 
@@ -138,7 +138,7 @@ This is an example of `KPop`-based classifier. The input FASTA file [`clusters-s
 1. Sequences with an odd index are taken to be part of the training set, sequences with an even index are considered part of the test set
 2. For each class `C1`, `C2`, ... `C10`, if the variable CLASS contains the name of the class, the command
    ```bash
-   cat clusters-small.fasta | awk -v CLASS=$CLASS '{nr=(NR-1)%4; ok=(nr==0?$0~("-"CLASS"$"):nr==1&&ok); if (ok) print}' | KPopCount -k $K -L -f /dev/stdin | KPopCountDB -k /dev/stdin -R "~." -A $CLASS -L $CLASS -N -D --table-transform none -t /dev/stdout
+   cat clusters-small.fasta | awk -v CLASS=$CLASS '{nr=(NR-1)%4; ok=(nr==0?$0~("-"CLASS"$"):nr==1&&ok); if (ok) print}' | KPopCount -k $K -L -f /dev/stdin | KPopCountDB -k /dev/stdin -R "~." -A $CLASS -L $CLASS -N -D -t /dev/stdout
    ```
    runs `KPopCount` (with *k*=5) on each training sequence belonging to CLASS; the results, which are text files each one containing a list of *k*-mers with their respective frequencies, are concatenated and sent to `KPopCountDB` through a pipe &mdash; if you wanted to look into the format, you could do so with the command
    ```bash
@@ -152,7 +152,7 @@ This is an example of `KPop`-based classifier. The input FASTA file [`clusters-s
    receives the 10 spectra, one per class, and outputs them to a binary database called `Classes.5` (actually that corresponds to a file, which gets automatically named `Classes.5.KPopCounter`)
 4. The command
    ```bash
-   KPopTwist -i Classes.$K -v
+   KPopTwist -i Classes.$K -o Classes.$K -v
    ```
    "twists" spectra to a reduced-dimensionality space, storing the results in binary form (actually that corresponds to two files, which are automatically named `Classes.5.KPopTwister` and `Classes.5.KPopTwisted`). Both the twisted spectra and the "twister" &mdash; i.e., the operator that can be used to convert the original spectra to twisted space &mdash; are stored and can be reused later on
 5. The command
@@ -162,7 +162,7 @@ This is an example of `KPop`-based classifier. The input FASTA file [`clusters-s
    selects test sequences, runs each of them separately through `KPopCount` to produce a spectrum, and concatenates and pipes all the spectra thus generated to `KPopTwistDB`, which twists them according to the twister generated at the previous stage (named `Classes.5`). The results are output to a summary text file, which gets automatically named `Test_prediction.5.KPopSummary.txt`. The file contains information about the two closest classes for each sequence
 6. Finally, the command
    ```bash
-   echo -n ">>> Misclassified sequences: "; cat Test_prediction.$K.KPopSummary.txt | awk -F '\t' 'BEGIN{OFS="\t"} {$1=gensub("-","\"\t\"",1,$1); print}' | awk -F '\t' '{if ($2!=$7) print}' | wc -l
+   echo -n ">>> Misclassified sequences: "; cat Test_prediction.$K.KPopSummary.txt | awk -F '\t' 'BEGIN{OFS="\t"} {$1=gensub("-","\t",1,$1); print}' | awk -F '\t' '{if ($2!=$7) print}' | wc -l
    ```
    parses the results in `Test_prediction.5.KPopSummary.txt` and computes the number of misclassified sequences.
 
@@ -426,7 +426,7 @@ This is KPopTwist version 20 [29-Feb-2024]
 ```
 followed by detailed information. The general form the command can be used is:
 ```
-KPopTwist -i|--input <input_table_prefix> [OPTIONS]
+KPopTwist -i|--input <binary_input_prefix> -o|--output <binary_output_prefix> [OPTIONS]
 ```
 
 **Algorithmic parameters**
@@ -573,7 +573,7 @@ while read DIR; do
   echo "Processing class '${CLASS}'..." > /dev/stderr
   ls "$DIR"/*_1.fastq |
     Parallel --lines-per-block 1 -- awk '{l=split($0,s,"/"); system("KPopCount -k 12 -l "gensub("_1.fastq$","",1,s[l])" -p "$0" "gensub("_1.fastq$","_2.fastq",1))}' |
-    KPopCountDB -k /dev/stdin -R "~." -A "$CLASS" -P -L "$CLASS" -N -P -D --summary --table-transform none -t /dev/stdout 2> /dev/null
+    KPopCountDB -k /dev/stdin -R "~." -A "$CLASS" -P -L "$CLASS" -N -P -D --summary -t /dev/stdout 2> /dev/null
 done
 ```
 The program `Parallel` can be obtained from the [BiOCamLib repository](https://github.com/PaoloRibeca/BiOCamLib). on which the implementation of `KPop` depends.
@@ -591,7 +591,7 @@ Note that the script is implicitly parallelised, in that both `Parallel` and `KP
 At this point, in order to perform the "training" phase, we need to issue the commands
 ```bash
 ls -d Train/*/ | Parallel --lines-per-block 1 -- ./process_classes | KPopCountDB -k /dev/stdin -o Classes
-KPopTwist -i Classes
+KPopTwist -i Classes -o Classes
 ```
 The first command will generate one combined, representative spectrum for each class in the training set, and subsequently, thanks to `KPopCountDB`, combine the spectra for all the representatives into a database having prefix `Classes` and full name `Classes.KPopCounter`.
 
@@ -731,9 +731,9 @@ However, equivalent techniques that discard extraneous reads using different app
 Once reads have been pre-processed and their *k*-mer spectrum generated for each sample, data analysis proceeds along the lines of the [simulated *M.tuberculosis* example above](#5112-data-analysis) &mdash; we assume that the spectra have been placed in a `Train` and `Test` directory and separated into subdirectory according to their class, as per the convention previously described. We then generate representative spectra for the classes; twist them; and use the resulting transformation to twist the test sequences, processing each directory in parallel. The results are then collected in the database `Test.KPopTwisted`.
 
 ```bash
-ls -d Train/*/ | awk '{print substr(gensub("Train/","",1),1,length($0)-7)}' | Parallel -l 1 -t 4 -- awk '{CLASS=$0; system("cat Train/"CLASS"/*.txt | KPopCountDB -k /dev/stdin -R \"~.\" -A "CLASS" -L "CLASS" -N -D -v --table-transform none -t "CLASS)}'
+ls -d Train/*/ | awk '{print substr(gensub("Train/","",1),1,length($0)-7)}' | Parallel -l 1 -t 4 -- awk '{CLASS=$0; system("cat Train/"CLASS"/*.txt | KPopCountDB -k /dev/stdin -R \"~.\" -A "CLASS" -L "CLASS" -N -D -v -t "CLASS)}'
 cat M_*.KPopCounter.txt | KPopCountDB -k /dev/stdin -o Classes -v
-KPopTwist -i Classes -v
+KPopTwist -i Classes -o Classes -v
 ls -d Test/M_*/ | Parallel -l 1 -t 4 -- awk '{system("cat "$0"*.k12.txt | awk -F \047\\t\047 \047{if ($1==\"\") print $0\"\\001"substr($0,6,length($0)-6)"\"; else print}\047 | KPopTwistDB -i T Classes -k /dev/stdin -o t "substr($0,1,length($0)-1)" -v")}'
 KPopTwistDB $(ls Test/*.KPopTwisted | awk '{split($0,s,"[.]"); printf " -a t "s[1]}') -o t Test
 ```
@@ -1029,7 +1029,7 @@ confirms that indeed this database contains the spectra for all classes:
 According to the usual procedure, we then twist the class representatives with `KPopTwist`:
 
 ```bash
-KPopTwist -i Classes -v
+KPopTwist -i Classes -o Classes -v
 ```
 and we use the resulting classifying twister to twist and accumulate the test sequences into file `Test.KPopTwisted` with `KPopTwistDB`:
 ```bash
@@ -1080,14 +1080,7 @@ to, first, annotate the summary with the original "true" classification of the s
 ```
 meaning that, of the 641,847 sequences present in the `Test` set, 611,770 (95.3%) were correctly classified, while 30,077 (4.69%) were not.
 
-Note that as not all the classes describing lineages are disjoint, here we consider a classification correct if it is the same as, or a sublineage of, the original one (for instance, `B.1.1` would be accepted if the initial category is `B.1`).
-
-Finally, as discussed in more detail in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v2), for this example you might wish to tune the definition of the distance by modifying the metric used. In order to do so, you would replace the [command to compute distances](#compute-distances) we used previously with something like the following:
-```bash
-KPopTwistDB -m "sigmoid(1,1,5,5)" -i T Classes -i t Test -d Classes -o d Test-vs-Classes.sigmoid_1_1_5_5 -v
-```
-
-That takes into account in a different way the estimated importance of the different directions in twisted space, resulting in slightly better overall predictions.
+Note that, as discussed in more detail in our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2022.06.22.497172v2), in this example many classes are actually heterogeneous collections of more than one subtree. One might then wish to consider more sophisticated classification methods, such as random forests or others.
 
 ### 5.2. Relatedness engine
 
