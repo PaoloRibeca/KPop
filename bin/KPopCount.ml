@@ -97,7 +97,7 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopCount";
-  version = "16";
+  version = "17";
   date = "16-Apr-2024"
 } and authors = [
   "2017-2024", "Paolo Ribeca", "paolo.ribeca@gmail.com"
@@ -234,7 +234,7 @@ let () =
             | _ -> assert false
           end then
             TA.parse_error "You cannot process FASTA and FASTQ inputs together";
-        store := Files.ReadsIterate.add_from_files !store input)
+        store := Files.ReadsIterate.add_from_files !store [| input |])
       !Parameters.inputs;
     begin match !Parameters.content with
     | DNA_ss ->
