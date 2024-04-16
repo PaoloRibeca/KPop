@@ -97,7 +97,7 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopCount";
-  version = "15";
+  version = "16";
   date = "16-Apr-2024"
 } and authors = [
   "2017-2024", "Paolo Ribeca", "paolo.ribeca@gmail.com"
@@ -238,13 +238,13 @@ let () =
       !Parameters.inputs;
     begin match !Parameters.content with
     | DNA_ss ->
-      let module KMC = KMerCounter (KMers.DNAHashSingleStranded (struct let value = !Parameters.k end)) in
+      let module KMC = KMerCounter (KMers.DNAHashSingleStranded (struct let n = !Parameters.k end)) in
       KMC.compute ~linter:(Sequences.Lint.dnaize ~keep_lowercase:false ~keep_dashes:false)
     | DNA_ds ->
-      let module KMC = KMerCounter (KMers.DNAHashDoubleStrandedLexicographic (struct let value = !Parameters.k end)) in
+      let module KMC = KMerCounter (KMers.DNAHashDoubleStrandedLexicographic (struct let n = !Parameters.k end)) in
       KMC.compute ~linter:(Sequences.Lint.dnaize ~keep_lowercase:false ~keep_dashes:false)
     | Protein ->
-      let module KMC = KMerCounter (KMers.ProteinHash (struct let value = !Parameters.k end)) in
+      let module KMC = KMerCounter (KMers.ProteinHash (struct let n = !Parameters.k end)) in
       KMC.compute ~linter:(Sequences.Lint.proteinize ~keep_lowercase:false ~keep_dashes:false)
     end ~verbose:!Parameters.verbose !store !Parameters.max_results_size !Parameters.label !Parameters.output
   end

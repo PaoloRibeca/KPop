@@ -312,9 +312,9 @@ and KMerDB:
     type t = {
       core: marshalled_t;
       (* Inverted hashes for parsing *)
-      col_names_to_idx: (string, int) Hashtbl.t; (* Labels *)
-      row_names_to_idx: (string, int) Hashtbl.t; (* Hashes *)
-      meta_names_to_idx: (string, int) Hashtbl.t (* Metadata fields *)
+      col_names_to_idx: int StringHashtbl.t; (* Labels *)
+      row_names_to_idx: int StringHashtbl.t; (* Hashes *)
+      meta_names_to_idx: int StringHashtbl.t (* Metadata fields *)
     }
     val make_empty: unit -> t
     (* Adds metadata - the first field must be the label *)
@@ -385,9 +385,9 @@ and KMerDB:
     }
     type t = {
       core: marshalled_t;
-      col_names_to_idx: (string, int) Hashtbl.t;
-      row_names_to_idx: (string, int) Hashtbl.t;
-      meta_names_to_idx: (string, int) Hashtbl.t
+      col_names_to_idx: int StringHashtbl.t;
+      row_names_to_idx: int StringHashtbl.t;
+      meta_names_to_idx: int StringHashtbl.t
     }
     (* *)
     let make_empty () = {
@@ -401,9 +401,9 @@ and KMerDB:
         meta = [||];
         storage = [||]
       };
-      col_names_to_idx = Hashtbl.create 16;
-      row_names_to_idx = Hashtbl.create 16;
-      meta_names_to_idx = Hashtbl.create 16
+      col_names_to_idx = StringHashtbl.create 16;
+      row_names_to_idx = StringHashtbl.create 16;
+      meta_names_to_idx = StringHashtbl.create 16
     }
     let output_summary ?(verbose = false) db =
       Printf.eprintf "[Vector labels (%d)]:" db.core.n_cols;
@@ -482,14 +482,14 @@ and KMerDB:
     module FBAVectorMisc = BAVectorMisc (FBAVector)
     (* Utility functions *)
     let invert_table a =
-      let res = Hashtbl.create (Array.length a) in
-      Array.iteri (fun i name -> Hashtbl.add res name i) a;
+      let res = StringHashtbl.create (Array.length a) in
+      Array.iteri (fun i name -> StringHashtbl.add res name i) a;
       res
     let add_empty_column_if_needed db label =
       let n_cols = !db.core.n_cols in
       let aug_n_cols = n_cols + 1 in
-      if Hashtbl.mem !db.col_names_to_idx label |> not then begin
-        Hashtbl.add !db.col_names_to_idx label n_cols; (* THIS ONE CHANGES !db *)
+      if StringHashtbl.mem !db.col_names_to_idx label |> not then begin
+        StringHashtbl.add !db.col_names_to_idx label n_cols; (* THIS ONE CHANGES !db *)
         db := {
           !db with
           core = {
@@ -555,7 +555,7 @@ and KMerDB:
       let missing = ref [] in
       Array.iteri
         (fun i name ->
-          if i > 0 && Hashtbl.mem db.meta_names_to_idx name |> not then
+          if i > 0 && StringHashtbl.mem db.meta_names_to_idx name |> not then
             List.accum missing name)
         header;
       let missing = Array.of_rlist !missing in
@@ -563,7 +563,7 @@ and KMerDB:
       and missing_len = Array.length missing in
       if missing_len > 0 then begin
         Array.iteri
-          (fun i name -> !db.core.n_meta + i |> Hashtbl.add !db.meta_names_to_idx name)
+          (fun i name -> !db.core.n_meta + i |> StringHashtbl.add !db.meta_names_to_idx name)
           missing;
         let n_meta = !db.core.n_meta + missing_len in
         db := {
@@ -584,7 +584,7 @@ and KMerDB:
             if i = 0 then
               -1
             else
-              Hashtbl.find !db.meta_names_to_idx name)
+              StringHashtbl.find !db.meta_names_to_idx name)
           header in
       begin try
         while true do
@@ -597,7 +597,7 @@ and KMerDB:
           if l <> num_header_fields then
             Wrong_number_of_columns (!line_num, l, num_header_fields) |> raise;
           add_empty_column_if_needed db line.(0);
-          let col_idx = Hashtbl.find !db.col_names_to_idx line.(0) in
+          let col_idx = StringHashtbl.find !db.col_names_to_idx line.(0) in
           Array.iteri
             (fun i name_idx ->
               if i > 0 then
@@ -638,7 +638,7 @@ and KMerDB:
                 (* Header *)
                 let label = Matrix.Base.strip_external_quotes_and_check line.(1) in
                 add_empty_column_if_needed db label;
-                col_idx := Hashtbl.find !db.col_names_to_idx label;
+                col_idx := StringHashtbl.find !db.col_names_to_idx label;
                 incr num_spectra;
                 if verbose then
                   Printf.eprintf "%s\r(%s): [%d/%d] File '%s': Read %d %s on %d %s%!"
@@ -647,10 +647,10 @@ and KMerDB:
                     !line_num (String.pluralize_int "line" !line_num)
               end else begin
                 (* A regular line. The first element is the hash, the second one the count *)
-                if Hashtbl.mem !db.row_names_to_idx line.(0) |> not then begin
+                if StringHashtbl.mem !db.row_names_to_idx line.(0) |> not then begin
                   let n_rows = !db.core.n_rows in
                   let aug_n_rows = n_rows + 1 in
-                  Hashtbl.add !db.row_names_to_idx line.(0) n_rows;
+                  StringHashtbl.add !db.row_names_to_idx line.(0) n_rows;
                   db := {
                     !db with
                     core = {
@@ -666,7 +666,7 @@ and KMerDB:
                     }
                   }
                 end;
-                let row_idx = Hashtbl.find !db.row_names_to_idx line.(0) in
+                let row_idx = StringHashtbl.find !db.row_names_to_idx line.(0) in
                 let v =
                   try
                     IBAVector.N.of_string line.(1)
@@ -694,7 +694,7 @@ and KMerDB:
         Printf.eprintf "(%s): Selecting columns... [%!" __FUNCTION__;
       List.iter
         (fun (what, _) ->
-          if verbose && what <> "" && Hashtbl.find_opt db.meta_names_to_idx what = None then
+          if verbose && what <> "" && StringHashtbl.find_opt db.meta_names_to_idx what = None then
             Printf.eprintf " (WARNING: Metadata field '%s' not found, no column will match)%!" what)
         regexps;
       let res = ref StringSet.empty in
@@ -708,7 +708,7 @@ and KMerDB:
                   (* Case of the label *)
                   Str.string_match regexp col_name 0
                 else
-                  match Hashtbl.find_opt db.meta_names_to_idx what with
+                  match StringHashtbl.find_opt db.meta_names_to_idx what with
                   | None ->
                     false
                   | Some found ->
@@ -748,7 +748,7 @@ and KMerDB:
         Printf.eprintf "(%s): Adding/replacing spectrum '%s': [%!" __FUNCTION__ new_label;
       (* We allocate the result *)
       add_empty_column_if_needed db new_label;
-      let new_col_idx = Hashtbl.find !db.col_names_to_idx new_label in
+      let new_col_idx = StringHashtbl.find !db.col_names_to_idx new_label in
       let new_col = !db.core.storage.(new_col_idx) in
       (* Computing valid labels and maximum normalisation across columns *)
       let found_cols = ref [] and max_norm = ref 0. in
@@ -757,7 +757,7 @@ and KMerDB:
           if verbose then
             Printf.eprintf " '%s'%!" label;
           (* Some labels might be invalid *)
-          match Hashtbl.find_opt !db.col_names_to_idx label with
+          match StringHashtbl.find_opt !db.col_names_to_idx label with
           | Some col_idx ->
             List.accum found_cols col_idx;
             max_norm := max !max_norm stats.col_stats.(col_idx).sum
@@ -830,7 +830,7 @@ and KMerDB:
         let res = Array.make !db.core.n_meta StringSet.empty in
         StringSet.iter
           (fun label ->
-            match Hashtbl.find_opt !db.col_names_to_idx label with
+            match StringHashtbl.find_opt !db.col_names_to_idx label with
             | Some col_idx ->
               let col = !db.core.meta.(col_idx) in
               for i = 0 to !db.core.n_meta - 1 do
@@ -1156,7 +1156,7 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopCountDB";
-  version = "42";
+  version = "43";
   date = "16-Apr-2024"
 } and authors = [
   "2020-2024", "Paolo Ribeca", "paolo.ribeca@gmail.com"
