@@ -14,6 +14,7 @@
 *)
 
 open BiOCamLib
+open Better
 open KPop
 
 module KMerCounter (KIH: KMers.IntHash_t):
@@ -40,7 +41,7 @@ module KMerCounter (KIH: KMers.IntHash_t):
             (* We dump the table, empty it and start again *)
             if verbose && label <> "" then
               Printf.eprintf "%s\r(%s): Maximum size (%d) reached. Outputting and removing hashes...%!"
-                Tools.String.TermIO.clear __FUNCTION__ max_results_size;
+                String.TermIO.clear __FUNCTION__ max_results_size;
             if label = "" then
               Matrix.Base.strip_external_quotes_and_check read.tag |> Printf.fprintf output "\t%s\n";
             KIHF.iter (Printf.fprintf output output_format) res;
@@ -49,12 +50,12 @@ module KMerCounter (KIH: KMers.IntHash_t):
             KIHF.clear res
           end;
           if verbose && !reads_cntr mod 1_000 = 0 then
-            Printf.eprintf "%s\r(%s): Added %d reads%!" Tools.String.TermIO.clear __FUNCTION__ !reads_cntr;
+            Printf.eprintf "%s\r(%s): Added %d reads%!" String.TermIO.clear __FUNCTION__ !reads_cntr;
           if segm_id = 0 then
             incr reads_cntr)
         store;
       if verbose then begin
-        Printf.eprintf "%s\r(%s): Added %d reads.\n%!" Tools.String.TermIO.clear __FUNCTION__ !reads_cntr;
+        Printf.eprintf "%s\r(%s): Added %d reads.\n%!" String.TermIO.clear __FUNCTION__ !reads_cntr;
         Printf.eprintf "(%s): Outputting hashes...%!" __FUNCTION__;
       end;
       KIHF.iter (Printf.fprintf output output_format) res;
@@ -96,8 +97,8 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopCount";
-  version = "14";
-  date = "18-Mar-2024"
+  version = "15";
+  date = "16-Apr-2024"
 } and authors = [
   "2017-2024", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
@@ -137,14 +138,14 @@ let () =
         "You can specify more than one FASTA input, but not FASTA and FASTQ inputs";
         "at the same time. Contents are expected to be homogeneous across inputs" ],
       TA.Optional,
-      (fun _ -> Files.Type.FASTA (TA.get_parameter ()) |> Tools.List.accum Parameters.inputs);
+      (fun _ -> Files.Type.FASTA (TA.get_parameter ()) |> List.accum Parameters.inputs);
     [ "-s"; "--single-end" ],
       Some "<fastq_file_name>",
       [ "FASTQ input file containing single-end sequencing reads";
         "You can specify more than one FASTQ input, but not FASTQ and FASTA inputs";
         "at the same time. Contents are expected to be homogeneous across inputs" ],
       TA.Optional,
-      (fun _ -> SingleEndFASTQ (TA.get_parameter ()) |> Tools.List.accum Parameters.inputs);
+      (fun _ -> SingleEndFASTQ (TA.get_parameter ()) |> List.accum Parameters.inputs);
     [ "-p"; "--paired-end" ],
       Some "<fastq_file_name1> <fastq_file_name2>",
       [ "FASTQ input files containing paired-end sequencing reads";
@@ -154,7 +155,7 @@ let () =
       (fun _ ->
         let name1 = TA.get_parameter () in
         let name2 = TA.get_parameter () in
-        PairedEndFASTQ (name1, name2) |> Tools.List.accum Parameters.inputs);
+        PairedEndFASTQ (name1, name2) |> List.accum Parameters.inputs);
     [ "-l"; "--label" ],
       Some "<output_vector_label>",
       [ "label to be given to the k-mer spectrum in the output file.";
@@ -232,7 +233,7 @@ let () =
             | SingleEndFASTQ _ | PairedEndFASTQ _ -> !is_format_fasta
             | _ -> assert false
           end then
-            TA.parse_error "You cannot process FASTA and FASTQ inputs together";        
+            TA.parse_error "You cannot process FASTA and FASTQ inputs together";
         store := Files.ReadsIterate.add_from_files !store input)
       !Parameters.inputs;
     begin match !Parameters.content with

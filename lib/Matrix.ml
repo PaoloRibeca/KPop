@@ -14,6 +14,7 @@
 *)
 
 open BiOCamLib
+open Better
 
 (* General matrix class *)
 module Base:
@@ -49,7 +50,7 @@ module Base:
     val multiply_matrix_vector_single_threaded: ?verbose:bool -> t -> Float.Array.t -> Float.Array.t
     type sparse_vector_t = {
       length: int;
-      elements: float Tools.IntMap.t
+      elements: float IntMap.t
     }
     val multiply_matrix_sparse_vector_single_threaded: ?verbose:bool -> t -> sparse_vector_t -> Float.Array.t
     val multiply_matrix_matrix: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> t -> t
@@ -120,13 +121,13 @@ module Base:
             let new_processed_rows = !processed_rows + n_processed in
             if verbose && new_processed_rows / rows_per_step > !processed_rows / rows_per_step then
               Printf.eprintf "%s\r(%s): Writing table to file '%s': done %d/%d rows%!"
-                Tools.String.TermIO.clear __FUNCTION__ fname new_processed_rows n_rows;
+                String.TermIO.clear __FUNCTION__ fname new_processed_rows n_rows;
             processed_rows := new_processed_rows)
           threads
       end;
       if verbose then
         Printf.eprintf "%s\r(%s): Writing table to file '%s': done %d/%d rows.\n%!"
-          Tools.String.TermIO.clear __FUNCTION__ fname n_rows n_rows;
+          String.TermIO.clear __FUNCTION__ fname n_rows n_rows;
       close_out output
     exception Quotes_in_name of string
     let re_quote = Str.regexp "\""
@@ -151,7 +152,7 @@ module Base:
       and idx_to_col_names = ref [||] and idx_to_row_names = ref [] and storage = ref [] in
       begin try
         (* We process the header *)
-        let line = input_line input |> Tools.Split.on_char_as_array '\t' in
+        let line = input_line input |> String.Split.on_char_as_array '\t' in
         incr line_num;
         let l = Array.length line in
         (* We assume the matrix always to have row names, and ignore the first name in the header if present *)
@@ -174,7 +175,7 @@ module Base:
               while !cntr < bytes_per_step do
                 let line = input_line input in
                 incr line_num;
-                Tools.List.accum res (!line_num, line);
+                List.accum res (!line_num, line);
                 cntr := !cntr + String.length line
               done
             with End_of_file ->
@@ -186,7 +187,7 @@ module Base:
           (List.map
             (fun (line_num, line) ->
               (* We decorate the line number with the results of parsing the line *)
-              let line = Tools.Split.on_char_as_array '\t' line in
+              let line = String.Split.on_char_as_array '\t' line in
               let l = Array.length line in
               if l <> num_cols + 1 then
                 Wrong_number_of_columns (line_num, l, num_cols + 1) |> raise;
@@ -203,25 +204,25 @@ module Base:
               incr line_num;
               assert (obs_line_num = !line_num);
               (* Only here do we actually fill out the memory for the result *)
-              Tools.List.accum idx_to_row_names name;
-              Tools.List.accum storage numbers;
+              List.accum idx_to_row_names name;
+              List.accum storage numbers;
               let new_elts_read = !elts_read + num_cols in
               if verbose && new_elts_read / 100000 > !elts_read / 100000 then
                 Printf.eprintf "%s\r(%s): On line %d of file '%s': Read %d elements%!"
-                  Tools.String.TermIO.clear __FUNCTION__ !line_num filename new_elts_read;
+                  String.TermIO.clear __FUNCTION__ !line_num filename new_elts_read;
               elts_read := new_elts_read))
           threads;
         close_in input;
         if verbose then
           Printf.eprintf "%s\r(%s): On line %d of file '%s': Read %d elements.\n%!"
-            Tools.String.TermIO.clear __FUNCTION__ !line_num filename !elts_read
+            String.TermIO.clear __FUNCTION__ !line_num filename !elts_read
       with End_of_file ->
         (* Empty file *)
         close_in input
       end;
       { idx_to_col_names = !idx_to_col_names;
-        idx_to_row_names = Tools.Array.of_rlist !idx_to_row_names;
-        storage = Tools.Array.of_rlist !storage }
+        idx_to_row_names = Array.of_rlist !idx_to_row_names;
+        storage = Array.of_rlist !storage }
     let [@warning "-27"] transpose_single_threaded ?(verbose = false) m =
       { idx_to_col_names = m.idx_to_row_names;
         idx_to_row_names = m.idx_to_col_names;
@@ -250,7 +251,7 @@ module Base:
           (* We iterate backwards so as to avoid to have to reverse the list in the end *)
           for i = hi_row downto lo_row do
             (* The new row is the original column *)
-            Float.Array.init n_cols (fun col -> Float.Array.get m.storage.(col) i) |> Tools.List.accum res
+            Float.Array.init n_cols (fun col -> Float.Array.get m.storage.(col) i) |> List.accum res
           done;
           lo_row, !res)
         (fun (lo_row, rows) ->
@@ -259,12 +260,12 @@ module Base:
               storage.(lo_row + offs_i) <- row_i;
               if verbose && !processed_rows mod rows_per_step = 0 then
                 Printf.eprintf "%s\r(%s): Done %d/%d rows%!"
-                  Tools.String.TermIO.clear __FUNCTION__ !processed_rows n_rows;
+                  String.TermIO.clear __FUNCTION__ !processed_rows n_rows;
               incr processed_rows)
             rows)
         threads;
       if verbose then
-        Printf.eprintf "%s\r(%s): Done %d/%d rows.\n%!" Tools.String.TermIO.clear __FUNCTION__ !processed_rows n_rows;
+        Printf.eprintf "%s\r(%s): Done %d/%d rows.\n%!" String.TermIO.clear __FUNCTION__ !processed_rows n_rows;
       { idx_to_col_names = m.idx_to_row_names;
         idx_to_row_names = m.idx_to_col_names;
         storage = storage }
@@ -280,24 +281,24 @@ module Base:
       if verbose then
         Printf.eprintf "(%s): Merging matrices (%d+%d rows)...%!"
           __FUNCTION__ (Array.length m1.idx_to_row_names) (Array.length m2.idx_to_row_names);
-      let merged_rows = ref Tools.StringMap.empty in
+      let merged_rows = ref StringMap.empty in
       Array.iteri
         (fun i name ->
           (* There ought to be no repeated names here *)
-          merged_rows := Tools.StringMap.add name m1.storage.(i) !merged_rows)
+          merged_rows := StringMap.add name m1.storage.(i) !merged_rows)
         m1.idx_to_row_names;
       Array.iteri
         (fun i name ->
-          match Tools.StringMap.find_opt name !merged_rows with
+          match StringMap.find_opt name !merged_rows with
           | Some _ ->
             Duplicate_label name |> raise
           | None ->
-            merged_rows := Tools.StringMap.add name m2.storage.(i) !merged_rows)
+            merged_rows := StringMap.add name m2.storage.(i) !merged_rows)
         m2.idx_to_row_names;
-      let row_num = Tools.StringMap.cardinal !merged_rows in
+      let row_num = StringMap.cardinal !merged_rows in
       let merged_storage = Array.init row_num (fun _ -> Float.Array.create 0)
       and merged_idx_to_row_names = Array.make row_num "" in
-      Tools.StringMap.iteri
+      StringMap.iteri
         (fun i name arr ->
           merged_storage.(i) <- arr;
           merged_idx_to_row_names.(i) <- name)
@@ -324,14 +325,14 @@ module Base:
           Float.Array.set res i !acc;
           incr elts_done;
           if verbose && !elts_done mod 100 = 0 then
-            Printf.eprintf "%s\r(%s): Done %d/%d elements%!" Tools.String.TermIO.clear __FUNCTION__ !elts_done d)
+            Printf.eprintf "%s\r(%s): Done %d/%d elements%!" String.TermIO.clear __FUNCTION__ !elts_done d)
         m.storage;
       if verbose then
-        Printf.eprintf "%s\r(%s): Done %d/%d elements.\n%!" Tools.String.TermIO.clear __FUNCTION__ !elts_done d;
+        Printf.eprintf "%s\r(%s): Done %d/%d elements.\n%!" String.TermIO.clear __FUNCTION__ !elts_done d;
       res
     type sparse_vector_t = {
       length: int;
-      elements: float Tools.IntMap.t
+      elements: float IntMap.t
     }
     let multiply_matrix_sparse_vector_single_threaded ?(verbose = false) m s_v =
       if Array.length m.idx_to_col_names <> s_v.length then
@@ -343,17 +344,17 @@ module Base:
       Array.iteri
         (fun i row ->
           let acc = ref 0. in
-          Tools.IntMap.iter
+          IntMap.iter
             (fun j el ->
               acc := !acc +. (Float.Array.get row j *. el))
             s_v.elements;
           Float.Array.set res i !acc;
           incr elts_done;
           if verbose && !elts_done mod 100 = 0 then
-            Printf.eprintf "%s\r(%s): Done %d/%d elements%!" Tools.String.TermIO.clear __FUNCTION__ !elts_done d)
+            Printf.eprintf "%s\r(%s): Done %d/%d elements%!" String.TermIO.clear __FUNCTION__ !elts_done d)
         m.storage;
       if verbose then
-        Printf.eprintf "%s\r(%s): Done %d/%d elements.\n%!" Tools.String.TermIO.clear __FUNCTION__ !elts_done d;
+        Printf.eprintf "%s\r(%s): Done %d/%d elements.\n%!" String.TermIO.clear __FUNCTION__ !elts_done d;
       res
     let multiply_matrix_vector ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false) m v =
       let n_rows = Array.length m.idx_to_row_names and n_cols = Array.length m.idx_to_col_names in
@@ -383,7 +384,7 @@ module Base:
               (fun el_1 el_2 ->
                 acc := !acc +. (el_1 *. el_2))
               m.storage.(i) v;
-            Tools.List.accum res !acc
+            List.accum res !acc
           done;
           lo_row, !res)
         (fun (lo_row, v) ->
@@ -393,12 +394,12 @@ module Base:
               Float.Array.set res (lo_row + offs_i) el;
               if verbose && !processed_rows mod rows_per_step = 0 then
                 Printf.eprintf "%s\r(%s): Done %d/%d rows%!"
-                  Tools.String.TermIO.clear __FUNCTION__ !processed_rows n_rows;
+                  String.TermIO.clear __FUNCTION__ !processed_rows n_rows;
               incr processed_rows)
             v)
         threads;
       if verbose then
-        Printf.eprintf "%s\r(%s): Done %d/%d rows.\n%!" Tools.String.TermIO.clear __FUNCTION__ !processed_rows n_rows;
+        Printf.eprintf "%s\r(%s): Done %d/%d rows.\n%!" String.TermIO.clear __FUNCTION__ !processed_rows n_rows;
       res
     let multiply_matrix_matrix ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false) m1 m2 =
       if m1.idx_to_col_names <> m2.idx_to_row_names then
@@ -417,7 +418,7 @@ module Base:
           begin try
             let cntr = ref 0 in
             while !cntr < elements_per_step do
-              Tools.List.accum res (!i, !j);
+              List.accum res (!i, !j);
               incr j;
               if !j = col_num then begin
                 incr i;
@@ -446,11 +447,11 @@ module Base:
             (* Only here do we actually fill out the memory for the result *)
             Float.Array.set storage.(i) j el;
             if verbose && !elts_done mod elements_per_step = 0 then
-              Printf.eprintf "%s\r(%s): Done %d/%d elements%!" Tools.String.TermIO.clear __FUNCTION__ !elts_done prod;
+              Printf.eprintf "%s\r(%s): Done %d/%d elements%!" String.TermIO.clear __FUNCTION__ !elts_done prod;
             incr elts_done))
         threads;
       if verbose then
-        Printf.eprintf "%s\r(%s): Done %d/%d elements.\n%!" Tools.String.TermIO.clear __FUNCTION__ !elts_done prod;
+        Printf.eprintf "%s\r(%s): Done %d/%d elements.\n%!" String.TermIO.clear __FUNCTION__ !elts_done prod;
       { idx_to_col_names = m2.idx_to_col_names;
         idx_to_row_names = m1.idx_to_row_names;
         storage = storage }
@@ -474,7 +475,7 @@ module Base:
           let res = ref [] in
           (* We iterate backwards so as to avoid to have to reverse the list in the end *)
           for i = hi_row downto lo_row do
-            Space.Distance.compute_norm distance metric m.storage.(i) |> Tools.List.accum res
+            Space.Distance.compute_norm distance metric m.storage.(i) |> List.accum res
           done;
           lo_row, !res)
         (fun (lo_row, norms) ->
@@ -483,12 +484,12 @@ module Base:
               Float.Array.set res (lo_row + offs_i) (if norm_i = 0. then 1. else norm_i);
               if verbose && !processed_rows mod elements_per_step = 0 then
                 Printf.eprintf "%s\r(%s): Done %d/%d rows%!"
-                  Tools.String.TermIO.clear __FUNCTION__ !processed_rows n_rows;
+                  String.TermIO.clear __FUNCTION__ !processed_rows n_rows;
               incr processed_rows)
             norms)
         threads;
       if verbose then
-        Printf.eprintf "%s\r(%s): Done %d/%d rows.\n%!" Tools.String.TermIO.clear __FUNCTION__ !processed_rows n_rows;
+        Printf.eprintf "%s\r(%s): Done %d/%d rows.\n%!" String.TermIO.clear __FUNCTION__ !processed_rows n_rows;
       res
     (* Compute rowwise distance *)
     let get_distance_matrix ?(normalize = true) ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false)
@@ -513,7 +514,7 @@ module Base:
           begin try
             let cntr = ref 0 in
             while !cntr < elements_per_step do
-              Tools.List.accum res (!i, !j);
+              List.accum res (!i, !j);
               incr j;
               if !j > !i then begin
                 incr i;
@@ -544,11 +545,11 @@ module Base:
             Float.Array.set storage.(j) i dist;
             if verbose && !elts_done mod elements_per_step = 0 then
               Printf.eprintf "%s\r(%s): Done %d/%d elements%!"
-                Tools.String.TermIO.clear __FUNCTION__ !elts_done total;
+                String.TermIO.clear __FUNCTION__ !elts_done total;
             incr elts_done))
         threads;
       if verbose then
-        Printf.eprintf "%s\r(%s): Done %d/%d elements.\n%!" Tools.String.TermIO.clear __FUNCTION__ !elts_done total;
+        Printf.eprintf "%s\r(%s): Done %d/%d elements.\n%!" String.TermIO.clear __FUNCTION__ !elts_done total;
       { idx_to_col_names = m.idx_to_row_names;
         idx_to_row_names = m.idx_to_row_names;
         storage = storage }
@@ -589,7 +590,7 @@ module Base:
           begin try
             let cntr = ref 0 in
             while !cntr < elements_per_step do
-              Tools.List.accum res (!i, !j);
+              List.accum res (!i, !j);
               incr j;
               if !j = r2 then begin
                 incr i;
@@ -617,13 +618,13 @@ module Base:
             Float.Array.set storage.(j) i dist;
             if verbose && !elts_done mod elements_per_step = 0 then
               Printf.eprintf "%s\r(%s): Done %d/%d elements=%.3g%%%!"
-                Tools.String.TermIO.clear __FUNCTION__
+                String.TermIO.clear __FUNCTION__
                 !elts_done prod (100. *. float_of_int !elts_done /. float_of_int prod);
             incr elts_done))
         threads;
       if verbose then
         Printf.eprintf "%s\r(%s): Done %d/%d elements=%.3g%%.\n%!"
-          Tools.String.TermIO.clear __FUNCTION__
+          String.TermIO.clear __FUNCTION__
           !elts_done prod (100. *. float_of_int !elts_done /. float_of_int prod);
       { idx_to_col_names = m1.idx_to_row_names;
         idx_to_row_names = m2.idx_to_row_names;
@@ -674,7 +675,7 @@ module Base:
                 (fun (processed, to_do) ->
                   let res = ref [] in
                   for i = 0 to to_do - 1 do
-                    processed + i |> compute_one |> Tools.List.accum res
+                    processed + i |> compute_one |> List.accum res
                   done;
                   processed, List.rev !res)
                 (fun (base, stats) ->
@@ -691,7 +692,6 @@ module Base:
 
           end
         type tt = t
-        module StringMap = Tools.StringMap
         type t = {
           vectors: Float.Array.t StringMap.t;
 
@@ -791,7 +791,7 @@ include [@warning "-32"] (
         matrix =
           Base.get_distance_rowwise ~normalize ~threads ~elements_per_step ~verbose
             distance metric m1.matrix m2.matrix }
-    module FloatIntMultimap = Tools.Multimap (Tools.ComparableFloat) (Tools.ComparableInt)
+    module FloatIntMultimap = Tools.Multimap (ComparableFloat) (ComparableInt)
     let summarize_distance_matrix_row req_len row_name row col_names buf =
       let n_cols = Float.Array.length row in
       let f_n_cols = float_of_int n_cols and distr = ref FloatIntMultimap.empty in
@@ -818,22 +818,22 @@ include [@warning "-32"] (
           0. in
       (* We compute standard deviation e MAD *)
       acc := 0.;
-      let ddistr = ref Tools.FloatMap.empty in
+      let ddistr = ref FloatMap.empty in
       Float.Array.iteri
         (fun _ dist ->
           let d = dist -. mean in
           acc := !acc +. (d *. d);
           let d = (dist -. median) |> abs_float in
           ddistr :=
-            match Tools.FloatMap.find_opt d !ddistr with
+            match FloatMap.find_opt d !ddistr with
             | None ->
-              Tools.FloatMap.add d 1 !ddistr
+              FloatMap.add d 1 !ddistr
             | Some n ->
-              Tools.FloatMap.add d (n + 1) !ddistr)
+              FloatMap.add d (n + 1) !ddistr)
         row;
       median_pos := n_cols / 2;
       let mad = ref 0. in
-      Tools.FloatMap.iter
+      FloatMap.iter
         (fun d occs ->
           if !median_pos >= 0 && !median_pos - occs < 0 then
             mad := d;
@@ -921,12 +921,12 @@ include [@warning "-32"] (
           let new_processed_rows = !processed_rows + n_processed in
           if verbose && new_processed_rows / rows_per_step > !processed_rows / rows_per_step then
             Printf.eprintf "%s\r(%s): Writing distance digest to file '%s': done %d/%d rows%!"
-              Tools.String.TermIO.clear __FUNCTION__ fname new_processed_rows r2;
+              String.TermIO.clear __FUNCTION__ fname new_processed_rows r2;
           processed_rows := new_processed_rows)
         threads;
       if verbose then
         Printf.eprintf "%s\r(%s): Writing distance digest to file '%s': done %d/%d rows.\n%!"
-          Tools.String.TermIO.clear __FUNCTION__ fname r2 r2;
+          String.TermIO.clear __FUNCTION__ fname r2 r2;
       close_out output
     let summarize_distance ?(keep_at_most = Some 2) ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false)
         m prefix =
@@ -965,12 +965,12 @@ include [@warning "-32"] (
           let new_processed_rows = !processed_rows + n_processed in
           if verbose && new_processed_rows / rows_per_step > !processed_rows / rows_per_step then
             Printf.eprintf "%s\r(%s): Writing distance digest to file '%s': done %d/%d rows%!"
-              Tools.String.TermIO.clear __FUNCTION__ fname new_processed_rows n_rows;
+              String.TermIO.clear __FUNCTION__ fname new_processed_rows n_rows;
           processed_rows := new_processed_rows)
         threads;
       if verbose then
         Printf.eprintf "%s\r(%s): Writing distance digest to file '%s': done %d/%d rows.\n%!"
-          Tools.String.TermIO.clear __FUNCTION__ fname n_rows n_rows;
+          String.TermIO.clear __FUNCTION__ fname n_rows n_rows;
       close_out output
     (* *)
     let archive_version = "2022-04-03"

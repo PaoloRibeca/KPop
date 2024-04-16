@@ -14,11 +14,8 @@
 *)
 
 open BiOCamLib
+open Better
 open KPop
-
-module IntSet = Tools.IntSet
-module StringSet = Tools.StringSet
-module StringMap = Tools.StringMap
 
 (* For counts. We assume each count to be < 2^31 *)
 module IBAVector = Numbers.Bigarray.Vector (
@@ -256,7 +253,7 @@ and [@warning "-32"] Statistics:
           (fun () ->
             if verbose then
               Printf.eprintf "%s\r(%s): Computing %s statistics [%d/%d]%!"
-                Tools.String.TermIO.clear __FUNCTION__ (col_or_row_to_string what) !processed n;
+                String.TermIO.clear __FUNCTION__ (col_or_row_to_string what) !processed n;
             let to_do = n - !processed in
             if to_do > 0 then begin
               let to_do = min to_do step in
@@ -268,10 +265,10 @@ and [@warning "-32"] Statistics:
           (fun (processed, to_do) ->
             let res = ref [] in
             for i = 0 to to_do - 1 do
-              processed + i |> compute_one what |> Tools.List.accum res
+              processed + i |> compute_one what |> List.accum res
             done;
-            Tools.Array.of_rlist !res)
-          (Tools.List.accum res)
+            Array.of_rlist !res)
+          (List.accum res)
           threads;
         let rec binary_merge_arrays processed to_do =
           match processed, to_do with
@@ -292,7 +289,7 @@ and [@warning "-32"] Statistics:
         let res = List.rev !res |> binary_merge_arrays [] in
         if verbose then
           Printf.eprintf "%s\r(%s): Computing %s statistics [%d/%d]\n%!"
-            Tools.String.TermIO.clear __FUNCTION__ (col_or_row_to_string what) n n;
+            String.TermIO.clear __FUNCTION__ (col_or_row_to_string what) n n;
         res in
       { col_stats = compute_all Col;
         row_stats = compute_all Row }
@@ -434,7 +431,7 @@ and KMerDB:
       Printf.eprintf "\n%!"
     (* *)
     let resize_string_array ?(is_buffer = true) n a =
-      Tools.Array.resize ~is_buffer n "" a
+      Array.resize ~is_buffer n "" a
     (* *)
     let _resize_t_array_ ?(is_buffer = true) length resize create_null nx ny a =
       let lx = Array.length a in
@@ -552,16 +549,16 @@ and KMerDB:
       let input = open_in fname and line_num = ref 0 in
       let header =
         input_line input
-          |> Tools.Split.on_char_as_array '\t' |> Array.map Matrix.Base.strip_external_quotes_and_check in
+          |> String.Split.on_char_as_array '\t' |> Array.map Matrix.Base.strip_external_quotes_and_check in
       incr line_num;
       (* We add the names *)
       let missing = ref [] in
       Array.iteri
         (fun i name ->
           if i > 0 && Hashtbl.mem db.meta_names_to_idx name |> not then
-            Tools.List.accum missing name)
+            List.accum missing name)
         header;
-      let missing = Tools.Array.of_rlist !missing in
+      let missing = Array.of_rlist !missing in
       let db = ref db
       and missing_len = Array.length missing in
       if missing_len > 0 then begin
@@ -593,7 +590,7 @@ and KMerDB:
         while true do
           let line =
             input_line input
-              |> Tools.Split.on_char_as_array '\t' |> Array.map Matrix.Base.strip_external_quotes_and_check in
+              |> String.Split.on_char_as_array '\t' |> Array.map Matrix.Base.strip_external_quotes_and_check in
           incr line_num;
           (* A regular line. The first element is the spectrum name, the others the values of meta-data fields *)
           let l = Array.length line in
@@ -608,13 +605,13 @@ and KMerDB:
             meta_indices;
           if verbose && !line_num mod 10 = 0 then
             Printf.eprintf "%s\r(%s): File '%s': Read %d lines%!"
-              Tools.String.TermIO.clear __FUNCTION__ fname !line_num
+              String.TermIO.clear __FUNCTION__ fname !line_num
         done
       with End_of_file ->
         close_in input;
         if verbose then
           Printf.eprintf "%s\r(%s): File '%s': Read %d lines\n%!"
-            Tools.String.TermIO.clear __FUNCTION__ fname !line_num
+            String.TermIO.clear __FUNCTION__ fname !line_num
       end;
       !db
     exception Header_expected of string
@@ -630,7 +627,7 @@ and KMerDB:
             while true do
               let line_s = input_line input in
               incr line_num;
-              let line = Tools.Split.on_char_as_array '\t' line_s in
+              let line = String.Split.on_char_as_array '\t' line_s in
               let l = Array.length line in
               if l <> 2 then
                 Wrong_number_of_columns (!line_num, l, 2) |> raise;
@@ -645,9 +642,9 @@ and KMerDB:
                 incr num_spectra;
                 if verbose then
                   Printf.eprintf "%s\r(%s): [%d/%d] File '%s': Read %d %s on %d %s%!"
-                    Tools.String.TermIO.clear __FUNCTION__ (i + 1) n fname
-                    !num_spectra (Tools.String.pluralize_int ~plural:"spectra" "spectrum" !num_spectra)
-                    !line_num (Tools.String.pluralize_int "line" !line_num)
+                    String.TermIO.clear __FUNCTION__ (i + 1) n fname
+                    !num_spectra (String.pluralize_int ~plural:"spectra" "spectrum" !num_spectra)
+                    !line_num (String.pluralize_int "line" !line_num)
               end else begin
                 (* A regular line. The first element is the hash, the second one the count *)
                 if Hashtbl.mem !db.row_names_to_idx line.(0) |> not then begin
@@ -684,9 +681,9 @@ and KMerDB:
             incr num_spectra;
             if verbose then
               Printf.eprintf "%s\r(%s): [%d/%d] File '%s': Read %d %s on %d %s%s%!"
-                Tools.String.TermIO.clear __FUNCTION__ (i + 1) n fname
-                !num_spectra (Tools.String.pluralize_int ~plural:"spectra" "spectrum" !num_spectra)
-                !line_num (Tools.String.pluralize_int "line" !line_num) (if i + 1 = n then ".\n" else "")
+                String.TermIO.clear __FUNCTION__ (i + 1) n fname
+                !num_spectra (String.pluralize_int ~plural:"spectra" "spectrum" !num_spectra)
+                !line_num (String.pluralize_int "line" !line_num) (if i + 1 = n then ".\n" else "")
           end)
         fnames;
       !db
@@ -762,7 +759,7 @@ and KMerDB:
           (* Some labels might be invalid *)
           match Hashtbl.find_opt !db.col_names_to_idx label with
           | Some col_idx ->
-            Tools.List.accum found_cols col_idx;
+            List.accum found_cols col_idx;
             max_norm := max !max_norm stats.col_stats.(col_idx).sum
           | None ->
             if verbose then
@@ -822,11 +819,11 @@ and KMerDB:
           processed_rows := !processed_rows + n_processed;
           if verbose && !processed_rows / 10000 > old_processed_rows / 10000 then
             Printf.eprintf "%s\r(%s): Combining spectra: done %d/%d lines%!"
-              Tools.String.TermIO.clear __FUNCTION__ !processed_rows n_rows)
+              String.TermIO.clear __FUNCTION__ !processed_rows n_rows)
         threads;
       if verbose then
         Printf.eprintf "%s\r(%s): Combining spectra: done %d/%d lines. Norm=%.16g\n%!"
-          Tools.String.TermIO.clear __FUNCTION__ !processed_rows n_rows !norm;
+          String.TermIO.clear __FUNCTION__ !processed_rows n_rows !norm;
       (* If metadata is present in the database, we generate some for the new column too *)
       if !db.core.n_meta > 0 then begin
         (* For each metadata field, we compute the intersection of the values across all selected columns *)
@@ -854,13 +851,13 @@ and KMerDB:
     let remove_selected db selected =
       (* First, we compute the indices of the columns to be kept.
          We keep the same column order as in the original matrix *)
-      let idxs = ref Tools.IntSet.empty in
+      let idxs = ref IntSet.empty in
       Array.iteri
         (fun col_idx col_name ->
           if StringSet.mem col_name selected |> not then
-            idxs := Tools.IntSet.add col_idx !idxs)
+            idxs := IntSet.add col_idx !idxs)
         db.core.idx_to_col_names;
-      let idxs = Tools.IntSet.elements_array !idxs in
+      let idxs = IntSet.elements_array !idxs in
       let n = Array.length idxs in
       let filter_array a =
         Array.init n
@@ -911,24 +908,23 @@ and KMerDB:
           (fun i meta_name ->
             (* There might be additional storage *)
             if i < db.core.n_meta then
-              Tools.List.accum meta (meta_name, i))
+              List.accum meta (meta_name, i))
           db.core.idx_to_meta_names;
       Array.iteri
         (fun i row_name ->
           (* There might be additional storage.
              Also, we only print the row if it has non-zero elements or if we are explicitly requested to do so *)
           if i < db.core.n_rows && (stats.row_stats.(i).sum > 0. || filter.print_zero_rows) then
-            Tools.List.accum rows (row_name, i))
+            List.accum rows (row_name, i))
         db.core.idx_to_row_names;
       (* Columns *)
       Array.iteri
         (fun i col_name ->
           (* There might be additional storage, or we might need to remove some columns *)
           if i < db.core.n_cols && StringSet.mem col_name filter.filter_columns |> not then
-            Tools.List.accum cols (col_name, i))
+            List.accum cols (col_name, i))
         db.core.idx_to_col_names;
-      let meta = Tools.Array.of_rlist !meta and rows = Tools.Array.of_rlist !rows
-      and cols = Tools.Array.of_rlist !cols in
+      let meta = Array.of_rlist !meta and rows = Array.of_rlist !rows and cols = Array.of_rlist !cols in
       let n_rows = Array.length rows and n_cols = Array.length cols in
       (* There must be at least one row to print.
          If there are no columns, we just print metadata/row names  *)
@@ -994,7 +990,7 @@ and KMerDB:
               processed_cols := !processed_cols + n_processed;
               if verbose && !processed_cols / 2 > old_processed_cols / 2 then (* We write one column at the time *)
                 Printf.eprintf "%s\r(%s): Writing table to file '%s': done %d/%d lines%!"
-                  Tools.String.TermIO.clear __FUNCTION__ fname !processed_cols n_cols)
+                  String.TermIO.clear __FUNCTION__ fname !processed_cols n_cols)
             threads
         end else begin
           if filter.print_col_names then begin
@@ -1054,7 +1050,7 @@ and KMerDB:
               processed_rows := !processed_rows + n_processed;
               if verbose && !processed_rows / 10000 > old_processed_rows / 10000 then
                 Printf.eprintf "%s\r(%s): Writing table to file '%s': done %d/%d lines%!"
-                  Tools.String.TermIO.clear __FUNCTION__ fname !processed_rows n_rows)
+                  String.TermIO.clear __FUNCTION__ fname !processed_rows n_rows)
             threads
         end;
         let n_done =
@@ -1064,7 +1060,7 @@ and KMerDB:
             n_rows in
         if verbose then
           Printf.eprintf "%s\r(%s): Writing table to file '%s': done %d/%d lines.\n%!"
-            Tools.String.TermIO.clear __FUNCTION__ fname n_done n_done
+            String.TermIO.clear __FUNCTION__ fname n_done n_done
       end;
       close_out output
     let make_filename_table = function
@@ -1077,13 +1073,13 @@ and KMerDB:
       let stats = Statistics.table_of_db ~threads ~verbose transf db
       and n_r = db.core.n_rows in (* Does not change *)
       let make_submatrix selection =
-        let idxs = ref Tools.IntSet.empty in
+        let idxs = ref IntSet.empty in
         Array.iteri
           (fun col_idx col_name ->
             if StringSet.mem col_name selection then
-              idxs := Tools.IntSet.add col_idx !idxs)
+              idxs := IntSet.add col_idx !idxs)
           db.core.idx_to_col_names;
-        let idxs = Tools.IntSet.elements_array !idxs in
+        let idxs = IntSet.elements_array !idxs in
         let n_c = Array.length idxs in
         (* The distance matrix is computed rowwise, and k-mers are physically stored as rows in db:
             we need to transpose *)
@@ -1160,8 +1156,8 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopCountDB";
-  version = "41";
-  date = "18-Mar-2024"
+  version = "42";
+  date = "16-Apr-2024"
 } and authors = [
   "2020-2024", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
@@ -1173,7 +1169,7 @@ let () =
   let parse_regexp_selector option s =
     List.map
     (fun l ->
-      let res = Tools.Split.on_char_as_list '~' l in
+      let res = String.Split.on_char_as_list '~' l in
       if List.length res <> 2 then begin
         TA.usage ();
         List.length res |>
@@ -1181,7 +1177,7 @@ let () =
           TA.parse_error (* parse_error exits the program *)
       end;
       List.nth res 0, List.nth res 1 |> Str.regexp)
-    (Tools.Split.on_char_as_list ',' s) in
+    (String.Split.on_char_as_list ',' s) in
   TA.parse [
     TA.make_separator_multiline [ "Actions."; "They are executed delayed and in order of specification." ];
     TA.make_separator_multiline [ ""; "Actions on the database register:" ];
@@ -1189,47 +1185,47 @@ let () =
       None,
       [ "put an empty database into the register" ],
       TA.Optional,
-      (fun _ -> Empty |> Tools.List.accum Parameters.program);
+      (fun _ -> Empty |> List.accum Parameters.program);
     [ "-i"; "--input" ],
       Some "<binary_file_prefix>",
       [ "load into the register the database present in the specified file";
         " (which must have extension .KPopCounter)" ],
       TA.Optional,
-      (fun _ -> Of_file (TA.get_parameter () |> KMerDB.make_filename_binary) |> Tools.List.accum Parameters.program);
+      (fun _ -> Of_file (TA.get_parameter () |> KMerDB.make_filename_binary) |> List.accum Parameters.program);
     [ "-m"; "--metadata"; "--add-metadata" ],
       Some "<metadata_table_file_name>",
       [ "add to the database present in the register metadata from the specified file.";
         "Metadata field names and values must not contain double quote '\"' characters" ],
       TA.Optional,
-      (fun _ -> Add_meta (TA.get_parameter ()) |> Tools.List.accum Parameters.program);
+      (fun _ -> Add_meta (TA.get_parameter ()) |> List.accum Parameters.program);
     [ "-k"; "--kmers"; "--add-kmers"; "--add-kmer-files" ],
       Some "<k-mer_table_file_name>[','...','<k-mer_table_file_name>]",
       [ "add to the database present in the register k-mers from the specified files" ],
       TA.Optional,
       (fun _ ->
-        Add_files (TA.get_parameter () |> Tools.Split.on_char_as_list ',') |> Tools.List.accum Parameters.program);
+        Add_files (TA.get_parameter () |> String.Split.on_char_as_list ',') |> List.accum Parameters.program);
     [ "--summary" ],
       None,
       [ "print a summary of the database present in the register" ],
       TA.Optional,
-      (fun _ -> Summary |> Tools.List.accum Parameters.program);
+      (fun _ -> Summary |> List.accum Parameters.program);
     [ "-o"; "--output" ],
       Some "<binary_file_prefix>",
       [ "dump the database present in the register to the specified file";
         " (which will be given extension .KPopCounter)" ],
       TA.Optional,
-      (fun _ -> To_file (TA.get_parameter () |> KMerDB.make_filename_binary) |> Tools.List.accum Parameters.program);
+      (fun _ -> To_file (TA.get_parameter () |> KMerDB.make_filename_binary) |> List.accum Parameters.program);
     [ "--distance"; "--distance-function" ],
       Some "'euclidean'|'minkowski(<non_negative_float>)'",
       [ "set the function to be used when computing distances.";
         "The parameter for 'minkowski()' is the power" ],
       TA.Default (fun () -> Space.Distance.to_string Defaults.distance),
-      (fun _ -> Distance_set (TA.get_parameter () |> Space.Distance.of_string) |> Tools.List.accum Parameters.program);
+      (fun _ -> Distance_set (TA.get_parameter () |> Space.Distance.of_string) |> List.accum Parameters.program);
     [ "--distance-normalize"; "--normalize-distances"; "--distance-normalization" ],
       Some "'true'|'false'",
       [ "whether spectra should be normalized prior to computing distances" ],
       TA.Optional,
-      (fun _ -> Distance_normalisation_set (TA.get_parameter_boolean ()) |> Tools.List.accum Parameters.program);
+      (fun _ -> Distance_normalisation_set (TA.get_parameter_boolean ()) |> List.accum Parameters.program);
     [ "-d"; "--distances"; "--compute-distances"; "--compute-spectral-distances" ],
       Some "REGEXP_SELECTOR REGEXP_SELECTOR <binary_file_prefix>",
       [ "where REGEXP_SELECTOR :=";
@@ -1244,25 +1240,25 @@ let () =
       (fun _ ->
         let regexps_1 = TA.get_parameter () |> parse_regexp_selector "-d" in
         let regexps_2 = TA.get_parameter () |> parse_regexp_selector "-d" in
-        To_distances (regexps_1, regexps_2, TA.get_parameter ()) |> Tools.List.accum Parameters.program);
+        To_distances (regexps_1, regexps_2, TA.get_parameter ()) |> List.accum Parameters.program);
     [ "--table-output-row-names" ],
       Some "'true'|'false'",
       [ "whether to output row names for the database present in the register";
         "when writing it as a tab-separated file" ],
       TA.Default (fun () -> string_of_bool Defaults.filter.print_row_names),
-      (fun _ -> Table_output_row_names (TA.get_parameter_boolean ()) |> Tools.List.accum Parameters.program);
+      (fun _ -> Table_output_row_names (TA.get_parameter_boolean ()) |> List.accum Parameters.program);
     [ "--table-output-col-names" ],
       Some "'true'|'false'",
       [ "whether to output column names for the database present in the register";
         "when writing it as a tab-separated file" ],
       TA.Default (fun () -> string_of_bool Defaults.filter.print_col_names),
-      (fun _ -> Table_output_col_names (TA.get_parameter_boolean ()) |> Tools.List.accum Parameters.program);
+      (fun _ -> Table_output_col_names (TA.get_parameter_boolean ()) |> List.accum Parameters.program);
     [ "--table-output-metadata" ],
       Some "'true'|'false'",
       [ "whether to output metadata for the database present in the register";
         "when writing it as a tab-separated file" ],
       TA.Default (fun () -> string_of_bool Defaults.filter.print_metadata),
-      (fun _ -> Table_output_metadata (TA.get_parameter_boolean ()) |> Tools.List.accum Parameters.program);
+      (fun _ -> Table_output_metadata (TA.get_parameter_boolean ()) |> List.accum Parameters.program);
     [ "--table-transpose" ],
       Some "'true'|'false'",
       [ "whether to transpose the database present in the register";
@@ -1270,7 +1266,7 @@ let () =
         " (if 'true': rows are spectrum names, columns [metadata and] k-mer names;";
         "  if 'false': rows are [metadata and] k-mer names, columns spectrum names)" ],
       TA.Default (fun () -> string_of_bool Defaults.filter.transpose),
-      (fun _ -> Table_transpose (TA.get_parameter_boolean ()) |> Tools.List.accum Parameters.program);
+      (fun _ -> Table_transpose (TA.get_parameter_boolean ()) |> List.accum Parameters.program);
     [ "--table-threshold" ],
       Some "<non_negative_integer>",
       [ "set to zero all counts that are less than this threshold";
@@ -1279,7 +1275,7 @@ let () =
         "with respect to the sum of all counts in the spectrum" ],
       TA.Default (fun () -> (Transformation.to_parameters Defaults.filter.transform).threshold |> string_of_float),
       (fun _ ->
-        Table_transform_threshold (TA.get_parameter_float_non_neg ()) |> Tools.List.accum Parameters.program);
+        Table_transform_threshold (TA.get_parameter_float_non_neg ()) |> List.accum Parameters.program);
     [ "--table-power" ],
       Some "<non_negative_float>",
       [ "raise counts to this power before transforming and outputting them.";
@@ -1287,31 +1283,31 @@ let () =
         "performs a logarithmic transformation" ],
       TA.Default (fun () -> (Transformation.to_parameters Defaults.filter.transform).power |> string_of_float),
       (fun _ ->
-        Table_transform_power (TA.get_parameter_float_non_neg ()) |> Tools.List.accum Parameters.program);
+        Table_transform_power (TA.get_parameter_float_non_neg ()) |> List.accum Parameters.program);
     [ "--table-transform"; "--table-transformation" ],
       Some "'binary'|'power'|'pseudocounts'|'clr'",
       [ "transformation to apply to table elements before outputting them" ],
       TA.Default (fun () -> (Transformation.to_parameters Defaults.filter.transform).which),
       (fun _ ->
-        Table_transform_which (TA.get_parameter ()) |> Tools.List.accum Parameters.program);
+        Table_transform_which (TA.get_parameter ()) |> List.accum Parameters.program);
     [ "--table-output-zero-rows" ],
       Some "'true'|'false'",
       [ "whether to output rows whose elements are all zero";
         "when writing the database as a tab-separated file" ],
       TA.Default (fun () -> string_of_bool Defaults.filter.print_zero_rows),
-      (fun _ -> Table_output_zero_rows (TA.get_parameter_boolean ()) |> Tools.List.accum Parameters.program);
+      (fun _ -> Table_output_zero_rows (TA.get_parameter_boolean ()) |> List.accum Parameters.program);
     [ "--table-precision" ],
       Some "<positive_integer>",
       [ "set the number of precision digits to be used when outputting counts" ],
       TA.Default (fun () -> string_of_int Defaults.filter.precision),
-      (fun _ -> Table_precision (TA.get_parameter_int_pos ()) |> Tools.List.accum Parameters.program);
+      (fun _ -> Table_precision (TA.get_parameter_int_pos ()) |> List.accum Parameters.program);
     [ "-t"; "--table" ],
       Some "<file_prefix>",
       [ "write the database present in the register as a tab-separated file";
         " (rows are k-mer names, columns are spectrum names;";
         "  the file will be given extension .KPopCounter.txt)" ],
       TA.Optional,
-      (fun _ -> To_table (TA.get_parameter () |> KMerDB.make_filename_table) |> Tools.List.accum Parameters.program);
+      (fun _ -> To_table (TA.get_parameter () |> KMerDB.make_filename_table) |> List.accum Parameters.program);
     TA.make_separator_multiline [ ""; "Actions involving the selection register:" ];
     [ "-L"; "--labels"; "--selection-from-labels" ],
       Some "<spectrum_label>[','...','<spectrum_label>]",
@@ -1320,8 +1316,8 @@ let () =
       (fun _ ->
         let labels = TA.get_parameter () in
         if labels <> "" then
-        Selected_from_labels (labels |> Tools.Split.on_char_as_list ',' |> StringSet.of_list)
-          |> Tools.List.accum Parameters.program);
+        Selected_from_labels (labels |> String.Split.on_char_as_list ',' |> StringSet.of_list)
+          |> List.accum Parameters.program);
     [ "-R"; "--regexps"; "--selection-from-regexps" ],
       Some "<metadata_field>'~'<regexp>[','...','<metadata_field>'~'<regexp>]",
       [ "put into the selection register the labels of the spectra";
@@ -1331,7 +1327,7 @@ let () =
       TA.Optional,
       (fun _ ->
         Selected_from_regexps (TA.get_parameter () |> parse_regexp_selector "-R")
-          |> Tools.List.accum Parameters.program);
+          |> List.accum Parameters.program);
     [ "--selection-combination-criterion"; "--combination-criterion" ],
       Some "'mean'|'median'",
       [ "set the criterion used to combine the k-mer frequencies of selected spectra.";
@@ -1342,41 +1338,41 @@ let () =
       TA.Default (fun () -> KMerDB.CombinationCriterion.to_string Defaults.combination_criterion),
       (fun _ ->
         Combination_criterion_set (TA.get_parameter () |> KMerDB.CombinationCriterion.of_string)
-          |> Tools.List.accum Parameters.program);
+          |> List.accum Parameters.program);
     [ "-A"; "--add-combined-selection"; "--selection-combine-and-add" ],
       Some "<spectrum_label>",
       [ "combine the spectra whose labels are in the selection register ";
         "and add the result (or replace it if a spectrum named <spectrum_label>";
         "already exists) to the database present in the database register" ],
       TA.Optional,
-      (fun _ -> Add_combined_selected (TA.get_parameter ()) |> Tools.List.accum Parameters.program);
+      (fun _ -> Add_combined_selected (TA.get_parameter ()) |> List.accum Parameters.program);
     [ "-D"; "--delete"; "--selection-delete" ],
       None,
       [ "drop the spectra whose labels are in the selection register";
         "from the database present in the register" ],
       TA.Optional,
-      (fun _ -> Remove_selected |> Tools.List.accum Parameters.program);
+      (fun _ -> Remove_selected |> List.accum Parameters.program);
     [ "-N"; "--selection-negate" ],
       None,
       [ "negate the labels that are present in the selection register" ],
       TA.Optional,
-      (fun _ -> Selected_negate |> Tools.List.accum Parameters.program);
+      (fun _ -> Selected_negate |> List.accum Parameters.program);
     [ "-P"; "--selection-print" ],
       None,
       [ "print the labels that are present in the selection register" ],
       TA.Optional,
-      (fun _ -> Selected_print |> Tools.List.accum Parameters.program);
+      (fun _ -> Selected_print |> List.accum Parameters.program);
     [ "-C"; "--selection-clear" ],
       None,
       [ "purge the selection register" ],
       TA.Optional,
-      (fun _ -> Selected_clear |> Tools.List.accum Parameters.program);
+      (fun _ -> Selected_clear |> List.accum Parameters.program);
     [ "-F"; "--selection-to-table-filter" ],
       None,
       [ "filter out spectra whose labels are present in the selection register";
         "when writing the database as a tab-separated file" ],
       TA.Optional,
-      (fun _ -> Selected_to_filter |> Tools.List.accum Parameters.program);
+      (fun _ -> Selected_to_filter |> List.accum Parameters.program);
     TA.make_separator_multiline [ "Miscellaneous options."; "They are set immediately" ];
     [ "-T"; "--threads" ],
       Some "<computing_threads>",
@@ -1486,6 +1482,6 @@ let () =
             !distance !current selected_1 selected_2 prefix)
       program
   with exc ->
-    Tools.Printf.peprintf "(%s): %s\n%!" __FUNCTION__
-      ("FATAL: Uncaught exception: " ^ Printexc.to_string exc |> Tools.String.TermIO.red)
+    Printf.peprintf "(%s): %s\n%!" __FUNCTION__
+      ("FATAL: Uncaught exception: " ^ Printexc.to_string exc |> String.TermIO.red)
 

@@ -14,6 +14,7 @@
 *)
 
 open BiOCamLib
+open Better
 
 (* A number of distance functions.
    They all have signature: float array -> float array -> float array -> float *)
@@ -222,7 +223,7 @@ module Distance:
       | Minkowski power -> Printf.sprintf "minkowski(%.15g)" power
     module Iterator =
       struct
-        module FloatIntMultimap = Tools.Multimap (Tools.ComparableFloat) (Tools.ComparableInt)
+        module FloatIntMultimap = Tools.Multimap (ComparableFloat) (ComparableInt)
         type distance_t = t
         type t = {
           (* Function of the _difference_ between components of the same vector *)
@@ -230,7 +231,7 @@ module Distance:
           n: int;
           sorted: FloatIntMultimap.t;
           (* There is, in the worst case, one minimum per stride *)
-          mutable state: state_t Tools.IntMap.t;
+          mutable state: state_t IntMap.t;
           (* The invariant is that the minimum for the highest stride is always global.
              If the level is unbroken, one can avoid computing the following one *)
         } and state_t = {
@@ -247,7 +248,7 @@ module Distance:
           end
         let output_summary it =
           Printf.printf "Distance.Iterator( n=%d state={" it.n;
-          Tools.IntMap.iter
+          IntMap.iter
             (fun i {lo = (lo_coord, lo_idx); hi = (hi_coord, hi_idx)} ->
               Printf.printf " %d->[d=%.14g|%d->%.14g|%d->%.14g]"
                 i (hi_coord -. lo_coord) lo_idx lo_coord hi_idx hi_coord)
@@ -404,7 +405,7 @@ module Distance:
             compute_distance_component = compute_norm_unscaled_component dist metr;
             n;
             sorted = !sorted;
-            state = Tools.IntMap.empty
+            state = IntMap.empty
           } in
           begin match
             get_minimum_opt ~max_distance_component res.compute_distance_component res.sorted 0 neg_infinity
@@ -418,17 +419,17 @@ module Distance:
               (* This might only occur when there are no points. Nothing to do, as the iterator is currently invalid *)
               ()
             | Some w ->
-              res.state <- Tools.IntMap.singleton 1 w (* At the moment, level 1 is complete *)
+              res.state <- IntMap.singleton 1 w (* At the moment, level 1 is complete *)
             end
           | Some w ->
-            res.state <- Tools.IntMap.singleton 0 w (* At the moment, level 0 is complete *)
+            res.state <- IntMap.singleton 0 w (* At the moment, level 0 is complete *)
           end;
           res
         (* Auxiliary function. It assumes there is a valid interval *)
         let find_minimum_interval it =
           let min_stride = ref it.n and min_diff = ref infinity in
           (* First we find what is the minimum across all active layers *)
-          Tools.IntMap.iter
+          IntMap.iter
             (fun i state ->
               let coord_lo, _ = state.lo and coord_hi, _ = state.hi in
               let diff = coord_hi -. coord_lo in
@@ -439,11 +440,11 @@ module Distance:
             it.state;
           let min_stride = !min_stride in
           (* If there are no valid intervals, the iterator must have been previously invalidated *)
-          assert (it.state <> Tools.IntMap.empty && min_stride <> it.n);
+          assert (it.state <> IntMap.empty && min_stride <> it.n);
           (* There must be at least one valid interval *)
-          min_stride, Tools.IntMap.find min_stride it.state
+          min_stride, IntMap.find min_stride it.state
         let get_opt it =
-          if it.state = Tools.IntMap.empty then
+          if it.state = IntMap.empty then
             None
           else begin
             let _, min_state = find_minimum_interval it in
@@ -453,17 +454,17 @@ module Distance:
         let incr ?(max_distance_component = infinity) it =
           (* We find and update the minimum interval.
              If the update happens in the topmost stride, we compute the next one, if any is still available *)
-          if it.state <> Tools.IntMap.empty then begin
+          if it.state <> IntMap.empty then begin
             let min_stride, min_state = find_minimum_interval it in
             begin match begin
               get_next_opt ~max_distance_component it.compute_distance_component it.sorted min_stride min_state
             end with
-            | None -> it.state <- Tools.IntMap.remove min_stride it.state
-            | Some w -> it.state <- Tools.IntMap.add min_stride w it.state
+            | None -> it.state <- IntMap.remove min_stride it.state
+            | Some w -> it.state <- IntMap.add min_stride w it.state
             end;
             (* At this point the iterator can legitimately be invalid *)
-            if it.state <> Tools.IntMap.empty then begin
-              let aug_min_stride = min_stride + 1 and stride_hi, _ = Tools.IntMap.max_binding it.state in
+            if it.state <> IntMap.empty then begin
+              let aug_min_stride = min_stride + 1 and stride_hi, _ = IntMap.max_binding it.state in
               if min_stride = stride_hi && aug_min_stride <> it.n then begin
                 (* We can use the difference at this level as a bound for the next one, I think :-) *)
                 let coord_lo, _ = min_state.lo and coord_hi, _ = min_state.hi in
@@ -472,7 +473,7 @@ module Distance:
                   get_minimum_opt ~max_distance_component it.compute_distance_component it.sorted aug_min_stride diff
                 end with
                 | None -> ()
-                | Some w -> it.state <- Tools.IntMap.add aug_min_stride w it.state
+                | Some w -> it.state <- IntMap.add aug_min_stride w it.state
               end
             end
           end

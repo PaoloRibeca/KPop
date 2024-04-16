@@ -14,6 +14,7 @@
 *)
 
 open BiOCamLib
+open Better
 open KPop
 
 module [@warning "-32"] Twister:
@@ -94,10 +95,10 @@ module [@warning "-32"] Twister:
           Hashtbl.add twister_col_names_to_idx name i)
         twister.twister.matrix.idx_to_col_names;
       (* We decompose the existing twisted matrix *)
-      let res = ref Tools.StringMap.empty in
+      let res = ref StringMap.empty in
       Array.iteri
         (fun i name ->
-          res := Tools.StringMap.add name twisted.matrix.storage.(i) !res)
+          res := StringMap.add name twisted.matrix.storage.(i) !res)
         twisted.matrix.idx_to_row_names;
       (* First we read spectra from the files.
          We have to conform the k-mers to the ones in the twister.
@@ -117,7 +118,7 @@ module [@warning "-32"] Twister:
               while true do
                 let line_s = input_line !file in
                 incr line_num;
-                let line = Tools.Split.on_char_as_array '\t' line_s in
+                let line = String.Split.on_char_as_array '\t' line_s in
                 let l = Array.length line in
                 if l <> 2 then
                   Wrong_number_of_columns (!line_num, l, 2) |> raise;
@@ -133,7 +134,7 @@ module [@warning "-32"] Twister:
                   end
                 end else
                   (* A regular line. The first element is the hash, the second one the count *)
-                  Tools.List.accum buf (line.(0), line.(1))
+                  List.accum buf (line.(0), line.(1))
               done
             with
             | End_of_file ->
@@ -142,9 +143,9 @@ module [@warning "-32"] Twister:
               incr num_spectra;
               if verbose then
                 Printf.eprintf "%s\r(%s): [%d/%d] File '%s': Read %d %s on %d %s%s%!"
-                  Tools.String.TermIO.clear __FUNCTION__ (!file_idx + 1) n fnames.(!file_idx)
-                  !num_spectra (Tools.String.pluralize_int ~plural:"spectra" "spectrum" !num_spectra)
-                  !line_num (Tools.String.pluralize_int "line" !line_num) (if !file_idx + 1 = n then ".\n" else "");
+                  String.TermIO.clear __FUNCTION__ (!file_idx + 1) n fnames.(!file_idx)
+                  !num_spectra (String.pluralize_int ~plural:"spectra" "spectrum" !num_spectra)
+                  !line_num (String.pluralize_int "line" !line_num) (if !file_idx + 1 = n then ".\n" else "");
               incr file_idx;
               if !file_idx < n then begin
                 file := open_in fnames.(!file_idx);
@@ -155,16 +156,16 @@ module [@warning "-32"] Twister:
             end;
             if verbose && !file_idx < n then
               Printf.eprintf "%s\r(%s): [%d/%d] File '%s': Read %d %s on %d %s%!"
-                Tools.String.TermIO.clear __FUNCTION__ (!file_idx + 1) n fnames.(!file_idx)
-                !num_spectra (Tools.String.pluralize_int ~plural:"spectra" "spectrum" !num_spectra)
-                !line_num (Tools.String.pluralize_int "line" !line_num);
+                String.TermIO.clear __FUNCTION__ (!file_idx + 1) n fnames.(!file_idx)
+                !num_spectra (String.pluralize_int ~plural:"spectra" "spectrum" !num_spectra)
+                !line_num (String.pluralize_int "line" !line_num);
             (* The lines are passed in reverse order, but that does not really matter much
                 as the final order is determined by the twister *)
             fst !labels, !buf
           end)
         (fun (label, rev_lines) ->
           let t0 = Sys.time () in
-          let s_v = ref Tools.IntMap.empty and acc = ref 0. in
+          let s_v = ref IntMap.empty and acc = ref 0. in
           List.iter
             (fun (name, v) ->
               match Hashtbl.find_opt twister_col_names_to_idx name with
@@ -176,12 +177,12 @@ module [@warning "-32"] Twister:
                     Float_expected v |> raise in
                 acc := !acc +. v;
                 s_v := begin
-                  match Tools.IntMap.find_opt idx !s_v with
+                  match IntMap.find_opt idx !s_v with
                   | Some vv ->
                     (* If there are repeated k-mers, we accumulate them *)
-                    Tools.IntMap.add idx (vv +. v) !s_v
+                    IntMap.add idx (vv +. v) !s_v
                   | None ->
-                    Tools.IntMap.add idx v !s_v
+                    IntMap.add idx v !s_v
                 end
               | None ->
                 (* In this case, we just discard the k-mer *)
@@ -194,7 +195,7 @@ module [@warning "-32"] Twister:
             Matrix.Base.length = num_twister_cols;
             elements =
               if acc <> 0. then
-                Tools.IntMap.map
+                IntMap.map
                   (fun el ->
                     el /. acc)
                   !s_v
@@ -210,16 +211,16 @@ module [@warning "-32"] Twister:
           label, res)
         (fun (label, row) ->
           (* The transformed column vector becomes a row *)
-          match Tools.StringMap.find_opt label !res with
+          match StringMap.find_opt label !res with
           | None ->
-            res := Tools.StringMap.add label row !res
+            res := StringMap.add label row !res
           | Some _ ->
             Duplicate_label label |> raise)
         threads;
-      let n = Tools.StringMap.cardinal !res in
+      let n = StringMap.cardinal !res in
       let idx_to_row_names = Array.make n ""
       and storage = Array.make n (Float.Array.create 0) in
-      Tools.StringMap.iteri
+      StringMap.iteri
         (fun i label row ->
           idx_to_row_names.(i) <- label;
           storage.(i) <- row)
@@ -332,8 +333,8 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopTwistDB";
-  version = "29";
-  date = "18-Mar-2024"
+  version = "30";
+  date = "16-Apr-2024"
 } and authors = [
   "2022-2024", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
@@ -354,7 +355,7 @@ let () =
         | Metrics ->
           TA.parse_error "You cannot load content into the metrics register"
         | Twister | Twisted | Distances as register_type ->
-          Empty register_type |> Tools.List.accum Parameters.program);
+          Empty register_type |> List.accum Parameters.program);
     [ "-i"; "--input" ],
       Some "'T'|'t'|'d' <binary_file_prefix>",
       [ "load the specified binary database into the specified register";
@@ -367,7 +368,7 @@ let () =
         | Metrics ->
           TA.parse_error "You cannot load content into the metrics register"
         | Twister | Twisted | Distances as register_type ->
-          Binary_to_register (register_type, TA.get_parameter ()) |> Tools.List.accum Parameters.program);
+          Binary_to_register (register_type, TA.get_parameter ()) |> List.accum Parameters.program);
     [ "-I"; "--Input" ],
       Some "'T'|'t'|'d' <table_file_prefix>",
       [ "load the specified tabular database(s) into the specified register";
@@ -381,7 +382,7 @@ let () =
         | Metrics ->
           TA.parse_error "You cannot load content into the metrics register"
         | Twister | Twisted | Distances as register_type ->
-          Tables_to_register (register_type, TA.get_parameter ()) |> Tools.List.accum Parameters.program);
+          Tables_to_register (register_type, TA.get_parameter ()) |> List.accum Parameters.program);
     [ "-a"; "--add" ],
       Some "'t'|'d' <binary_file_prefix>",
       [ "add the contents of the specified binary database to the specified register";
@@ -394,7 +395,7 @@ let () =
         | Twister | Metrics ->
           TA.parse_error "You cannot add content to the twister or metrics registers"
         | Twisted | Distances as register_type ->
-          Add_binary_to_register (register_type, TA.get_parameter ()) |> Tools.List.accum Parameters.program);
+          Add_binary_to_register (register_type, TA.get_parameter ()) |> List.accum Parameters.program);
     [ "-A"; "--Add" ],
       Some "'t'|'d' <table_file_prefix>",
       [ "add the contents of the specified tabular database to the specified register";
@@ -407,7 +408,7 @@ let () =
         | Twister | Metrics ->
           TA.parse_error "You cannot add content to the twister or metrics registers"
         | Twisted | Distances as register_type ->
-          Add_tables_to_register (register_type, TA.get_parameter ()) |> Tools.List.accum Parameters.program);
+          Add_tables_to_register (register_type, TA.get_parameter ()) |> List.accum Parameters.program);
     [ "-k"; "--kmers"; "--add-kmers"; "--add-kmer-files" ],
       Some "<k-mer_table_file_name>[','...','<k-mer_table_file_name>]",
       [ "twist k-mers from the specified files through the transformation";
@@ -416,7 +417,7 @@ let () =
       TA.Optional,
       (fun _ ->
         Add_kmer_files_to_twisted
-          (TA.get_parameter () |> Tools.Split.on_char_as_list ',') |> Tools.List.accum Parameters.program);
+          (TA.get_parameter () |> String.Split.on_char_as_list ',') |> List.accum Parameters.program);
     [ "--distance"; "--distance-function"; "--set-distance"; "--set-distance-function" ],
       Some "'euclidean'|'cosine'|'minkowski(<non_negative_float>)'",
       [ "set the function to be used when computing distances.";
@@ -424,12 +425,12 @@ let () =
         "Note that 'euclidean' is the same as 'minkowski(2)',";
         "and 'cosine' is the same as ('euclidean'^2)/2" ],
       TA.Default (fun () -> Space.Distance.to_string Defaults.distance),
-      (fun _ -> Set_distance (TA.get_parameter () |> Space.Distance.of_string) |> Tools.List.accum Parameters.program);
+      (fun _ -> Set_distance (TA.get_parameter () |> Space.Distance.of_string) |> List.accum Parameters.program);
     [ "--distance-normalization"; "--set-distance-normalization" ],
       Some "'true'|'false'",
       [ "set whether twisted vectors should be normalized prior to computing distances" ],
       TA.Default (fun () -> string_of_bool Defaults.distance_normalize),
-      (fun _ -> Set_distance_normalize (TA.get_parameter_boolean ()) |> Tools.List.accum Parameters.program);
+      (fun _ -> Set_distance_normalize (TA.get_parameter_boolean ()) |> List.accum Parameters.program);
     [ "-m"; "--metric"; "--metric-function"; "--set-metric"; "--set-metric-function" ],
       Some "'flat'|'powers('POWERS_PARAMETERS')'",
       [ "where POWERS_PARAMETERS :=";
@@ -439,7 +440,7 @@ let () =
         " internal power; fractional accumulative threshold; external power." ],
       TA.Default (fun () -> Space.Distance.Metric.to_string Defaults.metric),
       (fun _ ->
-        Set_metric (TA.get_parameter () |> Space.Distance.Metric.of_string) |> Tools.List.accum Parameters.program);
+        Set_metric (TA.get_parameter () |> Space.Distance.Metric.of_string) |> List.accum Parameters.program);
     [ "-d"; "--distances"; "--compute-distances"; "--compute-twisted-distances" ],
       Some "<twisted_binary_file_prefix>",
       [ "compute distances between all the vectors present in the twisted register";
@@ -448,7 +449,7 @@ let () =
         "using the metric provided by the twister present in the twister register.";
         "The result will be placed in the distance register" ],
       TA.Optional,
-      (fun _ -> Distances_from_twisted_binary (TA.get_parameter ()) |> Tools.List.accum Parameters.program);
+      (fun _ -> Distances_from_twisted_binary (TA.get_parameter ()) |> List.accum Parameters.program);
     [ "-o"; "--output" ],
       Some "'T'|'t'|'d' <binary_file_prefix>",
       [ "dump the database present in the specified register";
@@ -462,12 +463,12 @@ let () =
         | Metrics ->
           TA.parse_error "You cannot output binary content from the metrics registers"
         | Twister | Twisted | Distances as register_type ->
-          Register_to_binary (register_type, TA.get_parameter ()) |> Tools.List.accum Parameters.program);
+          Register_to_binary (register_type, TA.get_parameter ()) |> List.accum Parameters.program);
     [ "--precision"; "--set-precision"; "--set-table-precision" ],
       Some "<positive_integer>",
       [ "set the number of precision digits to be used when outputting numbers" ],
       TA.Default (fun () -> string_of_int Defaults.precision),
-      (fun _ -> Set_precision (TA.get_parameter_int_pos ()) |> Tools.List.accum Parameters.program);
+      (fun _ -> Set_precision (TA.get_parameter_int_pos ()) |> List.accum Parameters.program);
     [ "-O"; "--Output" ],
       Some "'T'|'t'|'d'|'m' <table_file_prefix>",
       [ "dump the database present in the specified register";
@@ -479,14 +480,14 @@ let () =
       TA.Optional,
       (fun _ ->
         let register_type = TA.get_parameter () |> RegisterType.of_string in
-        Register_to_tables (register_type, TA.get_parameter ()) |> Tools.List.accum Parameters.program);
+        Register_to_tables (register_type, TA.get_parameter ()) |> List.accum Parameters.program);
     [ "-K"; "--keep-at-most"; "--set-keep-at-most"; "--summary-keep-at-most" ],
       Some "<positive_integer>|'all'",
       [ "set the maximum number of closest target sequences";
         "to be kept when summarizing distances.";
         "Note that more might be printed anyway in case of ties" ],
       TA.Default (fun () -> KeepAtMost.to_string Defaults.keep_at_most),
-      (fun _ -> Set_keep_at_most (TA.get_parameter () |> KeepAtMost.of_string) |> Tools.List.accum Parameters.program);
+      (fun _ -> Set_keep_at_most (TA.get_parameter () |> KeepAtMost.of_string) |> List.accum Parameters.program);
     [ "-s"; "--compute-and-summarize-distances"; "--compute-and-summarize-twisted-distances" ],
       Some "<twisted_binary_file_prefix> <summary_file_prefix>",
       [ "compute distances between all the vectors present in the twisted register";
@@ -499,7 +500,7 @@ let () =
       TA.Optional,
       (fun _ ->
         let twisted_prefix = TA.get_parameter () in
-        Summary_from_twisted_binary (twisted_prefix, TA.get_parameter ()) |> Tools.List.accum Parameters.program);
+        Summary_from_twisted_binary (twisted_prefix, TA.get_parameter ()) |> List.accum Parameters.program);
     [ "-S"; "--summarize-distances"; "--summarize-twisted-distances" ],
       Some "<summary_file_prefix>",
       [ "summarize the distances present in the distance register";
@@ -507,7 +508,7 @@ let () =
         "File extension is automatically assigned";
         " (will be .KPopSummary.txt)" ],
       TA.Optional,
-      (fun _ -> Summary_from_distances (TA.get_parameter ()) |> Tools.List.accum Parameters.program);
+      (fun _ -> Summary_from_distances (TA.get_parameter ()) |> List.accum Parameters.program);
     TA.make_separator_multiline [ "Miscellaneous options."; "They are set immediately." ];
     [ "-T"; "--threads" ],
       Some "<computing_threads>",
@@ -697,6 +698,6 @@ let () =
             ~keep_at_most:!keep_at_most ~threads:!Parameters.threads ~verbose:!Parameters.verbose !distances prefix)
       program
   with exc ->
-    Printf.eprintf "[#%s]: (%s): %s\n%!" (Unix.getpid () |> string_of_int |> Tools.String.TermIO.blue) __FUNCTION__
-      ("FATAL: Uncaught exception: " ^ Printexc.to_string exc |> Tools.String.TermIO.red)
+    Printf.eprintf "[#%s]: (%s): %s\n%!" (Unix.getpid () |> string_of_int |> String.TermIO.blue) __FUNCTION__
+      ("FATAL: Uncaught exception: " ^ Printexc.to_string exc |> String.TermIO.red)
 
