@@ -38,7 +38,11 @@ There are several possible ways of installing the software on your machine: thro
 
 ### 0.1. Conda channel
 
-> :construction: Coming soon! :construction:
+BiOCamLib can be installed from the `bioconda` channel as package `kpop`. Just type
+```bash
+conda install -c bioconda kpop
+```
+or the equivalent command obtained replacing `conda` with `mamba` or `micromamba`, depending on which program you habitually use.
 
 ### 0.2. Pre-compiled binaries
 
