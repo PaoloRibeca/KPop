@@ -32,7 +32,6 @@ module KMerCounter (KIH: KMers.IntHash_t):
       (* Header with label *)
       if label <> "" then
         Printf.fprintf output "\t%s\n" label;
-      let output_format = Scanf.format_from_string (Printf.sprintf "%%0%dx\t%%d\n" ((KIH.k + 1) / 2)) "%d%d" in
       let reads_cntr = ref 0 and res = KIHF.create max_results_size in
       Files.ReadsIterate.iter ~linter ~verbose:false
         (fun _ segm_id read ->
@@ -44,7 +43,7 @@ module KMerCounter (KIH: KMers.IntHash_t):
                 String.TermIO.clear __FUNCTION__ max_results_size;
             if label = "" then
               Matrix.Base.strip_external_quotes_and_check read.tag |> Printf.fprintf output "\t%s\n";
-            KIHF.iter (Printf.fprintf output output_format) res;
+            KIHF.iter (fun k f -> Printf.fprintf output "%s\t%d\n" (KIH.to_hex k) f) res;
             if verbose && label <> "" then
               Printf.eprintf " done.\n%!";
             KIHF.clear res
@@ -58,7 +57,7 @@ module KMerCounter (KIH: KMers.IntHash_t):
         Printf.eprintf "%s\r(%s): Added %d reads.\n%!" String.TermIO.clear __FUNCTION__ !reads_cntr;
         Printf.eprintf "(%s): Outputting hashes...%!" __FUNCTION__;
       end;
-      KIHF.iter (Printf.fprintf output output_format) res;
+      KIHF.iter (fun k f -> Printf.fprintf output "%s\t%d\n" (KIH.to_hex k) f) res;
       if verbose then
         Printf.eprintf " done.%!\n";
       close_out output
