@@ -305,7 +305,7 @@ module Base:
 
 (* KPop-specialised matrices.
    We include in order not to have a repeated module prefix *)
-include [@warning "-32"] (
+include (
   struct
     module Type =
       struct
