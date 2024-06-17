@@ -220,7 +220,7 @@ module Base:
       { idx_to_col_names = m1.idx_to_row_names;
         idx_to_row_names = m2.idx_to_row_names;
         storage = storage }
-    module NearestNeighbor =
+    module [@warning "-27-32-69"] NearestNeighbor =
       struct
         (* These are column statistics *)
         module Statistics =
@@ -235,7 +235,7 @@ module Base:
               max = 0.;
               sum = 0.
             }
-            let [@warning "-32"] compute ?(threads = 1) ?(verbose = false) m =
+            let compute ?(threads = 1) ?(verbose = false) m =
               (* Column n *)
               let compute_one n =
                 let min = ref 0. and max = ref 0. and sum = ref 0. in
@@ -288,14 +288,14 @@ module Base:
 
 
         }
-        let [@warning "-27"] make_rowwise dist metr precond rowwise =
+        let make_rowwise dist metr precond rowwise =
           (* Input has sample names as rows, dimensions as columns.
              Output is one specific dimension selected according to the preconditioner,
               and an interator built upon it *)
 
           { vectors = StringMap.empty }
 
-        let [@warning "-27"] find_and_replace ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false) nn f =
+        let find_and_replace ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false) nn f =
 
 
           ()
