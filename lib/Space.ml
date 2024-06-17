@@ -23,8 +23,13 @@ module Distance:
     module Metric:
       (* Functions to deduce a metric from a vector *)
       sig
-        type t (* We hide the type to implement constraints *)
-        exception Negative_metric_element of float
+        (* We make the type private to implement constraints *)
+        type t = private
+          | Flat
+          (* Parameters are: internal power, threshold (on accumulated transformed inertia), external power.
+            Powers must be >= 0., threshold between 0. and 1. *)
+          | Powers of float * float * float
+      exception Negative_metric_element of float
         exception Unsorted_metric_vector of Float.Array.t
         val compute: t -> Float.Array.t -> Float.Array.t
         exception Unknown_metric of string
@@ -33,7 +38,11 @@ module Distance:
         val of_string: string -> t
         val to_string: t -> string
       end
-    type t (* We hide the type to implement constraints *)
+    (* We make the type private to implement constraints *)
+    type t = private
+      | Euclidean
+      | Cosine (* Same as Euclidean^2 / 2 *)
+      | Minkowski of float (* Theoretically speaking, the parameter should be an integer *)
     exception Incompatible_vector_lengths of int * int * int
     (* What happens when argument vectors have incompatible lengths *)
     type mode_t =
@@ -71,8 +80,6 @@ module Distance:
       struct
         type t =
           | Flat
-          (* Parameters are: internal power, threshold (on accumulated transformed inertia), external power.
-             Powers must be >= 0., threshold between 0. and 1. *)
           | Powers of float * float * float
         (* Internal type used to cluster identical consecutive elements *)
         exception Negative_metric_element of float
@@ -132,8 +139,8 @@ module Distance:
     (* Distance *)
     type t =
       | Euclidean
-      | Cosine (* Same as Euclidean^2 / 2 *)
-      | Minkowski of float (* Theoretically speaking, the parameter should be an integer *)
+      | Cosine
+      | Minkowski of float
     exception Incompatible_vector_lengths of int * int * int
     type mode_t =
       | Fail
