@@ -34,18 +34,18 @@ include (
       and inertia = Matrix.of_file ~threads ~bytes_per_step ~verbose Inertia prefix in
       (* Let's run at least some checks *)
       if begin
-        inertia.matrix.idx_to_row_names <> [| "inertia" |] ||
-        twister.matrix.idx_to_row_names <> inertia.matrix.idx_to_col_names
+        inertia.matrix.row_names <> [| "inertia" |] ||
+        twister.matrix.row_names <> inertia.matrix.col_names
       end then begin
-        Printf.eprintf "ERROR: twister.idx_to_row_names:";
-        Array.iter (fun el -> Printf.eprintf "\t\"%s\"" el) twister.matrix.idx_to_row_names;
-        Printf.eprintf "\nERROR: inertia.idx_to_col_names:";
-        Array.iter (fun el -> Printf.eprintf "\t\"%s\"" el) inertia.matrix.idx_to_col_names;
-        Printf.eprintf "\nERROR: inertia.idx_to_row_names:";
-        Array.iter (fun el -> Printf.eprintf "\t\"%s\"" el) inertia.matrix.idx_to_row_names;
+        Printf.eprintf "ERROR: twister.row_names:";
+        Array.iter (fun el -> Printf.eprintf "\t\"%s\"" el) twister.matrix.row_names;
+        Printf.eprintf "\nERROR: inertia.col_names:";
+        Array.iter (fun el -> Printf.eprintf "\t\"%s\"" el) inertia.matrix.col_names;
+        Printf.eprintf "\nERROR: inertia.row_names:";
+        Array.iter (fun el -> Printf.eprintf "\t\"%s\"" el) inertia.matrix.row_names;
         Printf.eprintf "\n%!";
         Mismatched_twister_files
-            (twister.matrix.idx_to_row_names, inertia.matrix.idx_to_col_names, inertia.matrix.idx_to_row_names)
+            (twister.matrix.row_names, inertia.matrix.col_names, inertia.matrix.row_names)
           |> raise
       end;
       { twister; inertia }
@@ -60,25 +60,25 @@ include (
       ignore elements_per_step; (* Not used at the moment *)
       if twisted.Matrix.which <> Twisted then
         Matrix.Unexpected_type (twisted.Matrix.which, Twisted) |> raise;
-      let twisted_idx_to_col_names =
+      let twisted_col_names =
         if twisted.matrix = Matrix.Base.empty then
-          twister.twister.matrix.idx_to_row_names
-        else twisted.matrix.idx_to_col_names in
-      if twister.twister.matrix.idx_to_row_names <> twisted_idx_to_col_names then
+          twister.twister.matrix.row_names
+        else twisted.matrix.col_names in
+      if twister.twister.matrix.row_names <> twisted_col_names then
         raise Incompatible_twister_and_twisted;
       (* We invert the table *)
-      let num_twister_cols = Array.length twister.twister.matrix.idx_to_col_names in
+      let num_twister_cols = Array.length twister.twister.matrix.col_names in
       let twister_col_names_to_idx = Hashtbl.create num_twister_cols in
       Array.iteri
         (fun i name ->
           Hashtbl.add twister_col_names_to_idx name i)
-        twister.twister.matrix.idx_to_col_names;
+        twister.twister.matrix.col_names;
       (* We decompose the existing twisted matrix *)
       let res = ref StringMap.empty in
       Array.iteri
         (fun i name ->
-          res := StringMap.add name twisted.matrix.storage.(i) !res)
-        twisted.matrix.idx_to_row_names;
+          res := StringMap.add name twisted.matrix.data.(i) !res)
+        twisted.matrix.row_names;
       (* First we read spectra from the files.
          We have to conform the k-mers to the ones in the twister.
          As a bonus, we already know the size of the resulting vector *)
@@ -197,24 +197,24 @@ include (
             Duplicate_label label |> raise)
         threads;
       let n = StringMap.cardinal !res in
-      let idx_to_row_names = Array.make n ""
-      and storage = Array.make n (Float.Array.create 0) in
+      let row_names = Array.make n ""
+      and data = Array.make n (Float.Array.create 0) in
       StringMap.iteri
         (fun i label row ->
-          idx_to_row_names.(i) <- label;
-          storage.(i) <- row)
+          row_names.(i) <- label;
+          data.(i) <- row)
         !res;
       { Matrix.which = Twisted;
-        matrix = { Matrix.Base.idx_to_col_names = twisted_idx_to_col_names; idx_to_row_names; storage } }
+        matrix = { Matrix.Base.col_names = twisted_col_names; row_names; data } }
     (* *)
     let get_metrics_vector m t =
-      Space.Distance.Metric.compute m t.inertia.matrix.storage.(0)
+      Space.Distance.Metric.compute m t.inertia.matrix.data.(0)
     let get_metrics_matrix m t = {
       Matrix.which = Metrics;
       matrix = {
-        idx_to_row_names = [| "metrics" |];
-        idx_to_col_names = t.inertia.matrix.idx_to_col_names;
-        storage = [| get_metrics_vector m t |]
+        row_names = [| "metrics" |];
+        col_names = t.inertia.matrix.col_names;
+        data = [| get_metrics_vector m t |]
       }
     }
     (* *)

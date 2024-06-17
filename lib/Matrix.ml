@@ -48,7 +48,7 @@ module Base:
     include Matrix
     (* Compute normalisations for rows *)
     let get_normalizations ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false) distance metric m =
-      let n_rows = Array.length m.idx_to_row_names and n_cols = Array.length m.idx_to_col_names in
+      let n_rows = Array.length m.row_names and n_cols = Array.length m.col_names in
       let res = Float.Array.create n_rows
       and rows_per_step = max 1 (elements_per_step / n_cols) and processed_rows = ref 0 in
       (* Generate points to be computed by the parallel processs *)
@@ -66,7 +66,7 @@ module Base:
           let res = ref [] in
           (* We iterate backwards so as to avoid to have to reverse the list in the end *)
           for i = hi_row downto lo_row do
-            Space.Distance.compute_norm distance metric m.storage.(i) |> List.accum res
+            Space.Distance.compute_norm distance metric m.data.(i) |> List.accum res
           done;
           lo_row, !res)
         (fun (lo_row, norms) ->
@@ -85,7 +85,7 @@ module Base:
     (* Compute rowwise distance *)
     let get_distance_matrix ?(normalize = true) ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false)
         distance metric m =
-      let d = Array.length m.idx_to_row_names in
+      let d = Array.length m.row_names in
       (* We compute normalisations *)
       let norms =
         if normalize then
@@ -93,7 +93,7 @@ module Base:
         else
           Float.Array.make d 1. in
       (* We immediately allocate all the needed memory, as we already know how much we will need *)
-      let storage = Array.init d (fun _ -> Float.Array.create d) in
+      let data = Array.init d (fun _ -> Float.Array.create d) in
       (* Generate points to be computed by the parallel processs *)
       let total = (d * (d + 1)) / 2 and i = ref 0 and j = ref 0 and elts_done = ref 0 and end_reached = ref (d = 0) in
       Processes.Parallel.process_stream_chunkwise
@@ -126,14 +126,14 @@ module Base:
             i, j, begin
               Space.Distance.compute
                 ~adaptor_a:(fun a -> a /. Float.Array.get norms i) ~adaptor_b:(fun b -> b /. Float.Array.get norms j)
-                distance metric m.storage.(i) m.storage.(j)
+                distance metric m.data.(i) m.data.(j)
             end))
         (List.iter
           (fun (i, j, dist) ->
             (* Only here do we actually fill out the memory for the result *)
-            Float.Array.set storage.(i) j dist;
+            Float.Array.set data.(i) j dist;
             (* We symmetrise the matrix *)
-            Float.Array.set storage.(j) i dist;
+            Float.Array.set data.(j) i dist;
             if verbose && !elts_done mod elements_per_step = 0 then
               Printf.eprintf "%s\r(%s): Done %d/%d elements%!"
                 String.TermIO.clear __FUNCTION__ !elts_done total;
@@ -141,14 +141,14 @@ module Base:
         threads;
       if verbose then
         Printf.eprintf "%s\r(%s): Done %d/%d elements.\n%!" String.TermIO.clear __FUNCTION__ !elts_done total;
-      { idx_to_col_names = m.idx_to_row_names;
-        idx_to_row_names = m.idx_to_row_names;
-        storage = storage }
+      { col_names = m.row_names;
+        row_names = m.row_names;
+        data = data }
     let get_distance_rowwise ?(normalize = true) ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false)
         distance metric m1 m2 =
-      if m1.idx_to_col_names <> m2.idx_to_col_names then
-        Incompatible_geometries (m1.idx_to_col_names, m2.idx_to_col_names) |> raise;
-      let r1 = Array.length m1.idx_to_row_names and r2 = Array.length m2.idx_to_row_names in
+      if m1.col_names <> m2.col_names then
+        Incompatible_geometries (m1.col_names, m2.col_names) |> raise;
+      let r1 = Array.length m1.row_names and r2 = Array.length m2.row_names in
       (* We compute normalisations *)
       let n1, n2 =
         if normalize then
@@ -158,18 +158,18 @@ module Base:
           Float.Array.make r1 1., Float.Array.make r2 1. in
       (*
       to_file ~verbose (transpose ~verbose {
-        idx_to_col_names = m1.idx_to_row_names;
-        idx_to_row_names = [| "Normalizations" |];
-        storage = [| n1 |]
+        col_names = m1.row_names;
+        row_names = [| "Normalizations" |];
+        data = [| n1 |]
       }) "N1.txt";
       to_file ~verbose (transpose ~verbose {
-        idx_to_col_names = m2.idx_to_row_names;
-        idx_to_row_names = [| "Normalizations" |];
-        storage = [| n2 |]
+        col_names = m2.row_names;
+        row_names = [| "Normalizations" |];
+        data = [| n2 |]
       }) "N2.txt";
       *)
       (* We immediately allocate all the needed memory, as we already know how much we will need *)
-      let storage = Array.init r2 (fun _ -> Float.Array.create r1) in
+      let data = Array.init r2 (fun _ -> Float.Array.create r1) in
       (* Generate points to be computed by the parallel processs *)
       let prod = r1 * r2 in
       let i = ref 0 and j = ref 0 and elts_done = ref 0 and end_reached = ref (prod = 0) in
@@ -202,11 +202,11 @@ module Base:
             i, j, begin
               Space.Distance.compute
                 ~adaptor_a:(fun a -> a /. Float.Array.get n1 i) ~adaptor_b:(fun b -> b /. Float.Array.get n2 j)
-                distance metric m1.storage.(i) m2.storage.(j)
+                distance metric m1.data.(i) m2.data.(j)
             end))
         (List.iter
           (fun (i, j, dist) ->
-            Float.Array.set storage.(j) i dist;
+            Float.Array.set data.(j) i dist;
             if verbose && !elts_done mod elements_per_step = 0 then
               Printf.eprintf "%s\r(%s): Done %d/%d elements=%.3g%%%!"
                 String.TermIO.clear __FUNCTION__
@@ -217,9 +217,9 @@ module Base:
         Printf.eprintf "%s\r(%s): Done %d/%d elements=%.3g%%.\n%!"
           String.TermIO.clear __FUNCTION__
           !elts_done prod (100. *. float_of_int !elts_done /. float_of_int prod);
-      { idx_to_col_names = m1.idx_to_row_names;
-        idx_to_row_names = m2.idx_to_row_names;
-        storage = storage }
+      { col_names = m1.row_names;
+        row_names = m2.row_names;
+        data = data }
     module [@warning "-27-32-69"] NearestNeighbor =
       struct
         (* These are column statistics *)
@@ -245,11 +245,11 @@ module Base:
                     min := Stdlib.min !min v;
                     max := Stdlib.max !max v;
                     sum := !sum +. v)
-                  m.storage;
+                  m.data;
                 { min = !min;
                   max = !max;
                   sum = !sum } in
-              let n = Array.length m.idx_to_col_names in
+              let n = Array.length m.col_names in
               let step = n / threads / 5 |> max 1 and processed = ref 0 and res = Array.make n empty in
               Processes.Parallel.process_stream_chunkwise
                 (fun () ->
@@ -450,9 +450,9 @@ include (
         Unexpected_type (m1.which, Twisted) |> raise;
       if m2.which <> Twisted then
         Unexpected_type (m2.which, Twisted) |> raise;
-      if m1.matrix.idx_to_col_names <> m2.matrix.idx_to_col_names then
-        Base.Incompatible_geometries (m1.matrix.idx_to_col_names, m2.matrix.idx_to_col_names) |> raise;
-      let r1 = Array.length m1.matrix.idx_to_row_names and r2 = Array.length m2.matrix.idx_to_row_names in
+      if m1.matrix.col_names <> m2.matrix.col_names then
+        Base.Incompatible_geometries (m1.matrix.col_names, m2.matrix.col_names) |> raise;
+      let r1 = Array.length m1.matrix.row_names and r2 = Array.length m2.matrix.row_names in
       (* We compute normalisations *)
       let n1, n2 =
         if normalize then
@@ -462,19 +462,19 @@ include (
           Float.Array.make r1 1., Float.Array.make r2 1. in
       (*
       Base.to_file ~verbose (Base.transpose ~verbose {
-        idx_to_col_names = m1.matrix.idx_to_row_names;
-        idx_to_row_names = [| "Normalizations" |];
-        storage = [| n1 |]
+        col_names = m1.matrix.row_names;
+        row_names = [| "Normalizations" |];
+        data = [| n1 |]
       }) "N1.txt";
       Base.to_file ~verbose (Base.transpose ~verbose {
-        idx_to_col_names = m2.matrix.idx_to_row_names;
-        idx_to_row_names = [| "Normalizations" |];
-        storage = [| n2 |]
+        col_names = m2.matrix.row_names;
+        row_names = [| "Normalizations" |];
+        data = [| n2 |]
       }) "N2.txt";
       *)
       let fname = make_filename_summary prefix in
       let output = open_out fname
-      and n_cols = Array.length m1.matrix.idx_to_col_names in
+      and n_cols = Array.length m1.matrix.col_names in
       let req_len =
         match keep_at_most with
         | None -> r1
@@ -501,10 +501,10 @@ include (
                 (fun i ->
                   Space.Distance.compute
                     ~adaptor_a:(fun a -> a /. Float.Array.get n1 i) ~adaptor_b:(fun b -> b /. Float.Array.get n2 j)
-                    distance metric m1.matrix.storage.(i) m2.matrix.storage.(j)) in
+                    distance metric m1.matrix.data.(i) m2.matrix.data.(j)) in
             (* ...and summarise them *)
             summarize_distance_matrix_row
-              req_len m2.matrix.idx_to_row_names.(j) distances m1.matrix.idx_to_row_names buf
+              req_len m2.matrix.row_names.(j) distances m1.matrix.row_names buf
           done;
           hi_row - lo_row + 1, Buffer.contents buf)
         (fun (n_processed, block) ->
@@ -525,12 +525,12 @@ include (
         Unexpected_type (m.which, DMatrix) |> raise;
       let fname = make_filename_summary prefix in
       let output = open_out fname
-      and n_cols = Array.length m.matrix.idx_to_col_names in
+      and n_cols = Array.length m.matrix.col_names in
       let req_len =
         match keep_at_most with
         | None -> n_cols
         | Some at_most -> at_most
-      and n_rows = Array.length m.matrix.idx_to_row_names in
+      and n_rows = Array.length m.matrix.row_names in
       (* Parallel section *)
       let rows_per_step = max 1 (elements_per_step / n_cols) and processed_rows = ref 0
       and buf = Buffer.create 1048576 in
@@ -548,7 +548,7 @@ include (
           Buffer.clear buf;
           for i = lo_row to hi_row do
             summarize_distance_matrix_row
-              req_len m.matrix.idx_to_row_names.(i) m.matrix.storage.(i) m.matrix.idx_to_col_names buf
+              req_len m.matrix.row_names.(i) m.matrix.data.(i) m.matrix.col_names buf
           done;
           hi_row - lo_row + 1, Buffer.contents buf)
         (fun (n_processed, block) ->

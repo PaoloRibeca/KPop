@@ -1083,9 +1083,9 @@ and KMerDB:
         let n_c = Array.length idxs in
         (* The distance matrix is computed rowwise, and k-mers are physically stored as rows in db:
             we need to transpose *)
-        { Matrix.Base.idx_to_col_names = Array.sub db.core.idx_to_row_names 0 n_r;
-          idx_to_row_names = Array.init n_c (fun i -> db.core.idx_to_col_names.(idxs.(i)));
-          storage =
+        { Matrix.Base.col_names = Array.sub db.core.idx_to_row_names 0 n_r;
+          row_names = Array.init n_c (fun i -> db.core.idx_to_col_names.(idxs.(i)));
+          data =
             (* Here we just need to convert the counts to floats, and possibly normalise *)
             Array.init n_c
               (fun i ->
