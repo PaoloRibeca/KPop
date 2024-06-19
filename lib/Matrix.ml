@@ -315,12 +315,14 @@ include (
           | Twisted
           | DMatrix
           | Metrics
+          | Vectors
         let to_string = function
           | Twister -> "KPopTwister"
           | Inertia -> "KPopInertia"
           | Twisted -> "KPopTwisted"
           | DMatrix -> "KPopDMatrix"
           | Metrics -> "KPopMetrics"
+          | Vectors -> "KPopVectors"
         exception Unknown_type of string
         let of_string = function
           | "KPopTwister" -> Twister
@@ -328,6 +330,7 @@ include (
           | "KPopTwisted" -> Twisted
           | "KPopDMatrix" -> DMatrix
           | "KPopMetrics" -> Metrics
+          | "KPopVectors" -> Vectors
           | w ->
             Unknown_type w |> raise
       end
@@ -344,7 +347,8 @@ include (
     let make_filename_binary which name =
       match which, name with
       | _, _ when String.length name >= 5 && String.sub name 0 5 = "/dev/" -> name
-      | Type.Twisted, prefix | DMatrix, prefix | Metrics, prefix -> prefix ^ "." ^ Type.to_string which
+      | Type.Twisted, prefix | DMatrix, prefix | Metrics, prefix | Vectors, prefix ->
+        prefix ^ "." ^ Type.to_string which
       | Twister, _ | Inertia, _ -> assert false (* Should always be done through KPopTwister *)
     let make_filename_summary = function
       | w when String.length w >= 5 && String.sub w 0 5 = "/dev/" -> w
@@ -607,6 +611,7 @@ include (
           | Twisted
           | DMatrix
           | Metrics
+          | Vectors
         val to_string: t -> string
         exception Unknown_type of string
         val of_string: string -> t
