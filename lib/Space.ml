@@ -54,8 +54,8 @@ module Distance:
     (* Arguments are distance function, metric, a, b.
        We also parameterise the computation with two arbitrary adaptor functions for a and b,
         which allow, for instance, to implement normalised differences *)
-    (*val compute_unscaled: ?adaptor_a:(float -> float) -> ?adaptor_b:(float -> float) ->
-                 t -> Float.Array.t -> Float.Array.t -> Float.Array.t -> float*)
+    val compute_unscaled: ?adaptor_a:(float -> float) -> ?adaptor_b:(float -> float) ->
+                 t -> Float.Array.t -> Float.Array.t -> Float.Array.t -> float
     val compute: ?adaptor_a:(float -> float) -> ?adaptor_b:(float -> float) ->
                  t -> Float.Array.t -> Float.Array.t -> Float.Array.t -> float
     exception Unknown_distance of string
