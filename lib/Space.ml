@@ -274,7 +274,7 @@ module Distance:
         let get_minimum_opt ?(max_distance_component = infinity) dist sorted stride diff_bound =
           try
             let lo = FloatIntMultimap.KeyMap.min_binding sorted |> ref
-            and max_coord, _ = FloatIntMultimap.max_binding sorted and min_state = ref None in
+            and max_coord, _ = FloatIntMultimap.KeyMap.max_binding sorted and min_state = ref None in
             if stride = 0 then begin
               let process_lo () =
                 let lo_coord, lo_set = !lo in
@@ -326,7 +326,7 @@ module Distance:
           let diff = hi_coord -. lo_coord
           and lo_set = FloatIntMultimap.KeyMap.find lo_coord sorted in
           let max_lo_set = FloatIntMultimap.ValSet.max_elt lo_set
-          and max_coord, _ = FloatIntMultimap.max_binding sorted in
+          and max_coord, _ = FloatIntMultimap.KeyMap.max_binding sorted in
           try
             (* First, we try and see if there are other intervals with the same distance.
                They will come _after_ the current one *)
