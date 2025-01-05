@@ -19,6 +19,7 @@ module Parameters =
   struct
     let input = ref ""
     let output = ref ""
+    let output_kmers = ref ""
     (* The following three are KPopCountDB.TableFilter.default *)
     let sampling = ref 1.
     let threshold_counts = ref 1.
@@ -34,8 +35,8 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopTwist";
-  version = "20";
-  date = "29-Feb-2024"
+  version = "21";
+  date = "29-Oct-2024"
 } and authors = [
   "2022-2024", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
@@ -102,6 +103,13 @@ let () =
         " (will be .KPopTwister and .KPopTwisted)" ],
       TA.Mandatory,
       (fun _ -> Parameters.output := TA.get_parameter ());
+    [ "-k"; "--output-kmers" ],
+      Some "<binary_file_prefix>",
+      [ "use this prefix when dumping generated twisted k-mers.";
+        "File extension is automatically determined";
+        " (will be .KPopTwisted)" ],
+      TA.Default (fun () -> !Parameters.output_kmers),
+      (fun _ -> Parameters.output_kmers := TA.get_parameter ());
     TA.make_separator "Miscellaneous";
     [ "-T"; "--threads" ],
       Some "<computing_threads>",
@@ -148,8 +156,8 @@ let () =
     TA.header ();
     raise e
   end;
-  Printf.printf "%s\001%.12g\001%.12g\001%.12g\001%s\001%b\001%.12g\001%s\001%d\001%b\001%b\n%!"
+  Printf.printf "%s\001%.12g\001%.12g\001%.12g\001%s\001%b\001%.12g\001%s\001%s\001%d\001%b\001%b\n%!"
     !Parameters.input !Parameters.sampling !Parameters.threshold_counts !Parameters.power !Parameters.transformation
-    !Parameters.normalize !Parameters.threshold_kmers !Parameters.output !Parameters.threads !Parameters.temporaries
-    !Parameters.verbose
+    !Parameters.normalize !Parameters.threshold_kmers !Parameters.output !Parameters.output_kmers !Parameters.threads
+    !Parameters.temporaries !Parameters.verbose
 

@@ -23,7 +23,7 @@ fi
 # We parse the parameters returned by KPopTwist_
 OLD_IFS="$IFS"
 IFS=$'\x1'
-read -r PREFIX_IN SAMPLING_FRACTION THRESHOLD_COUNTS POWER TRANSFORM NORMALIZE THRESHOLD_KMERS PREFIX_OUT THREADS TEMPORARIES VERBOSE <<< "$PARAMETERS"
+read -r PREFIX_IN SAMPLING_FRACTION THRESHOLD_COUNTS POWER TRANSFORM NORMALIZE THRESHOLD_KMERS PREFIX_OUT PREFIX_OUT_KMERS THREADS TEMPORARIES VERBOSE <<< "$PARAMETERS"
 IFS="$OLD_IFS"
 
 function conditional_echo {
@@ -46,59 +46,66 @@ cat <<'_____'
   library(ca)
   args<-commandArgs(trailingOnly=TRUE)
   output<-args[3]
-  if (is.na(args[4])||args[4]=="")
-    args[4]<-"1."
-  fraction<-as.numeric(args[4])
-  normalize<-as.logical(args[5])
-  threshold<-as.numeric(args[6])
-  threads<-as.integer(args[7]) # Not really used at the moment
-  temporaries<-as.logical(args[8]) # Not really used at the moment
-  verbose<-as.logical(args[9])
+  output_kmers<-args[4]
+  if (is.na(args[5])||args[5]=="")
+    args[5]<-"1."
+  fraction<-as.numeric(args[5])
+  normalize<-as.logical(args[6])
+  threshold<-as.numeric(args[7])
+  threads<-as.integer(args[8]) # Not really used at the moment
+  temporaries<-as.logical(args[9]) # Not really used at the moment
+  verbose<-as.logical(args[10])
   conditional_echo<-function(s){
     if (verbose)
       cat(format(Sys.time(),paste0("%c: ",s,"...\n")))
   }
-  conditional_echo("[2/15] Reading names")
-  names<-t(data.table::fread(args[2],sep="\t",header=FALSE)) # Why t() would work so much better here is anybody's guess
+  conditional_echo("[2/15] Reading k-mers")
+  kmers<-t(data.table::fread(args[2],sep="\t",header=FALSE)) # Why t() would work so much better here is anybody's guess
   conditional_echo("[3/15] Reading counts")
   stuff<-data.table::fread(args[1],sep="\t",header=TRUE)
   conditional_echo("[4/15] Resampling k-mers")
   sampled<-sort(sample(nrow(stuff),as.integer(nrow(stuff)*fraction)))
-  names<-names[sampled]
+  kmers<-kmers[sampled]
   stuff<-stuff[sampled,]
   conditional_echo("[5/15] Thresholding k-mers")
-  sums<-rowSums(stuff)
-  sampled<-which(sums>=(max(sums)*threshold))
-  names<-names[sampled]
+  rsums<-rowSums(stuff)
+  sampled<-which(rsums>=(max(rsums)*threshold))
+  kmers<-kmers[sampled]
   stuff<-stuff[sampled,]
   conditional_echo("[6/15] Normalizing counts")
-  sums<-colSums(stuff)
   if (normalize)
-    stuff<-stuff[,Map("/",.SD,data.table::transpose(as.data.table(sums)))]
+    stuff<-stuff[,lapply(.SD,function(col) col/sum(col))]
   conditional_echo("[7/15] Twisting counts")
   stuff_ca<-ca(stuff)
   conditional_echo("[8/15] Writing twisted")
   coords<-cacoord(stuff_ca,cols=TRUE)
+  dnames<-colnames(coords)
   data.table::fwrite(as.data.table(coords,keep.rownames=TRUE),paste0(output,".KPopTwisted.txt"),quote=TRUE,sep="\t",buffMB=64)
+  koords<-as.data.table(cacoord(stuff_ca,rows=TRUE),keep.rownames=TRUE)
+  if (output_kmers!="")
+    data.table::fwrite(koords,paste0(output_kmers,".KPopTwisted.txt"),quote=TRUE,sep="\t",buffMB=64)
   conditional_echo("[9/15] Writing inertia")
   inertia<-t(stuff_ca$sv^2/sum(stuff_ca$sv^2))
-  colnames(inertia)<-colnames(coords)
+  colnames(inertia)<-dnames
   rownames(inertia)<-c("inertia")
   data.table::fwrite(as.data.table(inertia,keep.rownames=TRUE),paste0(output,".KPopInertia.txt"),quote=TRUE,sep="\t",buffMB=64)
   conditional_echo("[10/15] Normalizing twister")
-  twister<-as.data.table(stuff_ca$rowcoord)[,Map("/",.SD,data.table::transpose(as.data.table(stuff_ca$sv)))]
+  twister<-koords[,Map("/",.SD,stuff_ca$sv),.SDcols=dnames] # koords has an additional colums called "rn"
   conditional_echo("[11/15] Transposing twister")
   twister<-data.table::transpose(twister)
-  colnames(twister)<-names
-  rownames(twister)<-colnames(coords)
+  colnames(twister)<-kmers
+  rownames(twister)<-dnames
   conditional_echo("[12/15] Writing twister")
   data.table::fwrite(twister,paste0(output,".KPopTwister.txt"),row.names=TRUE,quote=TRUE,sep="\t",buffMB=64)
 _____
-) "${TMPDIR}/TABLE.KPopCounter.txt" "${TMPDIR}/NAMES.KPopCounter.txt" "$PREFIX_OUT" "$SAMPLING_FRACTION" "$NORMALIZE" "$THRESHOLD_KMERS" "$THREADS" "$TEMPORARIES" "$VERBOSE"
+) "${TMPDIR}/TABLE.KPopCounter.txt" "${TMPDIR}/NAMES.KPopCounter.txt" "$PREFIX_OUT" "$PREFIX_OUT_KMERS" "$SAMPLING_FRACTION" "$NORMALIZE" "$THRESHOLD_KMERS" "$THREADS" "$TEMPORARIES" "$VERBOSE"
 
 # We convert the results to binary form and remove temporary files
 conditional_echo "$(date +"%c"): [13/15] Encoding twisted..."
 KPopTwistDB -T "$THREADS" -I t "$PREFIX_OUT" -o t "$PREFIX_OUT" > /dev/null 2>&1
+if [[ "$PREFIX_OUT_KMERS" != "" ]]; then
+  KPopTwistDB -T "$THREADS" -I t "$PREFIX_OUT_KMERS" -o t "$PREFIX_OUT_KMERS" > /dev/null 2>&1
+fi
 conditional_echo "$(date +"%c"): [14/15] Encoding twister..."
 KPopTwistDB -T "$THREADS" -I T "$PREFIX_OUT" -o T "$PREFIX_OUT" > /dev/null 2>&1
 conditional_echo "$(date +"%c"): [15/15] Cleaning up..."
