@@ -16,13 +16,17 @@
 open BiOCamLib
 open Better
 
-(* Extends BiOCamLib matrix class with distance machinery *)
+(* Extends BiOCamLib matrix class with distance machinery.
+   Encapsulation checks are not performed at this level *)
 module Base:
   sig
     include module type of Matrix
     (* Compute row normalisations *)
     val get_normalizations: ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
                             Space.Distance.t -> Float.Array.t -> t -> Float.Array.t
+    (* Get embeddings (principal coordinates) from standard coordinates *)
+    val get_embeddings: ?normalize:bool -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
+                        Space.Distance.t -> Float.Array.t -> t -> t
     val get_distance_matrix: ?normalize:bool -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
                              Space.Distance.t -> Float.Array.t -> t -> t
     (* Compute distances between the rows of two matrices - more general version of the previous one *)
@@ -82,6 +86,59 @@ module Base:
       if verbose then
         Printf.eprintf "%s\r(%s): Done %d/%d rows.\n%!" String.TermIO.clear __FUNCTION__ !processed_rows n_rows;
       res
+    (* Compute embeddings (principal coordinates) from standard coordinates *)
+    let get_embeddings ?(normalize = true) ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false)
+        distance metric m =
+      let d = Float.Array.length metric in
+      if Array.length m.col_names <> d then
+        Incompatible_geometries (Array.make d "", m.col_names) |> raise;
+      let inv_power =
+        match distance with
+        | Space.Distance.Euclidean | Cosine -> 0.5
+        | Minkowski p -> 1. /. p in
+      let normalized_metric = Float.Array.map (fun x -> x ** inv_power) metric
+      and rows_per_step = max 1 (elements_per_step / d) and processed_rows = ref 0
+      and n = Array.length m.row_names in
+      let data = Array.make n (Float.Array.create 0) in
+      (* Generate points to be computed by the parallel process *)
+      Processes.Parallel.process_stream_chunkwise
+        (fun () ->
+          if !processed_rows < n then
+            let to_do = min rows_per_step (n - !processed_rows) in
+            let new_processed_rows = !processed_rows + to_do in
+            let res = !processed_rows, new_processed_rows - 1 in
+            processed_rows := new_processed_rows;
+            res
+          else
+            raise End_of_file)
+        (fun (lo_row, hi_row) ->
+          let res = ref [] in
+          (* We iterate backwards so as to avoid to have to reverse the list in the end *)
+          for i = hi_row downto lo_row do
+            let data_row = m.data.(i) in
+            let v =
+              Float.Array.init d (fun col -> Float.Array.get data_row col *. Float.Array.get normalized_metric col) in
+            if normalize then begin
+              let norm = Space.Distance.compute_norm distance metric v in
+              if norm <> 0. then
+                Float.Array.iteri (fun i x -> Float.Array.set v i (x /. norm)) v
+            end;
+            List.accum res v
+          done;
+          lo_row, !res)
+        (fun (lo_row, rows) ->
+          List.iteri
+            (fun offs_i row_i ->
+              data.(lo_row + offs_i) <- row_i;
+              if verbose && !processed_rows mod rows_per_step = 0 then
+                Printf.eprintf "%s\r(%s): Done %d/%d rows%!"
+                  String.TermIO.clear __FUNCTION__ !processed_rows n;
+              incr processed_rows)
+            rows)
+        threads;
+      if verbose then
+        Printf.eprintf "%s\r(%s): Done %d/%d rows.\n%!" String.TermIO.clear __FUNCTION__ !processed_rows n;
+      { m with data = data }
     (* Compute rowwise distance *)
     let get_distance_matrix ?(normalize = true) ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false)
         distance metric m =
@@ -312,25 +369,25 @@ include (
         type t =
           | Twister
           | Inertia
-          | Twisted
-          | DMatrix
           | Metrics
+          | Twisted
           | Vectors
+          | DMatrix
         let to_string = function
           | Twister -> "KPopTwister"
           | Inertia -> "KPopInertia"
-          | Twisted -> "KPopTwisted"
-          | DMatrix -> "KPopDMatrix"
           | Metrics -> "KPopMetrics"
+          | Twisted -> "KPopTwisted"
           | Vectors -> "KPopVectors"
+          | DMatrix -> "KPopDMatrix"
         exception Unknown_type of string
         let of_string = function
           | "KPopTwister" -> Twister
           | "KPopInertia" -> Inertia
-          | "KPopTwisted" -> Twisted
-          | "KPopDMatrix" -> DMatrix
           | "KPopMetrics" -> Metrics
+          | "KPopTwisted" -> Twisted
           | "KPopVectors" -> Vectors
+          | "KPopDMatrix" -> DMatrix
           | w ->
             Unknown_type w |> raise
       end
@@ -375,13 +432,26 @@ include (
       Base.multiply_matrix_vector ~threads ~elements_per_step ~verbose m.matrix v
     let multiply_matrix_matrix ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false) which m1 m2 =
       { which; matrix = Base.multiply_matrix_matrix ~threads ~elements_per_step ~verbose m1.matrix m2.matrix }
+    exception Unexpected_type of Type.t * Type.t
+    let get_embeddings ?(normalize = true) ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false)
+        distance metric m =
+      if m.which <> Twisted then
+        Unexpected_type (m.which, Twisted) |> raise;
+      { which = Vectors;
+        matrix = Base.get_embeddings ~normalize ~threads ~elements_per_step ~verbose distance metric m.matrix }
     let get_distance_matrix ?(normalize = true) ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false)
         distance metric m =
+      if m.which <> Twisted then
+        Unexpected_type (m.which, Twisted) |> raise;
       { which = DMatrix;
         matrix = Base.get_distance_matrix ~normalize ~threads ~elements_per_step ~verbose distance metric m.matrix }
     (* Compute distances between the rows of two matrices - more general version of the previous one *)
     let get_distance_rowwise ?(normalize = true) ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false)
         distance metric m1 m2 =
+      if m1.which <> Twisted then
+        Unexpected_type (m1.which, Twisted) |> raise;
+      if m2.which <> Twisted then
+        Unexpected_type (m2.which, Twisted) |> raise;
       { which = DMatrix;
         matrix =
           Base.get_distance_rowwise ~normalize ~threads ~elements_per_step ~verbose
@@ -446,7 +516,6 @@ include (
             Printf.bprintf buf "\t%s\t%.15g\t%.15g" col_names.(col_idx) dist ((dist -. mean) /. stddev))
         !distr;
       Printf.bprintf buf "\n"
-    exception Unexpected_type of Type.t * Type.t
     let summarize_rowwise
         ?(normalize = true) ?(keep_at_most = Some 2) ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false)
         distance metric m1 m2 prefix =
@@ -608,10 +677,10 @@ include (
         type t =
           | Twister
           | Inertia
-          | Twisted
-          | DMatrix
           | Metrics
+          | Twisted
           | Vectors
+          | DMatrix
         val to_string: t -> string
         exception Unknown_type of string
         val of_string: string -> t
@@ -628,22 +697,30 @@ include (
     val transpose_single_threaded: ?verbose:bool -> t -> t
     val transpose: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> t
     exception Incompatible_matrices of Type.t * Type.t
+    (* Merge two matrices - the type of the two inputs must be the same *)
     val merge_rowwise: ?verbose:bool -> t -> t -> t
+    (* TODO: No type checks are performed (yet) when multiplying matrices *)
     val multiply_matrix_vector_single_threaded: ?verbose:bool -> t -> Float.Array.t -> Float.Array.t
     val multiply_matrix_sparse_vector_single_threaded: ?verbose:bool -> t -> Base.sparse_vector_t -> Float.Array.t
     val multiply_matrix_vector: ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
                                 t -> Float.Array.t -> Float.Array.t
     val multiply_matrix_matrix: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> Type.t -> t -> t -> t
-    (* Compute distances between the rows of a matrix *)
+    exception Unexpected_type of Type.t * Type.t
+    (* Compute embeddings (principal coordinates) from standard coordinates - input type must be Twisted *)
+    val get_embeddings: ?normalize:bool -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
+                        Space.Distance.t -> Float.Array.t -> t -> t
+    (* Compute distances between the rows of a matrix - input type must be Twisted *)
     val get_distance_matrix: ?normalize:bool -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
                              Space.Distance.t -> Float.Array.t -> t -> t
-    (* Compute distances between the rows of two matrices - more general version of the previous one *)
+    (* Compute distances between the rows of two matrices - input types must be Twisted.
+       More general version of the previous one *)
     val get_distance_rowwise: ?normalize:bool -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
                               Space.Distance.t -> Float.Array.t -> t -> t -> t
-    exception Unexpected_type of Type.t * Type.t
+    (* Compute distances between the rows of two matrices and summarise them - input types must be Twisted *)
     val summarize_rowwise: ?normalize:bool -> ?keep_at_most:int option -> ?threads:int -> ?elements_per_step:int ->
                            ?verbose:bool ->
                            Space.Distance.t -> Float.Array.t -> t -> t -> string -> unit
+    (* Summarise distances - input type must be DMatrix *)
     val summarize_distance: ?keep_at_most:int option -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
                             t -> string -> unit
     (* Binary marshalling of the matrix *)

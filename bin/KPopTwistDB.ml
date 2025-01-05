@@ -20,16 +20,18 @@ open KPop
 module RegisterType =
   struct
     type t =
+      | Metrics
       | Twister
       | Twisted
+      | Embeddings
       | Distances
-      | Metrics
     exception Invalid_register_type of string
     let of_string = function
+      | "m" -> Metrics
       | "T" -> Twister
       | "t" -> Twisted
+      | "e" -> Embeddings
       | "d" -> Distances
-      | "m" -> Metrics
       | w ->
         Tools.Argv.usage ();
         Invalid_register_type w |> raise
@@ -63,12 +65,14 @@ type to_do_t =
   | Add_binary_to_register of RegisterType.t * string
   | Add_tables_to_register of RegisterType.t * string
   | Add_kmer_files_to_twisted of string list
+(* | Add_kmer_binary_to_twisted of string *)
   | Register_to_binary of RegisterType.t * string
   | Set_precision of int
   | Register_to_tables of RegisterType.t * string
   | Set_distance of Space.Distance.t
   | Set_distance_normalize of bool
   | Set_metric of Space.Distance.Metric.t
+  | Embeddings_from_twisted
   | Distances_from_twisted_binary of string
   | Set_keep_at_most of KeepAtMost.t
   | Summary_from_twisted_binary of string * string
@@ -92,10 +96,10 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopTwistDB";
-  version = "31";
-  date = "16-Jun-2024"
+  version = "32";
+  date = "05-Jan-2025"
 } and authors = [
-  "2022-2024", "Paolo Ribeca", "paolo.ribeca@gmail.com"
+  "2022-2025", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
 
 let () =
@@ -104,69 +108,70 @@ let () =
   TA.set_synopsis "[ACTIONS]";
   TA.parse [
     TA.make_separator_multiline [ "Actions."; "They are executed delayed and in order of specification." ];
-    [ "-e"; "--empty" ],
-      Some "'T'|'t'|'d'",
+    [ "-z"; "--zero"; "--empty" ],
+      Some "'T'|'t'|'e'|'d'",
       [ "load an empty database into the specified register";
-        " (T=twister; t=twisted; d=distance)" ],
+        " (T=twister; t=twisted; e=embedding; d=distance)" ],
       TA.Optional,
       (fun _ ->
         match TA.get_parameter () |> RegisterType.of_string with
         | Metrics ->
           TA.parse_error "You cannot load content into the metrics register"
-        | Twister | Twisted | Distances as register_type ->
+        | Twister | Twisted | Embeddings | Distances as register_type ->
           Empty register_type |> List.accum Parameters.program);
     [ "-i"; "--input" ],
-      Some "'T'|'t'|'d' <binary_file_prefix>",
+      Some "'T'|'t'|'e'|'d' <binary_file_prefix>",
       [ "load the specified binary database into the specified register";
-        " (T=twister; t=twisted; d=distance).";
+        " (T=twister; t=twisted; e=embedding; d=distance).";
         "File extension is automatically determined depending on database type";
-        " (will be: .KPopTwister; .KPopTwisted; or .KPopDMatrix, respectively)" ],
+        " (will be: .KPopTwister; .KPopTwisted; .KPopVectors;";
+        "  or .KPopDMatrix, respectively)" ],
       TA.Optional,
       (fun _ ->
         match TA.get_parameter () |> RegisterType.of_string with
         | Metrics ->
           TA.parse_error "You cannot load content into the metrics register"
-        | Twister | Twisted | Distances as register_type ->
+        | Twister | Twisted | Embeddings | Distances as register_type ->
           Binary_to_register (register_type, TA.get_parameter ()) |> List.accum Parameters.program);
     [ "-I"; "--Input" ],
-      Some "'T'|'t'|'d' <table_file_prefix>",
+      Some "'T'|'t'|'e'|'d' <table_file_prefix>",
       [ "load the specified tabular database(s) into the specified register";
-        " (T=twister; t=twisted; d=distance).";
+        " (T=twister; t=twisted; e=embedding; d=distance).";
         "File extension is automatically determined depending on database type";
         " (will be: .KPopTwister.txt and .KPopInertia.txt; .KPopTwisted.txt;";
-        "  or .KPopDMatrix.txt, respectively)" ],
+        "  .KPopVectors.txt; or .KPopDMatrix.txt, respectively)" ],
       TA.Optional,
       (fun _ ->
         match TA.get_parameter () |> RegisterType.of_string with
         | Metrics ->
           TA.parse_error "You cannot load content into the metrics register"
-        | Twister | Twisted | Distances as register_type ->
+        | Twister | Twisted | Embeddings | Distances as register_type ->
           Tables_to_register (register_type, TA.get_parameter ()) |> List.accum Parameters.program);
     [ "-a"; "--add" ],
-      Some "'t'|'d' <binary_file_prefix>",
+      Some "'t'|'e'|'d' <binary_file_prefix>",
       [ "add the contents of the specified binary database to the specified register";
-        " (t=twisted; d=distance).";
+        " (t=twisted; e=embedding; d=distance).";
         "File extension is automatically determined depending on database type";
-        " (will be: .KPopTwisted; or .KPopDMatrix, respectively)" ],
+        " (will be: .KPopTwisted; .KPopVectors; or .KPopDMatrix, respectively)" ],
       TA.Optional,
       (fun _ ->
         match TA.get_parameter () |> RegisterType.of_string with
         | Twister | Metrics ->
           TA.parse_error "You cannot add content to the twister or metrics registers"
-        | Twisted | Distances as register_type ->
+        | Twisted | Embeddings | Distances as register_type ->
           Add_binary_to_register (register_type, TA.get_parameter ()) |> List.accum Parameters.program);
     [ "-A"; "--Add" ],
       Some "'t'|'d' <table_file_prefix>",
       [ "add the contents of the specified tabular database to the specified register";
-        " (t=twisted; d=distance).";
+        " (t=twisted; e=embedding; d=distance).";
         "File extension is automatically determined depending on database type";
-        " (will be: .KPopTwisted.txt; or .KPopDMatrix.txt, respectively)" ],
+        " (will be: .KPopTwisted.txt; .KPopVectors; or .KPopDMatrix.txt, respectively)" ],
       TA.Optional,
       (fun _ ->
         match TA.get_parameter () |> RegisterType.of_string with
         | Twister | Metrics ->
           TA.parse_error "You cannot add content to the twister or metrics registers"
-        | Twisted | Distances as register_type ->
+        | Twisted | Embeddings | Distances as register_type ->
           Add_tables_to_register (register_type, TA.get_parameter ()) |> List.accum Parameters.program);
     [ "-k"; "--kmers"; "--add-kmers"; "--add-kmer-files" ],
       Some "<k-mer_table_file_name>[','...','<k-mer_table_file_name>]",
@@ -200,6 +205,13 @@ let () =
       TA.Default (fun () -> Space.Distance.Metric.to_string Defaults.metric),
       (fun _ ->
         Set_metric (TA.get_parameter () |> Space.Distance.Metric.of_string) |> List.accum Parameters.program);
+    [ "-e"; "--embeddings"; "--compute-embeddings"; "--twisted-to-embeddings" ],
+      None,
+      [ "compute embeddings from the vectors present in the twisted register";
+        "using the metric provided by the twister present in the twister register.";
+        "The result will be placed in the embedding register" ],
+      TA.Optional,
+      (fun _ -> List.accum Parameters.program Embeddings_from_twisted);
     [ "-d"; "--distances"; "--compute-distances"; "--compute-twisted-distances" ],
       Some "<twisted_binary_file_prefix>",
       [ "compute distances between all the vectors present in the twisted register";
@@ -210,18 +222,19 @@ let () =
       TA.Optional,
       (fun _ -> Distances_from_twisted_binary (TA.get_parameter ()) |> List.accum Parameters.program);
     [ "-o"; "--output" ],
-      Some "'T'|'t'|'d' <binary_file_prefix>",
+      Some "'T'|'t'|'e'|'d' <binary_file_prefix>",
       [ "dump the database present in the specified register";
-        " (T=twister; t=twisted; d=distance)";
+        " (T=twister; t=twisted; e=embedding; d=distance)";
         "to the specified binary file.";
         "File extension is automatically assigned depending on database type";
-        " (will be: .KPopTwister; .KPopTwisted; or .KPopDMatrix, respectively)" ],
+        " (will be: .KPopTwister; .KPopTwisted; .KPopVectors;";
+        "  or .KPopDMatrix, respectively)" ],
       TA.Optional,
       (fun _ ->
         match TA.get_parameter () |> RegisterType.of_string with
         | Metrics ->
           TA.parse_error "You cannot output binary content from the metrics registers"
-        | Twister | Twisted | Distances as register_type ->
+        | Twister | Twisted | Embeddings | Distances as register_type ->
           Register_to_binary (register_type, TA.get_parameter ()) |> List.accum Parameters.program);
     [ "--precision"; "--set-precision"; "--set-table-precision" ],
       Some "<positive_integer>",
@@ -231,11 +244,11 @@ let () =
     [ "-O"; "--Output" ],
       Some "'T'|'t'|'d'|'m' <table_file_prefix>",
       [ "dump the database present in the specified register";
-        " (T=twister; t=twisted; d=distance; m=metric)";
+        " (T=twister; t=twisted; e=embedding; d=distance; m=metric)";
         "to the specified tabular file(s).";
         "File extension is automatically assigned depending on database type";
         " (will be: .KPopTwister.txt and .KPopInertia.txt; .KPopTwisted.txt;";
-        "  .KPopDMatrix.txt; or .KPopMetrics.txt, respectively)" ],
+        "  .KPopVectors.txt; .KPopDMatrix.txt; or .KPopMetrics.txt, respectively)" ],
       TA.Optional,
       (fun _ ->
         let register_type = TA.get_parameter () |> RegisterType.of_string in
@@ -305,11 +318,12 @@ let () =
     (function
       | Binary_to_register (Twister, _) | Tables_to_register (Twister, _) ->
         twister_loaded := true
-      | Register_to_tables (Metrics, _) | Distances_from_twisted_binary _ | Summary_from_twisted_binary _ ->
+      | Register_to_tables (Metrics, _) | Embeddings_from_twisted
+      | Distances_from_twisted_binary _ | Summary_from_twisted_binary _ ->
         (* A twister must have been loaded to provide the metric induced by inertia *)
         if not !twister_loaded then
           TA.parse_error
-            "Options '-O m', '-d', and '-s' require a twister in the twister register to provide a metric!"
+            "Options '-O m', '-e', '-d', and '-s' require a twister in the twister register to provide a metric!"
       | Register_to_binary (Metrics, _) ->
         (* This is not really an option *)
         assert false
@@ -317,19 +331,42 @@ let () =
         (* If we really wanted to, we might add these too *)
         ()
       | Empty _
-      | Binary_to_register (Metrics, _) | Binary_to_register (Twisted, _) | Binary_to_register (Distances, _)
-      | Tables_to_register (Metrics, _) | Tables_to_register (Twisted, _) | Tables_to_register (Distances, _)
+      | Binary_to_register (Metrics, _) | Binary_to_register (Twisted, _)
+      | Binary_to_register (Embeddings, _) | Binary_to_register (Distances, _)
+      | Tables_to_register (Metrics, _) | Tables_to_register (Twisted, _)
+      | Tables_to_register (Embeddings, _) | Tables_to_register (Distances, _)
       | Add_binary_to_register _ | Add_tables_to_register _ | Add_kmer_files_to_twisted _
-      | Register_to_tables (Twister, _) | Register_to_tables (Twisted, _) | Register_to_tables (Distances, _)
-      | Register_to_binary (Twister, _) | Register_to_binary (Twisted, _) | Register_to_binary (Distances, _)
+      | Register_to_tables (Twister, _) | Register_to_tables (Twisted, _)
+      | Register_to_tables (Embeddings, _) | Register_to_tables (Distances, _)
+      | Register_to_binary (Twister, _) | Register_to_binary (Twisted, _)
+      | Register_to_binary (Embeddings, _) | Register_to_binary (Distances, _)
       | Set_precision _ | Set_keep_at_most _ | Summary_from_distances _ ->
         ())
     program;
   (* These are the registers available to the program *)
   let twister = ref Twister.empty and twisted = Matrix.empty Twisted |> ref
+  and embeddings = Matrix.empty Vectors |> ref and metric = Defaults.metric |> ref
   and distance = ref Defaults.distance and distance_normalize = ref Defaults.distance_normalize
-  and metric = Defaults.metric |> ref and distances = Matrix.empty DMatrix |> ref
+  and distances = Matrix.empty DMatrix |> ref
   and precision = ref Defaults.precision and keep_at_most = ref Defaults.keep_at_most in
+  let open_and_check f ty prefix =
+    let res = f ?verbose:(Some !Parameters.verbose) ty prefix in
+    if res.Matrix.which <> ty then
+      Matrix.Unexpected_type (res.which, ty) |> raise;
+    res
+  and open_and_check_and_merge f ty prefix current =
+    let additional = f ?verbose:(Some !Parameters.verbose) ty prefix in
+    if additional.Matrix.which <> ty then
+      Matrix.Unexpected_type (additional.which, ty) |> raise;
+    Matrix.merge_rowwise ~verbose:!Parameters.verbose current additional in
+  let open_binary_and_check = open_and_check Matrix.of_binary
+  and open_binary_and_check_and_merge = open_and_check_and_merge Matrix.of_binary
+  and open_file_and_check = open_and_check (Matrix.of_file ~threads:!Parameters.threads ~bytes_per_step:4194304)
+  and open_file_and_check_and_merge =
+    open_and_check_and_merge (Matrix.of_file ~threads:!Parameters.threads ~bytes_per_step:4194304)
+  and matrix_to_binary = Matrix.to_binary ~verbose:!Parameters.verbose
+  and matrix_to_file =
+    Matrix.to_file ~precision:!precision ~threads:!Parameters.threads ~verbose:!Parameters.verbose in
   try
     List.iter
       (function
@@ -337,6 +374,8 @@ let () =
           twister := Twister.empty
         | Empty RegisterType.Twisted ->
           twisted := Matrix.empty Twisted
+        | Empty RegisterType.Embeddings ->
+          embeddings := Matrix.empty Vectors
         | Empty RegisterType.Distances ->
           distances := Matrix.empty DMatrix
         | Empty RegisterType.Metrics ->
@@ -344,65 +383,60 @@ let () =
         | Binary_to_register (RegisterType.Twister, prefix) ->
           twister := Twister.of_binary ~verbose:!Parameters.verbose prefix
         | Binary_to_register (RegisterType.Twisted, prefix) ->
-          twisted := Matrix.of_binary ~verbose:!Parameters.verbose Twisted prefix;
-          if !twisted.which <> Twisted then
-            Matrix.Unexpected_type (!twisted.which, Twisted) |> raise
+          twisted := open_binary_and_check Twisted prefix
+        | Binary_to_register (RegisterType.Embeddings, prefix) ->
+          embeddings := open_binary_and_check Vectors prefix
         | Binary_to_register (RegisterType.Distances, prefix) ->
-          distances := Matrix.of_binary ~verbose:!Parameters.verbose DMatrix prefix;
-          if !distances.which <> DMatrix then
-            Matrix.Unexpected_type (!distances.which, DMatrix) |> raise
+          distances := open_binary_and_check DMatrix prefix
         | Binary_to_register (RegisterType.Metrics, _) ->
           assert false
         | Add_binary_to_register (RegisterType.Twister, _) ->
           assert false
         | Add_binary_to_register (RegisterType.Twisted, prefix) ->
-          let additional = Matrix.of_binary ~verbose:!Parameters.verbose Twisted prefix in
-          if additional.which <> Twisted then
-            Matrix.Unexpected_type (additional.which, Twisted) |> raise;
-          twisted := Matrix.merge_rowwise ~verbose:!Parameters.verbose !twisted additional
+          twisted := open_binary_and_check_and_merge Twisted prefix !twisted
+        | Add_binary_to_register (RegisterType.Embeddings, prefix) ->
+          embeddings := open_binary_and_check_and_merge Vectors prefix !embeddings
         | Add_binary_to_register (RegisterType.Distances, prefix) ->
-          let additional = Matrix.of_binary ~verbose:!Parameters.verbose DMatrix prefix in
-          if additional.which <> DMatrix then
-            Matrix.Unexpected_type (additional.which, DMatrix) |> raise;
-          distances := Matrix.merge_rowwise ~verbose:!Parameters.verbose !distances additional
+          distances := open_binary_and_check_and_merge DMatrix prefix !distances
         | Add_binary_to_register (RegisterType.Metrics, _) ->
           assert false
         | Tables_to_register (RegisterType.Twister, prefix) ->
           twister := Twister.of_files ~threads:!Parameters.threads ~verbose:!Parameters.verbose prefix
         | Tables_to_register (RegisterType.Twisted, prefix) ->
-          twisted := Matrix.of_file ~threads:!Parameters.threads ~verbose:!Parameters.verbose Twisted prefix;
-          if !twisted.which <> Twisted then
-            Matrix.Unexpected_type (!twisted.which, Twisted) |> raise
+          twisted := open_file_and_check Twisted prefix
+        | Tables_to_register (RegisterType.Embeddings, prefix) ->
+          twisted := open_file_and_check Vectors prefix
         | Tables_to_register (RegisterType.Distances, prefix) ->
-          distances := Matrix.of_file ~threads:!Parameters.threads ~verbose:!Parameters.verbose DMatrix prefix;
-          if !distances.which <> DMatrix then
-            Matrix.Unexpected_type (!distances.which, DMatrix) |> raise
+          distances := open_file_and_check DMatrix prefix
         | Tables_to_register (RegisterType.Metrics, _) ->
           assert false
         | Add_tables_to_register (RegisterType.Twister, _) ->
           assert false
         | Add_tables_to_register (RegisterType.Twisted, prefix) ->
-          let additional = Matrix.of_file ~threads:!Parameters.threads ~verbose:!Parameters.verbose Twisted prefix in
-          if additional.which <> Twisted then
-            Matrix.Unexpected_type (additional.which, Twisted) |> raise;
-          twisted := Matrix.merge_rowwise ~verbose:!Parameters.verbose !twisted additional
+          twisted := open_file_and_check_and_merge Twisted prefix !twisted
+        | Add_tables_to_register (RegisterType.Embeddings, prefix) ->
+          embeddings := open_file_and_check_and_merge Vectors prefix !embeddings
         | Add_tables_to_register (RegisterType.Distances, prefix) ->
-          let additional = Matrix.of_file ~threads:!Parameters.threads ~verbose:!Parameters.verbose DMatrix prefix in
-          if additional.which <> DMatrix then
-            Matrix.Unexpected_type (additional.which, DMatrix) |> raise;
-          distances := Matrix.merge_rowwise ~verbose:!Parameters.verbose !distances additional
+          distances := open_file_and_check_and_merge DMatrix prefix !distances
         | Add_tables_to_register (RegisterType.Metrics, _) ->
           assert false
         | Add_kmer_files_to_twisted fnames ->
           twisted :=
             Twister.add_twisted_from_files
               ~threads:!Parameters.threads ~verbose:!Parameters.verbose !twister !twisted fnames
+        | Embeddings_from_twisted ->
+          embeddings :=
+            Matrix.get_embeddings
+              ~normalize:!distance_normalize ~threads:!Parameters.threads ~verbose:!Parameters.verbose
+              !distance (Twister.get_metrics_vector !metric !twister) !twisted
         | Register_to_binary (RegisterType.Twister, prefix) ->
           Twister.to_binary ~verbose:!Parameters.verbose !twister prefix
         | Register_to_binary (RegisterType.Twisted, prefix) ->
-          Matrix.to_binary ~verbose:!Parameters.verbose !twisted prefix
+          matrix_to_binary !twisted prefix
+        | Register_to_binary (RegisterType.Embeddings, prefix) ->
+          matrix_to_binary !embeddings prefix
         | Register_to_binary (RegisterType.Distances, prefix) ->
-          Matrix.to_binary ~verbose:!Parameters.verbose !distances prefix
+          matrix_to_binary !distances prefix
         | Register_to_binary (RegisterType.Metrics, _) ->
           assert false
         | Set_precision prec ->
@@ -411,15 +445,13 @@ let () =
           Twister.to_files ~precision:!precision ~threads:!Parameters.threads ~verbose:!Parameters.verbose
             !twister prefix
         | Register_to_tables (RegisterType.Twisted, prefix) ->
-          Matrix.to_file
-            ~precision:!precision ~threads:!Parameters.threads ~verbose:!Parameters.verbose !twisted prefix
+          matrix_to_file !twisted prefix
+        | Register_to_tables (RegisterType.Embeddings, prefix) ->
+          matrix_to_file !embeddings prefix
         | Register_to_tables (RegisterType.Distances, prefix) ->
-          Matrix.to_file
-            ~precision:!precision ~threads:!Parameters.threads ~verbose:!Parameters.verbose !distances prefix
+          matrix_to_file !distances prefix
         | Register_to_tables (RegisterType.Metrics, prefix) ->
-          Matrix.to_file
-            ~precision:!precision ~threads:!Parameters.threads ~verbose:!Parameters.verbose
-            (Twister.get_metrics_matrix !metric !twister) prefix
+          matrix_to_file (Twister.get_metrics_matrix !metric !twister) prefix
         | Set_distance dist ->
           distance := dist
         | Set_distance_normalize norm ->
@@ -427,23 +459,18 @@ let () =
         | Set_metric metr ->
           metric := metr
         | Distances_from_twisted_binary prefix ->
-          let twisted_db = Matrix.of_binary ~verbose:!Parameters.verbose Twisted prefix in
-          if !twisted.which <> Twisted then
-            Matrix.Unexpected_type (!twisted.which, Twisted) |> raise;
           distances :=
             Matrix.get_distance_rowwise
               ~normalize:!distance_normalize ~threads:!Parameters.threads ~verbose:!Parameters.verbose
-              !distance (Twister.get_metrics_vector !metric !twister) !twisted twisted_db
+              !distance (Twister.get_metrics_vector !metric !twister) !twisted (open_binary_and_check Twisted prefix)
         | Set_keep_at_most kam ->
           keep_at_most := kam
         | Summary_from_twisted_binary (prefix_in, prefix_out) ->
-          let twisted_db = Matrix.of_binary ~verbose:!Parameters.verbose Twisted prefix_in in
-          if !twisted.which <> Twisted then
-            Matrix.Unexpected_type (!twisted.which, Twisted) |> raise;
           Matrix.summarize_rowwise
             ~keep_at_most:!keep_at_most ~normalize:!distance_normalize
             ~threads:!Parameters.threads ~verbose:!Parameters.verbose
-            !distance (Twister.get_metrics_vector !metric !twister) !twisted twisted_db prefix_out
+            !distance (Twister.get_metrics_vector !metric !twister)
+            !twisted (open_binary_and_check Twisted prefix_in) prefix_out
         | Summary_from_distances prefix ->
           Matrix.summarize_distance
             ~keep_at_most:!keep_at_most ~threads:!Parameters.threads ~verbose:!Parameters.verbose !distances prefix)
