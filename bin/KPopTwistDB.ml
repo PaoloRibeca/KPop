@@ -161,7 +161,7 @@ let () =
         | Twisted | Embeddings | Distances as register_type ->
           Add_binary_to_register (register_type, TA.get_parameter ()) |> List.accum Parameters.program);
     [ "-A"; "--Add" ],
-      Some "'t'|'d' <table_file_prefix>",
+      Some "'t'|'e'|'d' <table_file_prefix>",
       [ "add the contents of the specified tabular database to the specified register";
         " (t=twisted; e=embedding; d=distance).";
         "File extension is automatically determined depending on database type";
@@ -242,7 +242,7 @@ let () =
       TA.Default (fun () -> string_of_int Defaults.precision),
       (fun _ -> Set_precision (TA.get_parameter_int_pos ()) |> List.accum Parameters.program);
     [ "-O"; "--Output" ],
-      Some "'T'|'t'|'d'|'m' <table_file_prefix>",
+      Some "'T'|'t'|'e'|'d'|'m' <table_file_prefix>",
       [ "dump the database present in the specified register";
         " (T=twister; t=twisted; e=embedding; d=distance; m=metric)";
         "to the specified tabular file(s).";
