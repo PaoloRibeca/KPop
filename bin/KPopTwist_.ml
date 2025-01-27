@@ -35,10 +35,10 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopTwist";
-  version = "21";
-  date = "29-Oct-2024"
+  version = "22";
+  date = "27-Jan-2025"
 } and authors = [
-  "2022-2024", "Paolo Ribeca", "paolo.ribeca@gmail.com"
+  "2022-2025", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
 
 let () =
@@ -90,24 +90,21 @@ let () =
       Some "<binary_file_prefix>",
       [ "load the specified k-mer database in the register and twist it.";
         "File extension is automatically determined";
-        " (will be .KPopCounter).";
-        "The prefix is then re-used for output";
-        " (and the output files will be given extensions";
-        "  .KPopTwister and .KPopTwisted)" ],
+        " (will be '.KPopCounter' unless file is '/dev/*')" ],
       TA.Mandatory,
       (fun _ -> Parameters.input := TA.get_parameter ());
     [ "-o"; "--output" ],
       Some "<binary_file_prefix>",
       [ "use this prefix when dumping generated twister and twisted sequences.";
         "File extensions are automatically determined";
-        " (will be .KPopTwister and .KPopTwisted)" ],
+        " (will be '.KPopTwister' and '.KPopTwisted' unless file is '/dev/*')" ],
       TA.Mandatory,
       (fun _ -> Parameters.output := TA.get_parameter ());
     [ "-k"; "--output-kmers" ],
       Some "<binary_file_prefix>",
       [ "use this prefix when dumping generated twisted k-mers.";
         "File extension is automatically determined";
-        " (will be .KPopTwisted)" ],
+        " (will be '.KPopTwisted' unless file is '/dev/*')" ],
       TA.Default (fun () -> !Parameters.output_kmers),
       (fun _ -> Parameters.output_kmers := TA.get_parameter ());
     TA.make_separator "Miscellaneous";
@@ -151,7 +148,7 @@ let () =
   (* For the moment, we just check if the file is there, and repeat input parameters *)
 
   begin try
-    !Parameters.input ^ ".KPopCounter" |> open_in |> close_in
+    KPop.KMerDB.make_filename_binary !Parameters.input |> open_in |> close_in
   with e ->
     TA.header ();
     raise e
