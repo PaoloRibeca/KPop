@@ -142,6 +142,10 @@ module KMerDB:
     val to_table:
       ?filter:TableFilter.t -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> string -> unit
     val make_filename_table: string -> string
+    (* Spectral output *)
+    val to_spectra:
+      ?filter:TableFilter.t -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> string -> unit
+    val make_filename_spectra: string -> string
     (* Spectral distance matrix *)
     val to_distances:
       ?normalise:bool -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
@@ -386,7 +390,7 @@ module KMerDB:
       meta_names_to_idx = StringHashtbl.create 16
     }
     let output_summary ?(verbose = false) db =
-      Printf.eprintf "[Vector labels (%d)]:" db.core.n_cols;
+      Printf.eprintf "[Spectrum labels (%d)]:" db.core.n_cols;
       Array.iteri
         (fun i s ->
           if i < db.core.n_cols then
@@ -1046,6 +1050,76 @@ module KMerDB:
     let make_filename_table = function
       | w when String.length w >= 5 && String.sub w 0 5 = "/dev/" -> w
       | prefix -> prefix ^ ".KPopCounter.txt"
+    let to_spectra
+        ?(filter = TableFilter.default) ?(threads = 1) ?(elements_per_step = 40000) ?(verbose = false) db fname =
+      let transform = Transformation.compute ~which:filter.transform
+      and stats = stats_table_of_core_db ~threads ~verbose filter.transform db.core
+      and output = open_out fname and rows = ref [] and cols = ref [] in
+      (* We determine which rows and colunms should be output after all filters have been applied *)
+      (*  Rows: k-mers *)
+      Array.iteri
+        (fun i row_name ->
+          (* There might be additional storage.
+            Also, we only print the row if it has non-zero elements or if we are explicitly requested to do so *)
+          if i < db.core.n_rows && (stats.row_stats.(i).sum > 0. || filter.print_zero_rows) then
+            List.accum rows (row_name, i))
+        db.core.idx_to_row_names;
+      (* Columns *)
+      Array.iteri
+        (fun i col_name ->
+          (* There might be additional storage, or we might need to remove some columns *)
+          if i < db.core.n_cols && StringSet.mem col_name filter.filter_columns |> not then
+            List.accum cols (col_name, i))
+        db.core.idx_to_col_names;
+      let rows = Array.of_rlist !rows and cols = Array.of_rlist !cols in
+      let n_rows = Array.length rows and n_cols = Array.length cols in
+      (* There must be at least one column to print.
+         If there are no rows, we just print column names  *)
+      if n_cols > 0 then begin
+        let processed_cols = ref 0 and buf = Buffer.create 1048576 in
+        Processes.Parallel.process_stream_chunkwise
+          (fun () ->
+            if !processed_cols < n_cols then
+              let to_do = max 1 (elements_per_step / n_rows) |> min (n_cols - !processed_cols) in
+              let new_processed_cols = !processed_cols + to_do in
+              let res = !processed_cols, new_processed_cols - 1 in
+              processed_cols := new_processed_cols;
+              res
+            else
+              raise End_of_file)
+          (fun (lo_col, hi_col) ->
+            Buffer.clear buf;
+            for i = lo_col to hi_col do
+              let col_name, col_idx = cols.(i) in
+              Printf.bprintf buf "\t%s\n" col_name;
+              Array.iter
+                (fun (row_name, row_idx) ->
+                  Printf.bprintf buf "%s\t%.*g\n"
+                    row_name filter.precision begin
+                      IBAVector.N.to_int db.core.storage.(col_idx).IBAVector.@(row_idx) |>
+                        transform
+                          ~col_num:db.core.n_cols ~col_stats:stats.col_stats.(col_idx)
+                          ~row_num:db.core.n_rows ~row_stats:stats.row_stats.(row_idx)
+                    end)
+                rows
+            done;
+            hi_col - lo_col + 1, Buffer.contents buf)
+          (fun (n_processed, block) ->
+            Printf.fprintf output "%s" block;
+            let old_processed_cols = !processed_cols in
+            processed_cols := !processed_cols + n_processed;
+            if verbose && !processed_cols / 2 > old_processed_cols / 2 then (* We write one column at the time *)
+              Printf.eprintf "%s\r(%s): Writing spectra to file '%s': done %d/%d spectra%!"
+                String.TermIO.clear __FUNCTION__ fname !processed_cols n_cols)
+          threads;
+        if verbose then
+          Printf.eprintf "%s\r(%s): Writing spectra to file '%s': done %d/%d spectra.\n%!"
+            String.TermIO.clear __FUNCTION__ fname n_cols n_cols
+      end;
+      close_out output
+    let make_filename_spectra = function
+      | w when String.length w >= 5 && String.sub w 0 5 = "/dev/" -> w
+      | prefix -> prefix ^ ".KPopSpectra.txt"
     let to_distances
         ?(normalise = true) ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false)
         distance db selection_1 selection_2 prefix =
@@ -1114,6 +1188,7 @@ type to_do_t =
   | Table_output_zero_rows of bool
   | Table_precision of int
   | To_table of string
+  | To_spectra of string
   | Distance_set of Space.Distance.t
   | Distance_normalisation_set of bool
   | To_distances of regexps_t * regexps_t * string
@@ -1136,7 +1211,7 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopCountDB";
-  version = "44";
+  version = "45";
   date = "27-Jan-2025"
 } and authors = [
   "2020-2025", "Paolo Ribeca", "paolo.ribeca@gmail.com"
@@ -1169,7 +1244,7 @@ let () =
     [ "-i"; "--input" ],
       Some "<binary_file_prefix>",
       [ "load into the register the database present in the specified file";
-        " (which must have extension .KPopCounter)" ],
+        " (which must have extension '.KPopCounter' or be '/dev/stdin')" ],
       TA.Optional,
       (fun _ -> Of_file (TA.get_parameter () |> KMerDB.make_filename_binary) |> List.accum Parameters.program);
     [ "-m"; "--metadata"; "--add-metadata" ],
@@ -1192,7 +1267,7 @@ let () =
     [ "-o"; "--output" ],
       Some "<binary_file_prefix>",
       [ "dump the database present in the register to the specified file";
-        " (which will be given extension .KPopCounter)" ],
+        " (which will be given extension '.KPopCounter' unless it is '/dev/stdout')" ],
       TA.Optional,
       (fun _ -> To_file (TA.get_parameter () |> KMerDB.make_filename_binary) |> List.accum Parameters.program);
     [ "--distance"; "--distance-function" ],
@@ -1215,7 +1290,7 @@ let () =
         "and compute and output distances between all possible pairs";
         " (metadata fields must match the regexps specified in the selector;";
         "  an empty metadata field makes the regexp match labels.";
-        "  The result will have extension .KPopDMatrix)" ],
+        "  The result will have extension '.KPopDMatrix' unless it is '/dev/stdout')" ],
       TA.Optional,
       (fun _ ->
         let regexps_1 = TA.get_parameter () |> parse_regexp_selector "-d" in
@@ -1247,48 +1322,56 @@ let () =
         "  if 'false': rows are [metadata and] k-mer names, columns spectrum names)" ],
       TA.Default (fun () -> string_of_bool Defaults.filter.transpose),
       (fun _ -> Table_transpose (TA.get_parameter_boolean ()) |> List.accum Parameters.program);
-    [ "--table-threshold" ],
+    [ "--counts-threshold" ],
       Some "<non_negative_integer>",
       [ "set to zero all counts that are less than this threshold";
-        "before transforming and outputting them.";
+        "before transforming and outputting them as table or spectra.";
         "A fractional threshold between 0. and 1. is taken as a relative one";
         "with respect to the sum of all counts in the spectrum" ],
       TA.Default
         (fun () -> (KMerDB.Transformation.to_parameters Defaults.filter.transform).threshold |> string_of_float),
       (fun _ ->
         Table_transform_threshold (TA.get_parameter_float_non_neg ()) |> List.accum Parameters.program);
-    [ "--table-power" ],
+    [ "--counts-power" ],
       Some "<non_negative_float>",
-      [ "raise counts to this power before transforming and outputting them.";
+      [ "raise counts to this power before transforming and outputting them";
+        "as table or spectra.";
         "A power of 0 when the 'pseudocounts' method is used";
         "performs a logarithmic transformation" ],
       TA.Default (fun () -> (KMerDB.Transformation.to_parameters Defaults.filter.transform).power |> string_of_float),
       (fun _ ->
         Table_transform_power (TA.get_parameter_float_non_neg ()) |> List.accum Parameters.program);
-    [ "--table-transform"; "--table-transformation" ],
+    [ "--counts-transform"; "--counts-transformation" ],
       Some "'binary'|'power'|'pseudocounts'|'clr'",
-      [ "transformation to apply to table elements before outputting them" ],
+      [ "transformation to apply to counts before outputting them as table or spectra" ],
       TA.Default (fun () -> (KMerDB.Transformation.to_parameters Defaults.filter.transform).which),
       (fun _ ->
         Table_transform_which (TA.get_parameter ()) |> List.accum Parameters.program);
-    [ "--table-output-zero-rows" ],
+    [ "--counts-output-zero-kmers"; "--counts-output-zero-k-mers" ],
       Some "'true'|'false'",
-      [ "whether to output rows whose elements are all zero";
-        "when writing the database as a tab-separated file" ],
+      [ "whether to output k-mers whose frequencies are all zero";
+        "when writing the database as table or spectra" ],
       TA.Default (fun () -> string_of_bool Defaults.filter.print_zero_rows),
       (fun _ -> Table_output_zero_rows (TA.get_parameter_boolean ()) |> List.accum Parameters.program);
-    [ "--table-precision" ],
+    [ "--counts-precision" ],
       Some "<positive_integer>",
-      [ "set the number of precision digits to be used when outputting counts" ],
+      [ "set the number of precision digits to be used when outputting counts";
+        "as table or spectra" ],
       TA.Default (fun () -> string_of_int Defaults.filter.precision),
       (fun _ -> Table_precision (TA.get_parameter_int_pos ()) |> List.accum Parameters.program);
     [ "-t"; "--table" ],
       Some "<file_prefix>",
       [ "write the database present in the register as a tab-separated file";
         " (rows are k-mer names, columns are spectrum names;";
-        "  the file will be given extension .KPopCounter.txt)" ],
+        "  the result will have extension '.KPopCounter.txt' unless it is '/dev/stdout')" ],
       TA.Optional,
       (fun _ -> To_table (TA.get_parameter () |> KMerDB.make_filename_table) |> List.accum Parameters.program);
+    [ "-s"; "--spectra" ],
+      Some "<file_prefix>",
+      [ "write the database present in the register as k-mer spectra";
+        " (the result will have extension '.KPopSpectra.txt' unless it is '/dev/stdout')" ],
+      TA.Optional,
+      (fun _ -> To_spectra (TA.get_parameter () |> KMerDB.make_filename_spectra) |> List.accum Parameters.program);
     TA.make_separator_multiline [ ""; "Actions involving the selection register:" ];
     [ "-L"; "--labels"; "--selection-from-labels" ],
       Some "<spectrum_label>[','...','<spectrum_label>]",
@@ -1450,6 +1533,8 @@ let () =
           filter := { !filter with precision }
         | To_table fname ->
           KMerDB.to_table ~filter:!filter ~threads:!Parameters.threads ~verbose:!Parameters.verbose !current fname
+        | To_spectra fname ->
+          KMerDB.to_spectra ~filter:!filter ~threads:!Parameters.threads ~verbose:!Parameters.verbose !current fname
         | To_file fname ->
           KMerDB.to_binary ~verbose:!Parameters.verbose !current fname
         | Distance_set dist ->
