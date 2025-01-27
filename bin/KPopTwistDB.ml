@@ -64,8 +64,9 @@ type to_do_t =
   | Tables_to_register of RegisterType.t * string
   | Add_binary_to_register of RegisterType.t * string
   | Add_tables_to_register of RegisterType.t * string
-  | Add_kmer_files_to_twisted of string list
-(* | Add_kmer_binary_to_twisted of string *)
+  | Set_kmers_normalize of bool
+  | Add_kmers_files_to_twisted of string list
+(* | Add_kmers_binary_to_twisted of string *)
   | Register_to_binary of RegisterType.t * string
   | Set_precision of int
   | Register_to_tables of RegisterType.t * string
@@ -80,6 +81,7 @@ type to_do_t =
 
 module Defaults =
   struct
+    let kmers_normalize = true
     let distance = Space.Distance.of_string "euclidean"
     let distance_normalize = true
     let metric = Space.Distance.Metric.of_string "powers(1,1,2)"
@@ -96,8 +98,8 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopTwistDB";
-  version = "32";
-  date = "05-Jan-2025"
+  version = "33";
+  date = "27-Jan-2025"
 } and authors = [
   "2022-2025", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
@@ -111,7 +113,7 @@ let () =
     [ "-z"; "--zero"; "--empty" ],
       Some "'T'|'t'|'e'|'d'",
       [ "load an empty database into the specified register";
-        " (T=twister; t=twisted; e=embedding; d=distance)" ],
+        " ('T'=twister; 't'=twisted; 'e'=embedding; 'd'=distance)" ],
       TA.Optional,
       (fun _ ->
         match TA.get_parameter () |> RegisterType.of_string with
@@ -122,10 +124,10 @@ let () =
     [ "-i"; "--input" ],
       Some "'T'|'t'|'e'|'d' <binary_file_prefix>",
       [ "load the specified binary database into the specified register";
-        " (T=twister; t=twisted; e=embedding; d=distance).";
+        " ('T'=twister; 't'=twisted; 'e'=embedding; 'd'=distance).";
         "File extension is automatically determined depending on database type";
-        " (will be: .KPopTwister; .KPopTwisted; .KPopVectors;";
-        "  or .KPopDMatrix, respectively)" ],
+        " (will be: '.KPopTwister'; '.KPopTwisted'; '.KPopVectors';";
+        "  or '.KPopDMatrix', respectively, unless file is '/dev/*')" ],
       TA.Optional,
       (fun _ ->
         match TA.get_parameter () |> RegisterType.of_string with
@@ -136,10 +138,11 @@ let () =
     [ "-I"; "--Input" ],
       Some "'T'|'t'|'e'|'d' <table_file_prefix>",
       [ "load the specified tabular database(s) into the specified register";
-        " (T=twister; t=twisted; e=embedding; d=distance).";
+        " ('T'=twister; 't'=twisted; 'e'=embedding; 'd'=distance).";
         "File extension is automatically determined depending on database type";
-        " (will be: .KPopTwister.txt and .KPopInertia.txt; .KPopTwisted.txt;";
-        "  .KPopVectors.txt; or .KPopDMatrix.txt, respectively)" ],
+        " (will be: '.KPopTwister.txt' and '.KPopInertia.txt'; '.KPopTwisted.txt';";
+        "  '.KPopVectors.txt'; or '.KPopDMatrix.txt', respectively,";
+        "  unless file is '/dev/*')" ],
       TA.Optional,
       (fun _ ->
         match TA.get_parameter () |> RegisterType.of_string with
@@ -150,9 +153,10 @@ let () =
     [ "-a"; "--add" ],
       Some "'t'|'e'|'d' <binary_file_prefix>",
       [ "add the contents of the specified binary database to the specified register";
-        " (t=twisted; e=embedding; d=distance).";
+        " ('t'=twisted; 'e'=embedding; 'd'=distance).";
         "File extension is automatically determined depending on database type";
-        " (will be: .KPopTwisted; .KPopVectors; or .KPopDMatrix, respectively)" ],
+        " (will be: '.KPopTwisted'; '.KPopVectors'; or '.KPopDMatrix', respectively,";
+        "  unless file is '/dev/*')" ],
       TA.Optional,
       (fun _ ->
         match TA.get_parameter () |> RegisterType.of_string with
@@ -163,9 +167,10 @@ let () =
     [ "-A"; "--Add" ],
       Some "'t'|'e'|'d' <table_file_prefix>",
       [ "add the contents of the specified tabular database to the specified register";
-        " (t=twisted; e=embedding; d=distance).";
+        " ('t'=twisted; 'e'=embedding; 'd'=distance).";
         "File extension is automatically determined depending on database type";
-        " (will be: .KPopTwisted.txt; .KPopVectors; or .KPopDMatrix.txt, respectively)" ],
+        " (will be: '.KPopTwisted.txt'; '.KPopVectors'; or '.KPopDMatrix.txt',";
+        "  respectively, unless file is '/dev/*')" ],
       TA.Optional,
       (fun _ ->
         match TA.get_parameter () |> RegisterType.of_string with
@@ -173,6 +178,11 @@ let () =
           TA.parse_error "You cannot add content to the twister or metrics registers"
         | Twisted | Embeddings | Distances as register_type ->
           Add_tables_to_register (register_type, TA.get_parameter ()) |> List.accum Parameters.program);
+    [ "-n"; "--normalize"; "--normalize-counts" ],
+      Some "'true'|'false'",
+      [ "whether to normalize spectra before twisting" ],
+      TA.Default (fun () -> string_of_bool Defaults.kmers_normalize),
+      (fun _ -> Set_kmers_normalize (TA.get_parameter_boolean ()) |> List.accum Parameters.program);
     [ "-k"; "--kmers"; "--add-kmers"; "--add-kmer-files" ],
       Some "<k-mer_table_file_name>[','...','<k-mer_table_file_name>]",
       [ "twist k-mers from the specified files through the transformation";
@@ -180,7 +190,7 @@ let () =
         "to the database present in the twisted register" ],
       TA.Optional,
       (fun _ ->
-        Add_kmer_files_to_twisted
+        Add_kmers_files_to_twisted
           (TA.get_parameter () |> String.Split.on_char_as_list ',') |> List.accum Parameters.program);
     [ "--distance"; "--distance-function"; "--set-distance"; "--set-distance-function" ],
       Some "'euclidean'|'cosine'|'minkowski(<non_negative_float>)'",
@@ -192,7 +202,7 @@ let () =
       (fun _ -> Set_distance (TA.get_parameter () |> Space.Distance.of_string) |> List.accum Parameters.program);
     [ "--distance-normalization"; "--set-distance-normalization" ],
       Some "'true'|'false'",
-      [ "set whether twisted vectors should be normalized prior to computing distances" ],
+      [ "whether to normalize twisted vectors before computing distances" ],
       TA.Default (fun () -> string_of_bool Defaults.distance_normalize),
       (fun _ -> Set_distance_normalize (TA.get_parameter_boolean ()) |> List.accum Parameters.program);
     [ "-m"; "--metric"; "--metric-function"; "--set-metric"; "--set-metric-function" ],
@@ -216,7 +226,7 @@ let () =
       Some "<twisted_binary_file_prefix>",
       [ "compute distances between all the vectors present in the twisted register";
         "and all the vectors present in the specified twisted binary file";
-        " (which must have extension .KPopTwisted)";
+        " (which must have extension '.KPopTwisted' unless file is '/dev/*')";
         "using the metric provided by the twister present in the twister register.";
         "The result will be placed in the distance register" ],
       TA.Optional,
@@ -224,11 +234,11 @@ let () =
     [ "-o"; "--output" ],
       Some "'T'|'t'|'e'|'d' <binary_file_prefix>",
       [ "dump the database present in the specified register";
-        " (T=twister; t=twisted; e=embedding; d=distance)";
+        " ('T'=twister; 't'=twisted; 'e'=embedding; 'd'=distance)";
         "to the specified binary file.";
         "File extension is automatically assigned depending on database type";
-        " (will be: .KPopTwister; .KPopTwisted; .KPopVectors;";
-        "  or .KPopDMatrix, respectively)" ],
+        " (will be: '.KPopTwister'; '.KPopTwisted'; '.KPopVectors';";
+        "  or '.KPopDMatrix', respectively, unless file is '/dev/*')" ],
       TA.Optional,
       (fun _ ->
         match TA.get_parameter () |> RegisterType.of_string with
@@ -244,11 +254,12 @@ let () =
     [ "-O"; "--Output" ],
       Some "'T'|'t'|'e'|'d'|'m' <table_file_prefix>",
       [ "dump the database present in the specified register";
-        " (T=twister; t=twisted; e=embedding; d=distance; m=metric)";
+        " ('T'=twister; 't'=twisted; 'e'=embedding; 'd'=distance; 'm'=metric)";
         "to the specified tabular file(s).";
         "File extension is automatically assigned depending on database type";
-        " (will be: .KPopTwister.txt and .KPopInertia.txt; .KPopTwisted.txt;";
-        "  .KPopVectors.txt; .KPopDMatrix.txt; or .KPopMetrics.txt, respectively)" ],
+        " (will be: '.KPopTwister.txt' and '.KPopInertia.txt'; '.KPopTwisted.txt';";
+        "  '.KPopVectors.txt'; '.KPopDMatrix.txt'; or '.KPopMetrics.txt',";
+        "  respectively, unless files is '/dev/*')" ],
       TA.Optional,
       (fun _ ->
         let register_type = TA.get_parameter () |> RegisterType.of_string in
@@ -264,11 +275,11 @@ let () =
       Some "<twisted_binary_file_prefix> <summary_file_prefix>",
       [ "compute distances between all the vectors present in the twisted register";
         "and all the vectors present in the specified twisted binary file";
-        " (which must have extension .KPopTwisted)";
+        " (which must have extension '.KPopTwisted' unless file is '/dev/*')";
         "using the metric provided by the twister present in the twister register;";
         "summarize them and write the result to the specified tabular file.";
         "File extension is automatically assigned";
-        " (will be .KPopSummary.txt)" ],
+        " (will be '.KPopSummary.txt' unless files is '/dev/*')" ],
       TA.Optional,
       (fun _ ->
         let twisted_prefix = TA.get_parameter () in
@@ -278,7 +289,7 @@ let () =
       [ "summarize the distances present in the distance register";
         "and write the result to the specified tabular file.";
         "File extension is automatically assigned";
-        " (will be .KPopSummary.txt)" ],
+        " (will be '.KPopSummary.txt' unless file is '/dev/*')" ],
       TA.Optional,
       (fun _ -> Summary_from_distances (TA.get_parameter ()) |> List.accum Parameters.program);
     TA.make_separator_multiline [ "Miscellaneous options."; "They are set immediately." ];
@@ -318,6 +329,11 @@ let () =
     (function
       | Binary_to_register (Twister, _) | Tables_to_register (Twister, _) ->
         twister_loaded := true
+      | Add_kmers_files_to_twisted _ ->
+        (* A twister must have been loaded to twist spectra *)
+        if not !twister_loaded then
+          TA.parse_error
+            "Option '-k' requires a twister in the twister register!"
       | Register_to_tables (Metrics, _) | Embeddings_from_twisted
       | Distances_from_twisted_binary _ | Summary_from_twisted_binary _ ->
         (* A twister must have been loaded to provide the metric induced by inertia *)
@@ -335,7 +351,7 @@ let () =
       | Binary_to_register (Embeddings, _) | Binary_to_register (Distances, _)
       | Tables_to_register (Metrics, _) | Tables_to_register (Twisted, _)
       | Tables_to_register (Embeddings, _) | Tables_to_register (Distances, _)
-      | Add_binary_to_register _ | Add_tables_to_register _ | Add_kmer_files_to_twisted _
+      | Add_binary_to_register _ | Add_tables_to_register _ | Set_kmers_normalize _
       | Register_to_tables (Twister, _) | Register_to_tables (Twisted, _)
       | Register_to_tables (Embeddings, _) | Register_to_tables (Distances, _)
       | Register_to_binary (Twister, _) | Register_to_binary (Twisted, _)
@@ -346,8 +362,8 @@ let () =
   (* These are the registers available to the program *)
   let twister = ref Twister.empty and twisted = Matrix.empty Twisted |> ref
   and embeddings = Matrix.empty Vectors |> ref and metric = Defaults.metric |> ref
-  and distance = ref Defaults.distance and distance_normalize = ref Defaults.distance_normalize
-  and distances = Matrix.empty DMatrix |> ref
+  and kmers_normalize = ref Defaults.kmers_normalize and distance = ref Defaults.distance
+  and distance_normalize = ref Defaults.distance_normalize and distances = Matrix.empty DMatrix |> ref
   and precision = ref Defaults.precision and keep_at_most = ref Defaults.keep_at_most in
   let open_and_check f ty prefix =
     let res = f ?verbose:(Some !Parameters.verbose) ty prefix in
@@ -420,10 +436,13 @@ let () =
           distances := open_file_and_check_and_merge DMatrix prefix !distances
         | Add_tables_to_register (RegisterType.Metrics, _) ->
           assert false
-        | Add_kmer_files_to_twisted fnames ->
+        | Set_kmers_normalize norm ->
+          kmers_normalize := norm
+        | Add_kmers_files_to_twisted fnames ->
           twisted :=
             Twister.add_twisted_from_files
-              ~threads:!Parameters.threads ~verbose:!Parameters.verbose !twister !twisted fnames
+              ~normalize:!kmers_normalize ~threads:!Parameters.threads ~verbose:!Parameters.verbose
+              !twister !twisted fnames
         | Embeddings_from_twisted ->
           embeddings :=
             Matrix.get_embeddings

@@ -56,7 +56,8 @@ include (
     exception Float_expected of string
     exception Duplicate_label of string
     let add_twisted_from_files
-        ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) ?(debug = false) twister twisted fnames =
+        ?(normalize = true) ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) ?(debug = false)
+        twister twisted fnames =
       ignore elements_per_step; (* Not used at the moment *)
       if twisted.Matrix.which <> Twisted then
         Matrix.Unexpected_type (twisted.Matrix.which, Twisted) |> raise;
@@ -143,7 +144,7 @@ include (
             fst !labels, !buf
           end)
         (fun (label, rev_lines) ->
-          let t0 = Sys.time () in
+          let t0 = if debug then Sys.time () else 0. in
           let s_v = ref IntMap.empty and acc = ref 0. in
           List.iter
             (fun (name, v) ->
@@ -167,23 +168,20 @@ include (
                 (* In this case, we just discard the k-mer *)
                 ())
             rev_lines;
-          let t1 = Sys.time () in
+          let t1 = if debug then Sys.time () else 0. in
           (* We first normalise and then transform the spectrum *)
           let acc = !acc in
           let s_v = {
             Matrix.Base.length = num_twister_cols;
             elements =
-              if acc <> 0. then
-                IntMap.map
-                  (fun el ->
-                    el /. acc)
-                  !s_v
+              if normalize && acc <> 0. then
+                IntMap.map (fun el -> el /. acc) !s_v
               else
                 !s_v
           } in
-          let t2 = Sys.time () in
+          let t2 = if debug then Sys.time () else 0. in
           let res = Matrix.multiply_matrix_sparse_vector_single_threaded ~verbose:false twister.twister s_v in
-          let t3 = Sys.time () in
+          let t3 = if debug then Sys.time () else 0. in
           if debug then
             Printf.eprintf "DEBUG=(lines=%d/%d/%d,%.3g,%.3g,%.3g)\n%!"
               (List.length rev_lines) num_twister_cols (Float.Array.length res) (t1 -. t0) (t2 -. t1) (t3 -. t2);
@@ -262,7 +260,7 @@ include (
     exception Float_expected of string
     exception Duplicate_label of string
     val add_twisted_from_files:
-      ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> ?debug:bool ->
+      ?normalize:bool -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> ?debug:bool ->
       t -> Matrix.t -> string list -> Matrix.t
     (* *)
     val get_metrics_vector: Space.Distance.Metric.t -> t -> Float.Array.t
