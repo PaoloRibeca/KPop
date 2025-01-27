@@ -35,266 +35,7 @@ module FBAVector = Numbers.Bigarray.Vector (
   end
 )
 
-module [@warning "-32"] rec Transformation:
-  sig
-    (* Transformation function *)
-    type t =
-      | Binary of float
-      | Power of float * float
-      | CLR of float * float
-      | Pseudo of float * float
-    exception Invalid_transformation of string * float * float
-    val compute: which:t -> col_num:int -> col_stats:Statistics.t -> row_num:int -> row_stats:Statistics.t -> int -> float
-    type parameters_t = {
-      which: string;
-      (* A value in the interval (0.,1.) is taken as a relative threshold *)
-      threshold: float;
-      power: float
-    }
-    exception Unknown_transformation of string
-    val of_parameters: parameters_t -> t
-    val to_parameters: t -> parameters_t
-  end
-= struct
-    type t =
-      | Binary of float
-      | Power of float * float
-      | CLR of float * float
-      | Pseudo of float * float
-    exception Invalid_transformation of string * float * float
-    let epsilon = 0.1
-    let [@warning "-27"] compute ~which ~col_num ~col_stats ~row_num ~row_stats counts =
-      let counts = float_of_int counts
-      and threshold =
-        match which with
-        | Binary threshold | Power (threshold, _) | CLR (threshold, _) | Pseudo (threshold, _) ->
-          if threshold < 1. then
-            threshold *. col_stats.Statistics.sum
-          else
-            threshold in
-      match which with
-      | Binary _ ->
-        if counts >= threshold then
-          1.
-        else
-          0.
-      | Power (_, 1.) -> (* Optimisation *)
-        if counts >= threshold then
-          counts
-        else
-          0.
-      | Power (_, power) ->
-        if counts >= threshold then
-          counts ** power
-        else
-          0.
-      | CLR (_, power) ->
-        let v =
-          if counts >= threshold then
-            counts
-          else
-            0. in
-        let v = max v epsilon in
-        (log v *. power) -. (col_stats.Statistics.sum_log /. float_of_int col_stats.non_zero)
-      | Pseudo (thr, power) ->
-        if power < 0. then
-          Invalid_transformation ("pseudocounts", thr, power) |> raise;
-        let v =
-          if power = 0. then
-            (float_of_int col_stats.Statistics.max) *. log ((counts +. 1.) /. threshold)
-          else begin
-            let red_threshold = threshold -. 1. |> max 0. in
-            let c_p = red_threshold ** power in
-            if power < 1. then
-              ((counts ** power) -. c_p) *. ((float_of_int col_stats.Statistics.max) ** (1. -. power)) /. power
-            else
-              ((counts ** power) -. c_p) /. ((threshold ** power) -. c_p)
-          end in
-        floor v /. col_stats.sum |> max 0.
-    type parameters_t = {
-      which: string;
-      threshold: float;
-      power: float
-    }
-    exception Unknown_transformation of string
-    let of_parameters { which; threshold; power } =
-      match which with
-      | "binary" ->
-        Binary threshold
-      | "power" | "pow" ->
-        Power (threshold, power)
-      | "clr" | "CLR" ->
-        CLR (threshold, power)
-      | "pseudocounts" | "pseudo" ->
-        Pseudo (threshold, power)
-      | s ->
-        Unknown_transformation s |> raise
-    let to_parameters = function
-      | Binary threshold -> { which = "binary"; threshold; power = 1. }
-      | Power (threshold, power) -> { which = "power"; threshold; power }
-      | CLR (threshold, power) -> { which = "clr"; threshold; power }
-      | Pseudo (threshold, power) -> { which = "pseudocounts"; threshold; power }
-  end
-and [@warning "-32"] Statistics:
-  sig
-    type t = {
-      non_zero: int;
-      min: int;
-      max: int;
-      sum: float;
-      sum_log: float
-      (*
-      mean: float;
-      variance: float
-      (* Could be extended with more moments if needed *)
-      *)
-      }
-    val empty: t
-    type table_t = {
-      col_stats: t array;
-      row_stats: t array
-    }
-    val table_of_db: ?threads:int -> ?verbose:bool -> Transformation.t -> KMerDB.t -> table_t
-  end
-= struct
-    type t = {
-      non_zero: int;
-      min: int;
-      max: int;
-      sum: float;
-      sum_log: float
-      (*
-      mean: float;
-      variance: float
-      *)
-    }
-    let empty = {
-      non_zero = 0;
-      min = 0;
-      max = 0;
-      sum = 0.;
-      sum_log = 0.
-      (*
-      mean = 0.;
-      variance = 0.
-      *)
-    }
-    type table_t = {
-      col_stats: t array;
-      row_stats: t array
-    }
-    (*
-    let resize_statistics_array ?(exact = false) n a =
-      resize_array ~exact n empty_statistics a
-    *)
-    type col_or_row_t =
-    | Col
-    | Row
-    let col_or_row_to_string = function
-    | Col -> "column"
-    | Row -> "row"
-    let table_of_db ?(threads = 1) ?(verbose = false) transf db =
-      let { Transformation.threshold; power; _ } = Transformation.to_parameters transf in
-      let core = db.KMerDB.core in
-      let compute_one what n =
-        let red_len =
-          match what with
-          | Col ->
-            core.n_rows - 1
-          | Row ->
-            core.n_cols - 1 in
-        (* Here in order to compute the threshold we have to pre-compute the normalisation *)
-        let sum = ref 0. in
-        for i = 0 to red_len do
-          let v =
-            match what with
-            | Col ->
-              IBAVector.N.to_int core.storage.(n).IBAVector.@(i)
-            | Row ->
-              IBAVector.N.to_int core.storage.(i).IBAVector.@(n) in
-          sum := !sum +. (float_of_int v ** power)
-        done;
-        let threshold =
-          if threshold < 1. then
-            threshold *. !sum
-          else
-            threshold in
-        let non_zero = ref 0 and min = ref 0 and max = ref 0 and sum = ref 0. and sum_log = ref 0. in
-        for i = 0 to red_len do
-          let v =
-            match what with
-            | Col ->
-              IBAVector.N.to_int core.storage.(n).IBAVector.@(i)
-            | Row ->
-              IBAVector.N.to_int core.storage.(i).IBAVector.@(n) in
-          let f_v = float_of_int v in
-          if f_v >= threshold then begin
-            incr non_zero;
-            min := Stdlib.min !min v;
-            max := Stdlib.max !max v;
-            sum := !sum +. (f_v ** power);
-            sum_log := !sum_log +. (log f_v *. power)
-          end
-        done;
-        { non_zero = !non_zero;
-          min = !min;
-          max = !max;
-          sum = !sum;
-          sum_log = !sum_log } in
-      let compute_all what =
-        let n =
-          match what with
-          | Col ->
-            core.n_cols
-          | Row ->
-            core.n_rows in
-        let step = n / threads / 5 |> max 1 and processed = ref 0 and res = ref [] in
-        Processes.Parallel.process_stream_chunkwise
-          (fun () ->
-            if verbose then
-              Printf.eprintf "%s\r(%s): Computing %s statistics [%d/%d]%!"
-                String.TermIO.clear __FUNCTION__ (col_or_row_to_string what) !processed n;
-            let to_do = n - !processed in
-            if to_do > 0 then begin
-              let to_do = min to_do step in
-              let res = !processed, to_do in
-              processed := !processed + to_do;
-              res
-            end else
-              raise End_of_file)
-          (fun (processed, to_do) ->
-            let res = ref [] in
-            for i = 0 to to_do - 1 do
-              processed + i |> compute_one what |> List.accum res
-            done;
-            Array.of_rlist !res)
-          (List.accum res)
-          threads;
-        let rec binary_merge_arrays processed to_do =
-          match processed, to_do with
-          | [], [] ->
-            [||]
-          | [], [a] ->
-            a
-          | [res], [] ->
-            res
-          | [res], [a] ->
-            Array.append res a
-          | _, [] ->
-            List.rev processed |> binary_merge_arrays []
-          | _, [a] ->
-            a :: processed |> List.rev |> binary_merge_arrays []
-          | _, a1 :: a2 :: tl ->
-            binary_merge_arrays ((Array.append a1 a2) :: processed) tl in
-        let res = List.rev !res |> binary_merge_arrays [] in
-        if verbose then
-          Printf.eprintf "%s\r(%s): Computing %s statistics [%d/%d]\n%!"
-            String.TermIO.clear __FUNCTION__ (col_or_row_to_string what) n n;
-        res in
-      { col_stats = compute_all Col;
-        row_stats = compute_all Row }
-  end
-and KMerDB:
+module KMerDB:
   (* Conceptually, each k-mer spectrum is stored as a column, even though in practice we store the transposed matrix *)
   sig
     type marshalled_t = {
@@ -309,6 +50,40 @@ and KMerDB:
       meta: string array array; (* Dims = n_cols * n_meta *)
       storage: IBAVector.t array (* Frequencies are stored as integers. Dims = n_cols * n_rows *)
     }
+    module Transformation:
+      sig
+        type statistics_t = {
+          non_zero: int;
+          min: int;
+          max: int;
+          sum: float;
+          sum_log: float
+          (*
+          mean: float;
+          variance: float
+          (* Could be extended with more moments if needed *)
+          *)
+        }
+        (* Transformation function *)
+        type t =
+          | Binary of float
+          | Power of float * float
+          | CLR of float * float
+          | Pseudo of float * float
+        exception Invalid_transformation of string * float * float
+        (* Only used internally *)
+        val [@warning "-32"] compute:
+          which:t -> col_num:int -> col_stats:statistics_t -> row_num:int -> row_stats:statistics_t -> int -> float
+        type parameters_t = {
+          which: string;
+          (* A value in the interval (0.,1.) is taken as a relative threshold *)
+          threshold: float;
+          power: float
+        }
+        exception Unknown_transformation of string
+        val of_parameters: parameters_t -> t
+        val to_parameters: t -> parameters_t
+      end
     type t = {
       core: marshalled_t;
       (* Inverted hashes for parsing *)
@@ -383,6 +158,211 @@ and KMerDB:
       meta: string array array;
       storage: IBAVector.t array
     }
+    module ColOrRow =
+      struct
+        type t =
+        | Col
+        | Row
+        let to_string = function
+        | Col -> "column"
+        | Row -> "row"
+      end
+    module Transformation =
+      struct
+        type statistics_t = {
+          non_zero: int;
+          min: int;
+          max: int;
+          sum: float;
+          sum_log: float
+          (*
+          mean: float;
+          variance: float
+          *)
+        }
+        type statistics_table_t = {
+          col_stats: statistics_t array;
+          row_stats: statistics_t array
+        }
+        type t =
+          | Binary of float
+          | Power of float * float
+          | CLR of float * float
+          | Pseudo of float * float
+        exception Invalid_transformation of string * float * float
+        let epsilon = 0.1
+        let [@warning "-27"] compute ~which ~col_num ~col_stats ~row_num ~row_stats counts =
+          let counts = float_of_int counts
+          and threshold =
+            match which with
+            | Binary threshold | Power (threshold, _) | CLR (threshold, _) | Pseudo (threshold, _) ->
+              if threshold < 1. then
+                threshold *. col_stats.sum
+              else
+                threshold in
+          match which with
+          | Binary _ ->
+            if counts >= threshold then
+              1.
+            else
+              0.
+          | Power (_, 1.) -> (* Optimisation *)
+            if counts >= threshold then
+              counts
+            else
+              0.
+          | Power (_, power) ->
+            if counts >= threshold then
+              counts ** power
+            else
+              0.
+          | CLR (_, power) ->
+            let v =
+              if counts >= threshold then
+                counts
+              else
+                0. in
+            let v = max v epsilon in
+            (log v *. power) -. (col_stats.sum_log /. float_of_int col_stats.non_zero)
+          | Pseudo (thr, power) ->
+            if power < 0. then
+              Invalid_transformation ("pseudocounts", thr, power) |> raise;
+            let v =
+              if power = 0. then
+                (float_of_int col_stats.max) *. log ((counts +. 1.) /. threshold)
+              else begin
+                let red_threshold = threshold -. 1. |> max 0. in
+                let c_p = red_threshold ** power in
+                if power < 1. then
+                  ((counts ** power) -. c_p) *. ((float_of_int col_stats.max) ** (1. -. power)) /. power
+                else
+                  ((counts ** power) -. c_p) /. ((threshold ** power) -. c_p)
+              end in
+            floor v /. col_stats.sum |> max 0.
+        type parameters_t = {
+          which: string;
+          threshold: float;
+          power: float
+        }
+        exception Unknown_transformation of string
+        let of_parameters { which; threshold; power } =
+          match which with
+          | "binary" ->
+            Binary threshold
+          | "power" | "pow" ->
+            Power (threshold, power)
+          | "clr" | "CLR" ->
+            CLR (threshold, power)
+          | "pseudocounts" | "pseudo" ->
+            Pseudo (threshold, power)
+          | s ->
+            Unknown_transformation s |> raise
+        let to_parameters = function
+          | Binary threshold -> { which = "binary"; threshold; power = 1. }
+          | Power (threshold, power) -> { which = "power"; threshold; power }
+          | CLR (threshold, power) -> { which = "clr"; threshold; power }
+          | Pseudo (threshold, power) -> { which = "pseudocounts"; threshold; power }
+      end
+    (* Implementation function *)
+    let stats_table_of_core_db ?(threads = 1) ?(verbose = false) transf core =
+      let { Transformation.threshold; power; _ } = Transformation.to_parameters transf in
+      let compute_one what n =
+        let red_len =
+          match what with
+          | ColOrRow.Col ->
+            core.n_rows - 1
+          | Row ->
+            core.n_cols - 1 in
+        (* Here in order to compute the threshold we have to pre-compute the normalisation *)
+        let sum = ref 0. in
+        for i = 0 to red_len do
+          let v =
+            match what with
+            | Col ->
+              IBAVector.N.to_int core.storage.(n).IBAVector.@(i)
+            | Row ->
+              IBAVector.N.to_int core.storage.(i).IBAVector.@(n) in
+          sum := !sum +. (float_of_int v ** power)
+        done;
+        let threshold =
+          if threshold < 1. then
+            threshold *. !sum
+          else
+            threshold in
+        let non_zero = ref 0 and min = ref 0 and max = ref 0 and sum = ref 0. and sum_log = ref 0. in
+        for i = 0 to red_len do
+          let v =
+            match what with
+            | Col ->
+              IBAVector.N.to_int core.storage.(n).IBAVector.@(i)
+            | Row ->
+              IBAVector.N.to_int core.storage.(i).IBAVector.@(n) in
+          let f_v = float_of_int v in
+          if f_v >= threshold then begin
+            incr non_zero;
+            min := Stdlib.min !min v;
+            max := Stdlib.max !max v;
+            sum := !sum +. (f_v ** power);
+            sum_log := !sum_log +. (log f_v *. power)
+          end
+        done;
+        { Transformation.non_zero = !non_zero;
+          min = !min;
+          max = !max;
+          sum = !sum;
+          sum_log = !sum_log } in
+      let compute_all what =
+        let n =
+          match what with
+          | ColOrRow.Col ->
+            core.n_cols
+          | Row ->
+            core.n_rows in
+        let step = n / threads / 5 |> max 1 and processed = ref 0 and res = ref [] in
+        Processes.Parallel.process_stream_chunkwise
+          (fun () ->
+            if verbose then
+              Printf.eprintf "%s\r(%s): Computing %s statistics [%d/%d]%!"
+                String.TermIO.clear __FUNCTION__ (ColOrRow.to_string what) !processed n;
+            let to_do = n - !processed in
+            if to_do > 0 then begin
+              let to_do = min to_do step in
+              let res = !processed, to_do in
+              processed := !processed + to_do;
+              res
+            end else
+              raise End_of_file)
+          (fun (processed, to_do) ->
+            let res = ref [] in
+            for i = 0 to to_do - 1 do
+              processed + i |> compute_one what |> List.accum res
+            done;
+            Array.of_rlist !res)
+          (List.accum res)
+          threads;
+        let rec binary_merge_arrays processed to_do =
+          match processed, to_do with
+          | [], [] ->
+            [||]
+          | [], [a] ->
+            a
+          | [res], [] ->
+            res
+          | [res], [a] ->
+            Array.append res a
+          | _, [] ->
+            List.rev processed |> binary_merge_arrays []
+          | _, [a] ->
+            a :: processed |> List.rev |> binary_merge_arrays []
+          | _, a1 :: a2 :: tl ->
+            binary_merge_arrays ((Array.append a1 a2) :: processed) tl in
+        let res = List.rev !res |> binary_merge_arrays [] in
+        if verbose then
+          Printf.eprintf "%s\r(%s): Computing %s statistics [%d/%d]\n%!"
+            String.TermIO.clear __FUNCTION__ (ColOrRow.to_string what) n n;
+        res in
+      { Transformation.col_stats = compute_all Col;
+        row_stats = compute_all Row }
     type t = {
       core: marshalled_t;
       col_names_to_idx: int StringHashtbl.t;
@@ -743,7 +723,7 @@ and KMerDB:
         db new_label selection criterion =
       (* Here we want no thresholding and linear statistics *)
       let transf = Transformation.of_parameters { which = "power"; threshold = 1.; power = 1. } in
-      let stats = Statistics.table_of_db ~threads ~verbose transf db and db = ref db in
+      let stats = stats_table_of_core_db ~threads ~verbose transf db.core and db = ref db in
       if verbose then
         Printf.eprintf "(%s): Adding/replacing spectrum '%s': [%!" __FUNCTION__ new_label;
       (* We allocate the result *)
@@ -899,7 +879,7 @@ and KMerDB:
     let to_table
         ?(filter = TableFilter.default) ?(threads = 1) ?(elements_per_step = 40000) ?(verbose = false) db fname =
       let transform = Transformation.compute ~which:filter.transform
-      and stats = Statistics.table_of_db ~threads ~verbose filter.transform db
+      and stats = stats_table_of_core_db ~threads ~verbose filter.transform db.core
       and output = open_out fname and meta = ref [] and rows = ref [] and cols = ref [] in
       (* We determine which rows and colunms should be output after all filters have been applied *)
       (*  Rows: metadata and k-mers *)
@@ -1070,7 +1050,7 @@ and KMerDB:
         ?(normalise = true) ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false)
         distance db selection_1 selection_2 prefix =
       let transf = Transformation.of_parameters { which = "power"; threshold = 1.; power = 1. } in
-      let stats = Statistics.table_of_db ~threads ~verbose transf db
+      let stats = stats_table_of_core_db ~threads ~verbose transf db.core
       and n_r = db.core.n_rows in (* Does not change *)
       let make_submatrix selection =
         let idxs = ref IntSet.empty in
@@ -1156,10 +1136,10 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopCountDB";
-  version = "43";
-  date = "16-Apr-2024"
+  version = "44";
+  date = "27-Jan-2025"
 } and authors = [
-  "2020-2024", "Paolo Ribeca", "paolo.ribeca@gmail.com"
+  "2020-2025", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
 
 let () =
@@ -1273,7 +1253,8 @@ let () =
         "before transforming and outputting them.";
         "A fractional threshold between 0. and 1. is taken as a relative one";
         "with respect to the sum of all counts in the spectrum" ],
-      TA.Default (fun () -> (Transformation.to_parameters Defaults.filter.transform).threshold |> string_of_float),
+      TA.Default
+        (fun () -> (KMerDB.Transformation.to_parameters Defaults.filter.transform).threshold |> string_of_float),
       (fun _ ->
         Table_transform_threshold (TA.get_parameter_float_non_neg ()) |> List.accum Parameters.program);
     [ "--table-power" ],
@@ -1281,13 +1262,13 @@ let () =
       [ "raise counts to this power before transforming and outputting them.";
         "A power of 0 when the 'pseudocounts' method is used";
         "performs a logarithmic transformation" ],
-      TA.Default (fun () -> (Transformation.to_parameters Defaults.filter.transform).power |> string_of_float),
+      TA.Default (fun () -> (KMerDB.Transformation.to_parameters Defaults.filter.transform).power |> string_of_float),
       (fun _ ->
         Table_transform_power (TA.get_parameter_float_non_neg ()) |> List.accum Parameters.program);
     [ "--table-transform"; "--table-transformation" ],
       Some "'binary'|'power'|'pseudocounts'|'clr'",
       [ "transformation to apply to table elements before outputting them" ],
-      TA.Default (fun () -> (Transformation.to_parameters Defaults.filter.transform).which),
+      TA.Default (fun () -> (KMerDB.Transformation.to_parameters Defaults.filter.transform).which),
       (fun _ ->
         Table_transform_which (TA.get_parameter ()) |> List.accum Parameters.program);
     [ "--table-output-zero-rows" ],
@@ -1408,7 +1389,7 @@ let () =
   (* These are the registers available to the program *)
   let current = KMerDB.make_empty () |> ref and selected = ref StringSet.empty
   and combination_criterion = ref Defaults.combination_criterion
-  and transform = Transformation.to_parameters Defaults.filter.transform |> ref
+  and transform = KMerDB.Transformation.to_parameters Defaults.filter.transform |> ref
   and filter = ref Defaults.filter
   and distance = ref Defaults.distance and distance_normalise = ref Defaults.distance_normalise in
   try
@@ -1456,13 +1437,13 @@ let () =
           filter := { !filter with transpose }
         | Table_transform_threshold threshold ->
           transform := { !transform with threshold };
-          filter := { !filter with transform = Transformation.of_parameters !transform }
+          filter := { !filter with transform = KMerDB.Transformation.of_parameters !transform }
         | Table_transform_power power ->
           transform := { !transform with power };
-          filter := { !filter with transform = Transformation.of_parameters !transform }
+          filter := { !filter with transform = KMerDB.Transformation.of_parameters !transform }
         | Table_transform_which which ->
           transform := { !transform with which };
-          filter := { !filter with transform = Transformation.of_parameters !transform }
+          filter := { !filter with transform = KMerDB.Transformation.of_parameters !transform }
         | Table_output_zero_rows print_zero_rows ->
           filter := { !filter with print_zero_rows }
         | Table_precision precision ->
