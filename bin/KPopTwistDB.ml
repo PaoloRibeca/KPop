@@ -93,13 +93,14 @@ module Parameters =
   struct
     let program = ref []
     let threads = Processes.Parallel.get_nproc () |> ref
+    let debug_twisting = ref false
     let verbose = ref false
   end
 
 let info = {
   Tools.Argv.name = "KPopTwistDB";
-  version = "33";
-  date = "27-Jan-2025"
+  version = "34";
+  date = "28-Jan-2025"
 } and authors = [
   "2022-2025", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
@@ -309,6 +310,8 @@ let () =
       [ "print version and exit" ],
       TA.Optional,
       (fun _ -> Printf.printf "%s\n%!" info.version; exit 0);
+    (* Hidden option to profile twisting *)
+    [ "--debug-twisting" ], None, [], TA.Optional, (fun _ -> Parameters.debug_twisting := true);
     (* Hidden option to emit help in markdown format *)
     [ "--markdown" ], None, [], TA.Optional, (fun _ -> TA.markdown (); exit 0);
     [ "-h"; "--help" ],
@@ -442,7 +445,7 @@ let () =
           twisted :=
             Twister.add_twisted_from_files
               ~normalize:!kmers_normalize ~threads:!Parameters.threads ~verbose:!Parameters.verbose
-              !twister !twisted fnames
+              ~debug:!Parameters.debug_twisting !twister !twisted fnames
         | Embeddings_from_twisted ->
           embeddings :=
             Matrix.get_embeddings

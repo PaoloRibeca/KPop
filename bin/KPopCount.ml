@@ -36,7 +36,7 @@ module KMerCounter (KIH: KMers.IntHash_t):
       Files.ReadsIterate.iter ~linter ~verbose:false
         (fun _ segm_id read ->
           KIH.iterc res read.seq;
-          if label = "" || KMers.IntHashFrequencies.length res >= max_results_size then begin
+          if label = "" || KIHF.length res >= max_results_size then begin
             (* We dump the table, empty it and start again *)
             if verbose && label <> "" then
               Printf.eprintf "%s\r(%s): Maximum size (%d) reached. Outputting and removing hashes...%!"
