@@ -183,7 +183,7 @@ include (
           let res = Matrix.multiply_matrix_sparse_vector_single_threaded ~verbose:false twister.twister s_v in
           let t3 = if debug then Sys.time () else 0. in
           if debug then
-            Printf.eprintf "DEBUG=(lines=%d/%d/%d,%.3g,%.3g,%.3g)\n%!"
+            Printf.eprintf "\nDEBUG=(lines=%d/%d/%d,%.3g,%.3g,%.3g)\n%!"
               (List.length rev_lines) num_twister_cols (Float.Array.length res) (t1 -. t0) (t2 -. t1) (t3 -. t2);
           label, res)
         (fun (label, row) ->

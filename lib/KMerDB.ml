@@ -979,13 +979,13 @@ include (
               Printf.bprintf buf "\t%s\n" col_name;
               Array.iter
                 (fun (row_name, row_idx) ->
-                  Printf.bprintf buf "%s\t%.*g\n"
-                    row_name filter.precision begin
-                      IBAVector.N.to_int db.core.storage.(col_idx).IBAVector.@(row_idx) |>
-                        transform
-                          ~col_num:db.core.n_cols ~col_stats:stats.col_stats.(col_idx)
-                          ~row_num:db.core.n_rows ~row_stats:stats.row_stats.(row_idx)
-                    end)
+                  let value =
+                    IBAVector.N.to_int db.core.storage.(col_idx).IBAVector.@(row_idx) |>
+                      transform
+                        ~col_num:db.core.n_cols ~col_stats:stats.col_stats.(col_idx)
+                        ~row_num:db.core.n_rows ~row_stats:stats.row_stats.(row_idx) in
+                  if value > 0. then
+                    Printf.bprintf buf "%s\t%.*g\n" row_name filter.precision value)
                 rows
             done;
             hi_col - lo_col + 1, Buffer.contents buf)
