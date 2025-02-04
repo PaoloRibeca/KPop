@@ -69,7 +69,9 @@ let () =
       (fun _ -> Parameters.input := TA.get_parameter ());
     [ "-o"; "--output" ],
       Some "<binary_file_prefix>",
-      [ "use this prefix when outputting the generated tree" ],
+      [ "use this prefix when outputting the generated tree and filtered splits.";
+        "File extensions are automatically determined";
+        " (will be '.nwk' for the tree; '.KPopPSplits.txt' for the splits)" ],
       TA.Mandatory,
       (fun _ -> Parameters.output := TA.get_parameter ());
     TA.make_separator "Miscellaneous";
@@ -105,12 +107,16 @@ let () =
       if res.Matrix.which <> Vectors then
         Matrix.Unexpected_type (res.which, Vectors) |> raise;
       res in
-    (* To generate an error right here at the beginning if the file is not present *)
-    ignore (open_out !Parameters.output |> close_out);
     let splits =
       Matrix.get_splits ~threads:!Parameters.threads ~verbose:!Parameters.verbose
       !Parameters.algorithm !Parameters.splits input in
-    Trees.Newick.to_file (Trees.Splits.to_tree splits) !Parameters.output
+    let output_tree = !Parameters.output ^ ".nwk"
+    and output_splits_ok = !Parameters.output ^ ".ok.KPopPSplits.txt"
+    and output_splits_ko = !Parameters.output ^ ".ko.KPopPSplits.txt" in
+    let splits_ok, tree, splits_ko = Trees.Splits.to_tree ~verbose:!Parameters.verbose splits in
+    Trees.Newick.to_file tree output_tree;
+    Trees.Splits.to_file splits_ok output_splits_ok;
+    Trees.Splits.to_file splits_ko output_splits_ko
   with e ->
     TA.header ();
     raise e
