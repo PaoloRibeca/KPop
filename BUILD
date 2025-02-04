@@ -23,11 +23,13 @@ dune build --profile="$PROFILE" bin/KPopCount.exe $FLAGS
 dune build --profile="$PROFILE" bin/KPopCountDB.exe $FLAGS
 dune build --profile="$PROFILE" bin/KPopTwist_.exe $FLAGS
 dune build --profile="$PROFILE" bin/KPopTwistDB.exe $FLAGS
+dune build --profile="$PROFILE" bin/KPopPhylo.exe $FLAGS
 
 mv _build/default/bin/KPopCount.exe build/KPopCount
 mv _build/default/bin/KPopCountDB.exe build/KPopCountDB
 mv _build/default/bin/KPopTwist_.exe build/KPopTwist_
 mv _build/default/bin/KPopTwistDB.exe build/KPopTwistDB
+mv _build/default/bin/KPopPhylo.exe build/KPopPhylo
 
 chmod 755 build/*
 

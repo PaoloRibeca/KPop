@@ -5,8 +5,8 @@
     (ocamlopt_flags (:standard -O3 -ccopt -O3 -ccopt -static))))
 
 (executables
- (public_names KPopCount KPopCountDB KPopTwist_ KPopTwistDB)
- (names KPopCount KPopCountDB KPopTwist_ KPopTwistDB)
+ (public_names KPopCount KPopCountDB KPopTwist_ KPopTwistDB KPopPhylo)
+ (names KPopCount KPopCountDB KPopTwist_ KPopTwistDB KPopPhylo)
  (libraries str unix BiOCamLib KPop))
 
 (install
@@ -15,4 +15,5 @@
   (KPopCount.exe as KPopCount)
   (KPopCountDB.exe as KPopCountDB)
   (KPopTwist_.exe as KPopTwist_)
-  (KPopTwistDB.exe as KPopTwistDB)))
+  (KPopTwistDB.exe as KPopTwistDB)
+  (KPopPhylo.exe as KPopPhylo)))

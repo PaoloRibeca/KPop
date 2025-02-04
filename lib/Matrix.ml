@@ -388,8 +388,7 @@ include (
           | "KPopTwisted" -> Twisted
           | "KPopVectors" -> Vectors
           | "KPopDMatrix" -> DMatrix
-          | w ->
-            Unknown_type w |> raise
+          | w -> Unknown_type w |> raise
       end
     type t = {
       which: Type.t;
@@ -439,6 +438,90 @@ include (
         Unexpected_type (m.which, Twisted) |> raise;
       { which = Vectors;
         matrix = Base.get_embeddings ~normalize ~threads ~elements_per_step ~verbose distance metric m.matrix }
+    module SplitsAlgorithm =
+      struct
+        type t =
+          | Gaps
+        let to_string = function
+          | Gaps -> "gaps"
+        exception Unknown_algorithm of string
+        let of_string = function
+          | "gaps" -> Gaps
+          | w -> Unknown_algorithm w |> raise
+      end
+    let get_splits ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false) algorithm_type max_splits m =
+      ignore (algorithm_type); (* At the moment we do not implement anything else *)
+      if m.which <> Vectors then
+        Unexpected_type (m.which, Vectors) |> raise;
+      (* Embeddings are stored rowwise.
+         We begin by sorting coordinates along each dimension (i.e., by sorting columns) *)
+      let n = Array.length m.matrix.row_names in
+      let cols_per_step = max 1 (elements_per_step / n) and processed_cols = ref 0
+      and d = Array.length m.matrix.col_names in
+      let row_permutations = Array.make d [||] and gaps = Tools.StackArray.create () in
+      (* Generate points to be computed by the parallel process *)
+      Processes.Parallel.process_stream_chunkwise
+        (fun () ->
+          if !processed_cols < d then
+            let to_do = min cols_per_step (d - !processed_cols) in
+            let new_processed_cols = !processed_cols + to_do in
+            let res = !processed_cols, new_processed_cols - 1 in
+            processed_cols := new_processed_cols;
+            res
+          else
+            raise End_of_file)
+        (fun (lo_col, hi_col) ->
+          let res = ref [] in
+          (* We iterate backwards so as to avoid to have to reverse the list in the end *)
+          for i = hi_col downto lo_col do
+            (* We annotate the transposed value with its row index *)
+            let coords__idxs = Array.init n (fun row -> Float.Array.get m.matrix.data.(row) i, row) in
+            (* We sort the vector *)
+            Array.sort (fun (coord_1, _) (coord_2, _) -> compare coord_1 coord_2) coords__idxs;
+            (* We compute gaps, i.e. differences between consecutive coordinates.
+               Gaps are annotated with their indices *)
+            let gaps__idxs = Array.init (n - 1) (fun j -> fst coords__idxs.(j + 1) -. fst coords__idxs.(j), i, j) in
+            (* We sort the vector *)
+            Array.sort (fun (gap_1, _, _) (gap_2, _, _) -> compare gap_1 gap_2) gaps__idxs;
+            (* We return the permutation of row indices and the gap vector *)
+            List.accum res (Array.init n (fun row -> snd coords__idxs.(row)), gaps__idxs)
+          done;
+          lo_col, !res)
+        (fun (lo_col, cols) ->
+          List.iteri
+            (fun offs_i (perm_i, gaps_i) ->
+              row_permutations.(lo_col + offs_i) <- perm_i;
+              Tools.StackArray.push_array gaps gaps_i;
+              if verbose && !processed_cols mod cols_per_step = 0 then
+                Printf.eprintf "%s\r(%s): Done %d/%d cols%!"
+                  String.TermIO.clear __FUNCTION__ !processed_cols n;
+              incr processed_cols)
+            cols)
+        threads;
+      (* We sort the gaps *)
+      let gaps = Tools.StackArray.contents gaps in
+      Array.sort
+        (fun (gap_1, dim_1, idx_1) (gap_2, dim_2, idx_2) ->
+          (* We sort splits by decreasing gap size first, then by increasing dimension (and row index) *)
+          let rgap = compare gap_2 gap_1 in
+          if rgap <> 0 then
+            rgap
+          else begin
+            let dim = compare dim_1 dim_2 in
+            if dim <> 0 then
+              dim
+            else
+              compare idx_1 idx_2
+          end)
+        gaps;
+      (* We generate splits from the selected number of gaps *)
+      let res = Trees.Splits.create m.matrix.row_names in
+      for i = 0 to (Array.length gaps |> min max_splits) - 1 do
+        let gap, dim, idx = gaps.(i) in
+        let split = Array.sub row_permutations.(dim) 0 (idx + 1) |> Trees.Splits.Split.of_array in
+        Trees.Splits.add_split res split gap
+      done;
+      res
     let get_distance_matrix ?(normalize = true) ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false)
         distance metric m =
       if m.which <> Twisted then
@@ -709,6 +792,17 @@ include (
     (* Compute embeddings (principal coordinates) from standard coordinates - input type must be Twisted *)
     val get_embeddings: ?normalize:bool -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
                         Space.Distance.t -> Float.Array.t -> t -> t
+    module SplitsAlgorithm:
+      sig
+        type t =
+          | Gaps
+        val to_string: t -> string
+        exception Unknown_algorithm of string
+        val of_string: string -> t
+      end
+    (* Compute splits from embeddings - input type must be Vectors *)
+    val get_splits: ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
+                    SplitsAlgorithm.t -> int -> t -> Trees.Splits.t
     (* Compute distances between the rows of a matrix - input type must be Twisted *)
     val get_distance_matrix: ?normalize:bool -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
                              Space.Distance.t -> Float.Array.t -> t -> t
