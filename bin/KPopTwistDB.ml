@@ -99,8 +99,8 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopTwistDB";
-  version = "34";
-  date = "28-Jan-2025"
+  version = "35";
+  date = "04-Feb-2025"
 } and authors = [
   "2022-2025", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
@@ -179,7 +179,7 @@ let () =
           TA.parse_error "You cannot add content to the twister or metrics registers"
         | Twisted | Embeddings | Distances as register_type ->
           Add_tables_to_register (register_type, TA.get_parameter ()) |> List.accum Parameters.program);
-    [ "-n"; "--normalize"; "--normalize-counts" ],
+    [ "--counts-normalize"; "--counts-normalization" ],
       Some "'true'|'false'",
       [ "whether to normalize spectra before twisting" ],
       TA.Default (fun () -> string_of_bool Defaults.kmers_normalize),
@@ -193,7 +193,7 @@ let () =
       (fun _ ->
         Add_kmers_files_to_twisted
           (TA.get_parameter () |> String.Split.on_char_as_list ',') |> List.accum Parameters.program);
-    [ "--distance"; "--distance-function"; "--set-distance"; "--set-distance-function" ],
+    [ "--distance"; "--distance-function" ],
       Some "'euclidean'|'cosine'|'minkowski(<non_negative_float>)'",
       [ "set the function to be used when computing distances.";
         "The parameter for 'minkowski' is the power.";
@@ -201,12 +201,12 @@ let () =
         "and 'cosine' is the same as ('euclidean'^2)/2" ],
       TA.Default (fun () -> Space.Distance.to_string Defaults.distance),
       (fun _ -> Set_distance (TA.get_parameter () |> Space.Distance.of_string) |> List.accum Parameters.program);
-    [ "--distance-normalization"; "--set-distance-normalization" ],
+    [ "--distance-normalize"; "--distance-normalization" ],
       Some "'true'|'false'",
       [ "whether to normalize twisted vectors before computing distances" ],
       TA.Default (fun () -> string_of_bool Defaults.distance_normalize),
       (fun _ -> Set_distance_normalize (TA.get_parameter_boolean ()) |> List.accum Parameters.program);
-    [ "-m"; "--metric"; "--metric-function"; "--set-metric"; "--set-metric-function" ],
+    [ "-m"; "--metric"; "--metric-function" ],
       Some "'flat'|'powers('POWERS_PARAMETERS')'",
       [ "where POWERS_PARAMETERS :=";
         " <non_negative_float>','<fractional_float>','<non_negative_float> :";
@@ -247,7 +247,7 @@ let () =
           TA.parse_error "You cannot output binary content from the metrics registers"
         | Twister | Twisted | Embeddings | Distances as register_type ->
           Register_to_binary (register_type, TA.get_parameter ()) |> List.accum Parameters.program);
-    [ "--precision"; "--set-precision"; "--set-table-precision" ],
+    [ "--precision" ],
       Some "<positive_integer>",
       [ "set the number of precision digits to be used when outputting numbers" ],
       TA.Default (fun () -> string_of_int Defaults.precision),
@@ -265,7 +265,7 @@ let () =
       (fun _ ->
         let register_type = TA.get_parameter () |> RegisterType.of_string in
         Register_to_tables (register_type, TA.get_parameter ()) |> List.accum Parameters.program);
-    [ "-K"; "--keep-at-most"; "--set-keep-at-most"; "--summary-keep-at-most" ],
+    [ "-K"; "--keep-at-most"; "--summary-keep-at-most" ],
       Some "<positive_integer>|'all'",
       [ "set the maximum number of closest target sequences";
         "to be kept when summarizing distances.";

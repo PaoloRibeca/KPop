@@ -131,7 +131,7 @@ let () =
         "The parameter for 'minkowski()' is the power" ],
       TA.Default (fun () -> Space.Distance.to_string Defaults.distance),
       (fun _ -> Distance_set (TA.get_parameter () |> Space.Distance.of_string) |> List.accum Parameters.program);
-    [ "--distance-normalize"; "--normalize-distances"; "--distance-normalization" ],
+    [ "--distance-normalize"; "--distance-normalization" ],
       Some "'true'|'false'",
       [ "whether spectra should be normalized prior to computing distances" ],
       TA.Optional,

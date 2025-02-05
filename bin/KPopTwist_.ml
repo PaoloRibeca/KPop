@@ -35,8 +35,8 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopTwist";
-  version = "22";
-  date = "27-Jan-2025"
+  version = "23";
+  date = "04-Feb-2025"
 } and authors = [
   "2022-2025", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
@@ -52,7 +52,7 @@ let () =
       [ "fraction of the k-mers to be considered and resampled before twisting" ],
       TA.Default (fun () -> string_of_float !Parameters.sampling),
       (fun _ -> Parameters.sampling := TA.get_parameter_float_fraction ());
-    [ "--threshold-counts" ],
+    [ "--counts-threshold" ],
       Some "<non_negative_integer>",
       [ "set to zero all counts that are less than this threshold";
         "before transforming them.";
@@ -60,24 +60,24 @@ let () =
         "with respect to the sum of all counts in the spectrum" ],
       TA.Default (fun () -> string_of_float !Parameters.threshold_counts),
       (fun _ -> Parameters.threshold_counts := TA.get_parameter_float_non_neg ());
-    [ "--power" ],
+    [ "--counts-power" ],
       Some "<non_negative_float>",
       [ "raise counts to this power before transforming them.";
         "A power of 0 when the 'pseudocounts' method is used";
         "performs a logarithmic transformation" ],
       TA.Default (fun () -> string_of_float !Parameters.power),
       (fun _ -> Parameters.power := TA.get_parameter_float_non_neg ());
-    [ "--transform"; "--transformation" ],
+    [ "--counts-transform"; "--counts-transformation" ],
       Some "'binary'|'power'|'pseudocounts'|'clr'",
       [ "transformation to apply to table elements" ],
       TA.Default (fun () -> !Parameters.transformation),
       (fun _ -> Parameters.transformation := TA.get_parameter ());
-    [ "-n"; "--normalize"; "--normalize-counts" ],
+    [ "--counts-normalize"; "--counts-normalization" ],
       Some "'true'|'false'",
       [ "whether to normalize spectra after transformation and before twisting" ],
       TA.Default (fun () -> string_of_bool !Parameters.normalize),
       (fun _ -> Parameters.normalize := TA.get_parameter_boolean ());
-    [ "--threshold-kmers" ],
+    [ "--kmers-threshold" ],
       Some "<non_negative_integer>",
       [ "compute the sum of all transformed (and possibly normalized) counts";
         "for each k-mer, and eliminate k-mers such that the corresponding sum";
