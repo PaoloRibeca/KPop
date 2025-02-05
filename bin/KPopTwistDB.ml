@@ -59,7 +59,6 @@ module KeepAtMost =
       | Some n -> string_of_int n
   end
 
-(* There are three registers in this program, one per DB type *)
 type to_do_t =
   | Empty of RegisterType.t
   | Binary_to_register of RegisterType.t * string
