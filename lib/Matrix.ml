@@ -735,12 +735,12 @@ include (
       close_out output;
       if verbose then
         Printf.eprintf " done.\n%!"
-    exception Incompatible_archive_version of string * string
+    exception Incompatible_archive_version of string * string * string
     let of_channel input =
       let which = (input_value input: string) in
       let version = (input_value input: string) in
       if version <> archive_version then
-        Incompatible_archive_version (which, version) |> raise;
+        Incompatible_archive_version (which, version, archive_version) |> raise;
       { which = Type.of_string which; matrix = (input_value input: Base.t) }
     let of_binary ?(verbose = false) which prefix =
       let fname = make_filename_binary which prefix in
@@ -819,7 +819,7 @@ include (
                             t -> string -> unit
     (* Binary marshalling of the matrix *)
     val to_channel: out_channel -> t -> unit
-    exception Incompatible_archive_version of string * string
+    exception Incompatible_archive_version of string * string * string
     val of_channel: in_channel -> t
     val to_binary: ?verbose:bool -> t -> string -> unit
     val of_binary: ?verbose:bool -> Type.t -> string -> t
