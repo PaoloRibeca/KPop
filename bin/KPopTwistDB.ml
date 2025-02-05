@@ -69,7 +69,8 @@ type to_do_t =
   | Add_kmers_files_to_twisted of string list
 (* | Add_kmers_binary_to_twisted of string *)
   | Register_to_binary of RegisterType.t * string
-  | Set_precision of int
+  | Set_precision_tables of int
+  | Set_precision_splits of int
   | Register_to_tables of RegisterType.t * string
   | Set_distance of Space.Distance.t
   | Set_distance_normalize of bool
@@ -89,7 +90,8 @@ module Defaults =
     let distance = Space.Distance.of_string "euclidean"
     let distance_normalize = true
     let metric = Space.Distance.Metric.of_string "powers(1,1,2)"
-    let precision = 15
+    let precision_tables = 15
+    let precision_splits = 10
     let splits_algorithm = Matrix.SplitsAlgorithm.of_string "gaps"
     let splits_keep_at_most = 10000
     let summary_keep_at_most = Some 2
@@ -105,7 +107,7 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopTwistDB";
-  version = "36";
+  version = "37";
   date = "05-Feb-2025"
 } and authors = [
   "2022-2025", "Paolo Ribeca", "paolo.ribeca@gmail.com"
@@ -272,11 +274,18 @@ let () =
           TA.parse_error "You cannot output binary content from the metrics registers"
         | Twister | Twisted | Embeddings | Distances | Splits as register_type ->
           Register_to_binary (register_type, TA.get_parameter ()) |> List.accum Parameters.program);
-    [ "--precision" ],
+    [ "--precision-for-tables" ],
       Some "<positive_integer>",
-      [ "set the number of precision digits to be used when outputting numbers" ],
-      TA.Default (fun () -> string_of_int Defaults.precision),
-      (fun _ -> Set_precision (TA.get_parameter_int_pos ()) |> List.accum Parameters.program);
+      [ "set how many precision digits should be used when outputting numbers";
+        "in tabular formats" ],
+      TA.Default (fun () -> string_of_int Defaults.precision_tables),
+      (fun _ -> Set_precision_tables (TA.get_parameter_int_pos ()) |> List.accum Parameters.program);
+    [ "--precision-for-splits" ],
+      Some "<positive_integer>",
+      [ "set how many precision digits should be used when outputting splits";
+        "in plain-text format" ],
+      TA.Default (fun () -> string_of_int Defaults.precision_splits),
+      (fun _ -> Set_precision_splits (TA.get_parameter_int_pos ()) |> List.accum Parameters.program);
     [ "-O"; "--Output" ],
       Some "'T'|'t'|'e'|'d'|'m'|'s' <table_file_prefix>",
       [ "dump the database present in the specified register";
@@ -390,7 +399,7 @@ let () =
       | Register_to_binary (Twister, _) | Register_to_binary (Twisted, _)
       | Register_to_binary (Embeddings, _) | Register_to_binary (Distances, _)
       | Register_to_binary (Splits, _)
-      | Set_precision _
+      | Set_precision_tables _ | Set_precision_splits _
       | Set_splits_algorithm _ | Set_splits_keep_at_most _ | Splits_from_embeddings
       | Set_summary_keep_at_most _ | Summary_from_distances _ ->
         ())
@@ -403,7 +412,7 @@ let () =
   and splits_keep_at_most = ref Defaults.splits_keep_at_most
   and splits_algorithm = ref Defaults.splits_algorithm and splits = Trees.Splits.create [||] |> ref
   and summary_keep_at_most = ref Defaults.summary_keep_at_most
-  and precision = ref Defaults.precision in
+  and precision_tables = ref Defaults.precision_tables and precision_splits = ref Defaults.precision_splits in
   let open_and_check f ty prefix =
     let res = f ?verbose:(Some !Parameters.verbose) ty prefix in
     if res.Matrix.which <> ty then
@@ -421,7 +430,7 @@ let () =
     open_and_check_and_merge (Matrix.of_file ~threads:!Parameters.threads ~bytes_per_step:4194304)
   and matrix_to_binary = Matrix.to_binary ~verbose:!Parameters.verbose
   and matrix_to_file =
-    Matrix.to_file ~precision:!precision ~threads:!Parameters.threads ~verbose:!Parameters.verbose in
+    Matrix.to_file ~precision:!precision_tables ~threads:!Parameters.threads ~verbose:!Parameters.verbose in
   try
     List.iter
       (function
@@ -505,10 +514,12 @@ let () =
           matrix_to_binary !distances prefix
         | Register_to_binary (Splits, prefix) ->
           Trees.Splits.to_binary ~verbose:!Parameters.verbose !splits prefix
-        | Set_precision prec ->
-          precision := prec
+        | Set_precision_tables prec ->
+          precision_tables := prec
+        | Set_precision_splits prec ->
+          precision_splits := prec
         | Register_to_tables (Twister, prefix) ->
-          Twister.to_files ~precision:!precision ~threads:!Parameters.threads ~verbose:!Parameters.verbose
+          Twister.to_files ~precision:!precision_tables ~threads:!Parameters.threads ~verbose:!Parameters.verbose
             !twister prefix
         | Register_to_tables (Twisted, prefix) ->
           matrix_to_file !twisted prefix
@@ -519,7 +530,7 @@ let () =
         | Register_to_tables (Metrics, prefix) ->
           matrix_to_file (Twister.get_metrics_matrix !metric !twister) prefix
         | Register_to_tables (Splits, prefix) ->
-          Trees.Splits.to_file ~precision:!precision !splits prefix
+          Trees.Splits.to_file ~precision:!precision_splits !splits prefix
         | Set_distance dist ->
           distance := dist
         | Set_distance_normalize norm ->
