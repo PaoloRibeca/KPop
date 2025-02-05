@@ -18,6 +18,14 @@ open BiOCamLib.Better (* We cannot open BiOCamLib here due to the ambiguity with
 module Numbers = BiOCamLib.Numbers
 module Processes = BiOCamLib.Processes
 
+(* We put this one here for lack of a better place *)
+module Spectra =
+  struct
+    let make_filename = function
+      | w when String.length w >= 5 && String.sub w 0 5 = "/dev/" -> w
+      | prefix -> prefix ^ ".KPopSpectra.txt"
+  end
+
 (* For counts. We assume each count to be < 2^31 *)
 module IBAVector = Numbers.Bigarray.Vector (
   struct
@@ -374,8 +382,12 @@ include (
     (* *)
     let archive_version = "2022-04-03"
     (* *)
+    let make_filename_binary = function
+      | w when String.length w >= 5 && String.sub w 0 5 = "/dev/" -> w
+      | prefix -> prefix ^ ".KPopCounter"
     exception Incompatible_archive_version of string * string
-    let to_binary ?(verbose = false) db fname =
+    let to_binary ?(verbose = false) db prefix =
+      let fname = make_filename_binary prefix in
       let output = open_out fname in
       if verbose then
         Printf.eprintf "(%s): Outputting DB to file '%s'...%!" __FUNCTION__ fname;
@@ -393,7 +405,8 @@ include (
       close_out output;
       if verbose then
         Printf.eprintf " done.\n%!"
-    let of_binary ?(verbose = false) fname =
+    let of_binary ?(verbose = false) prefix =
+      let fname = make_filename_binary prefix in
       let input = open_in fname in
       if verbose then
         Printf.eprintf "(%s): Reading DB from file '%s'...%!" __FUNCTION__ fname;
@@ -409,9 +422,6 @@ include (
         col_names_to_idx = invert_table core.idx_to_col_names;
         row_names_to_idx = invert_table core.idx_to_row_names;
         meta_names_to_idx = invert_table core.idx_to_meta_names }
-    let make_filename_binary = function
-      | w when String.length w >= 5 && String.sub w 0 5 = "/dev/" -> w
-      | prefix -> prefix ^ ".KPopCounter"
     (* *)
     exception Wrong_number_of_columns of int * int * int
     let add_meta ?(verbose = false) db fname =
@@ -486,10 +496,11 @@ include (
     exception Header_expected of string
     exception Wrong_format of int * string
     (* Here we cannot easily parallelise because of DB memory management *)
-    let add_files ?(verbose = false) db fnames =
-      let db = ref db and n = List.length fnames and num_spectra = ref (-1) in
+    let add_files ?(verbose = false) db prefixes =
+      let db = ref db and n = List.length prefixes and num_spectra = ref (-1) in
       List.iteri
-        (fun i fname ->
+        (fun i prefix ->
+          let fname = Spectra.make_filename prefix in
           let input = open_in fname and line_num = ref 0 and col_idx = ref 0 in
           (* Each file can contain one or more spectra *)
           begin try
@@ -554,7 +565,7 @@ include (
                 !num_spectra (String.pluralize_int ~plural:"spectra" "spectrum" !num_spectra)
                 !line_num (String.pluralize_int "line" !line_num) (if i + 1 = n then ".\n" else "")
           end)
-        fnames;
+        prefixes;
       !db
     (* *)
     let selected_from_regexps ?(verbose = false) db regexps =
@@ -765,11 +776,15 @@ include (
           precision = 15
         }
       end
+    let make_filename_table = function
+      | w when String.length w >= 5 && String.sub w 0 5 = "/dev/" -> w
+      | prefix -> prefix ^ ".KPopCounter.txt"
     let to_table
-        ?(filter = TableFilter.default) ?(threads = 1) ?(elements_per_step = 40000) ?(verbose = false) db fname =
+        ?(filter = TableFilter.default) ?(threads = 1) ?(elements_per_step = 40000) ?(verbose = false) db prefix =
       let transform = Transformation.compute ~which:filter.transform
       and stats = stats_table_of_core_db ~threads ~verbose filter.transform db.core
-      and output = open_out fname and meta = ref [] and rows = ref [] and cols = ref [] in
+      and fname = make_filename_table prefix in
+      let output = open_out fname and meta = ref [] and rows = ref [] and cols = ref [] in
       (* We determine which rows and colunms should be output after all filters have been applied *)
       (*  Rows: metadata and k-mers *)
       if filter.print_metadata then
@@ -932,14 +947,12 @@ include (
             String.TermIO.clear __FUNCTION__ fname n_done n_done
       end;
       close_out output
-    let make_filename_table = function
-      | w when String.length w >= 5 && String.sub w 0 5 = "/dev/" -> w
-      | prefix -> prefix ^ ".KPopCounter.txt"
     let to_spectra
-        ?(filter = TableFilter.default) ?(threads = 1) ?(elements_per_step = 40000) ?(verbose = false) db fname =
+        ?(filter = TableFilter.default) ?(threads = 1) ?(elements_per_step = 40000) ?(verbose = false) db prefix =
       let transform = Transformation.compute ~which:filter.transform
       and stats = stats_table_of_core_db ~threads ~verbose filter.transform db.core
-      and output = open_out fname and rows = ref [] and cols = ref [] in
+      and fname = Spectra.make_filename prefix in
+      let output = open_out fname and rows = ref [] and cols = ref [] in
       (* We determine which rows and colunms should be output after all filters have been applied *)
       (*  Rows: k-mers *)
       Array.iteri
@@ -1002,9 +1015,6 @@ include (
             String.TermIO.clear __FUNCTION__ fname n_cols n_cols
       end;
       close_out output
-    let make_filename_spectra = function
-      | w when String.length w >= 5 && String.sub w 0 5 = "/dev/" -> w
-      | prefix -> prefix ^ ".KPopSpectra.txt"
     let to_distances
         ?(normalise = true) ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false)
         distance db selection_1 selection_2 prefix =
@@ -1132,7 +1142,6 @@ include (
     exception Incompatible_archive_version of string * string
     val to_binary: ?verbose:bool -> t -> string -> unit
     val of_binary: ?verbose:bool -> string -> t
-    val make_filename_binary: string -> string
     module TableFilter:
       sig
         type t = {
@@ -1150,11 +1159,9 @@ include (
     (* Readable output *)
     val to_table:
       ?filter:TableFilter.t -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> string -> unit
-    val make_filename_table: string -> string
     (* Spectral output *)
     val to_spectra:
       ?filter:TableFilter.t -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> string -> unit
-    val make_filename_spectra: string -> string
     (* Spectral distance matrix *)
     val to_distances:
       ?normalise:bool -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->

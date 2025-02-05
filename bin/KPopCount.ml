@@ -96,10 +96,10 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopCount";
-  version = "17";
-  date = "16-Apr-2024"
+  version = "18";
+  date = "05-Feb-2025"
 } and authors = [
-  "2017-2024", "Paolo Ribeca", "paolo.ribeca@gmail.com"
+  "2017-2025", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
 
 let () =
@@ -178,10 +178,11 @@ let () =
       TA.Optional,
       (fun _ -> Parameters.option_l_or_L := true);
     [ "-o"; "--output" ],
-      Some "<output_file_name>",
-      [ "name of generated output file" ],
+      Some "<output_file_prefix>",
+      [ "prefix of the generated output file";
+        " (will be given extension '.KPopSpectra.txt' unless file is '/dev/*')" ],
       TA.Default (fun () -> if !Parameters.output = "" then "<stdout>" else !Parameters.output),
-      (fun _ -> Parameters.output := TA.get_parameter ());
+      (fun _ -> Parameters.output := TA.get_parameter () |> KMerDB.Spectra.make_filename);
     TA.make_separator "Miscellaneous";
 (*
     [ "-t"; "-T"; "--threads" ],

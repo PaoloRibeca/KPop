@@ -14,6 +14,7 @@
 *)
 
 open BiOCamLib
+open KPop
 
 module Parameters =
   struct
@@ -35,8 +36,8 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopTwist";
-  version = "23";
-  date = "04-Feb-2025"
+  version = "24";
+  date = "05-Feb-2025"
 } and authors = [
   "2022-2025", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
@@ -144,11 +145,11 @@ let () =
   end;*)
   if !Parameters.verbose then
     TA.header ();
-
-  (* For the moment, we just check if the file is there, and repeat input parameters *)
-
+  (*
+     For the time being, we just check if the file is there, and repeat input parameters
+  *)
   begin try
-    KPop.KMerDB.make_filename_binary !Parameters.input |> open_in |> close_in
+    KMerDB.Spectra.make_filename !Parameters.input |> open_in |> close_in
   with e ->
     TA.header ();
     raise e

@@ -66,8 +66,8 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopCountDB";
-  version = "46";
-  date = "27-Jan-2025"
+  version = "47";
+  date = "05-Feb-2025"
 } and authors = [
   "2020-2025", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
@@ -101,7 +101,7 @@ let () =
       [ "load into the register the database present in the specified file";
         " (which must have extension '.KPopCounter' unless file is '/dev/*')" ],
       TA.Optional,
-      (fun _ -> Of_file (TA.get_parameter () |> KMerDB.make_filename_binary) |> List.accum Parameters.program);
+      (fun _ -> Of_file (TA.get_parameter ()) |> List.accum Parameters.program);
     [ "-m"; "--metadata"; "--add-metadata" ],
       Some "<metadata_table_file_name>",
       [ "add to the database present in the register metadata from the specified file.";
@@ -110,7 +110,8 @@ let () =
       (fun _ -> Add_meta (TA.get_parameter ()) |> List.accum Parameters.program);
     [ "-k"; "--kmers"; "--add-kmers"; "--add-kmer-files" ],
       Some "<k-mer_table_file_name>[','...','<k-mer_table_file_name>]",
-      [ "add to the database present in the register k-mers from the specified files" ],
+      [ "add to the database present in the register k-mers from the specified files";
+        " (which must have extension '.KPopSpectra.txt' unless file is '/dev/*')" ],
       TA.Optional,
       (fun _ ->
         Add_files (TA.get_parameter () |> String.Split.on_char_as_list ',') |> List.accum Parameters.program);
@@ -124,7 +125,7 @@ let () =
       [ "dump the database present in the register to the specified file";
         " (which will be given extension '.KPopCounter' unless file is '/dev/*')" ],
       TA.Optional,
-      (fun _ -> To_file (TA.get_parameter () |> KMerDB.make_filename_binary) |> List.accum Parameters.program);
+      (fun _ -> To_file (TA.get_parameter ()) |> List.accum Parameters.program);
     [ "--distance"; "--distance-function" ],
       Some "'euclidean'|'minkowski(<non_negative_float>)'",
       [ "set the function to be used when computing distances.";
@@ -220,13 +221,13 @@ let () =
         " (rows are k-mer names, columns are spectrum names.";
         "  The result will be given extension '.KPopCounter.txt' unless file is '/dev/*')" ],
       TA.Optional,
-      (fun _ -> To_table (TA.get_parameter () |> KMerDB.make_filename_table) |> List.accum Parameters.program);
+      (fun _ -> To_table (TA.get_parameter ()) |> List.accum Parameters.program);
     [ "-s"; "--spectra" ],
       Some "<file_prefix>",
       [ "write the database present in the register as k-mer spectra";
         " (the result will be given extension '.KPopSpectra.txt' unless file is '/dev/*')" ],
       TA.Optional,
-      (fun _ -> To_spectra (TA.get_parameter () |> KMerDB.make_filename_spectra) |> List.accum Parameters.program);
+      (fun _ -> To_spectra (TA.get_parameter ()) |> List.accum Parameters.program);
     TA.make_separator_multiline [ ""; "Actions involving the selection register:" ];
     [ "-L"; "--labels"; "--selection-from-labels" ],
       Some "<spectrum_label>[','...','<spectrum_label>]",
@@ -335,12 +336,12 @@ let () =
       (function
         | Empty ->
           current := KMerDB.make_empty ()
-        | Of_file fname ->
-          current := KMerDB.of_binary ~verbose:!Parameters.verbose fname
+        | Of_file prefix ->
+          current := KMerDB.of_binary ~verbose:!Parameters.verbose prefix
         | Add_meta fname ->
           current := KMerDB.add_meta ~verbose:!Parameters.verbose !current fname
-        | Add_files fnames ->
-          current := KMerDB.add_files ~verbose:!Parameters.verbose !current fnames
+        | Add_files prefixes ->
+          current := KMerDB.add_files ~verbose:!Parameters.verbose !current prefixes
         | Combination_criterion_set criterion ->
           combination_criterion := criterion
         | Add_combined_selected new_label ->
@@ -386,12 +387,12 @@ let () =
           filter := { !filter with print_zero_rows }
         | Table_precision precision ->
           filter := { !filter with precision }
-        | To_table fname ->
-          KMerDB.to_table ~filter:!filter ~threads:!Parameters.threads ~verbose:!Parameters.verbose !current fname
-        | To_spectra fname ->
-          KMerDB.to_spectra ~filter:!filter ~threads:!Parameters.threads ~verbose:!Parameters.verbose !current fname
-        | To_file fname ->
-          KMerDB.to_binary ~verbose:!Parameters.verbose !current fname
+        | To_table prefix ->
+          KMerDB.to_table ~filter:!filter ~threads:!Parameters.threads ~verbose:!Parameters.verbose !current prefix
+        | To_spectra prefix ->
+          KMerDB.to_spectra ~filter:!filter ~threads:!Parameters.threads ~verbose:!Parameters.verbose !current prefix
+        | To_file prefix ->
+          KMerDB.to_binary ~verbose:!Parameters.verbose !current prefix
         | Distance_set dist ->
           distance := dist
         | Distance_normalisation_set normalise ->
