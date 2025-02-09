@@ -35,7 +35,13 @@ function conditional_echo {
 # We generate and split the plain text table, so that R can import it
 conditional_echo "$(date +"%c"): [1/15] Exporting table..."
 TMPDIR=$(mktemp -d -p . KPopTwist-XXXXXXXXXX)
-KPopCountDB -T "$THREADS" -i "$PREFIX_IN" --table-threshold "$THRESHOLD_COUNTS" --table-power "$POWER" --table-transform "$TRANSFORM" --table-output-row-names false -t "${TMPDIR}/TABLE" -R "~." -D --table-output-row-names true --table-output-zero-rows true --table-threshold 1. --table-power 1. --table-transform power -t /dev/stdout | tail -n +2 > "${TMPDIR}/NAMES.KPopCounter.txt"
+KPopCountDB -T "$THREADS" -i "$PREFIX_IN" \
+    --counts-threshold "$THRESHOLD_COUNTS" --counts-power "$POWER" --counts-transform "$TRANSFORM" \
+    --table-output-row-names false -t "${TMPDIR}/TABLE" \
+    -R "~." -D \
+    --counts-output-zero-kmers true --counts-threshold 1. --counts-power 1. --counts-transform power \
+    --table-output-row-names true --table-output-metadata false -t /dev/stdout |
+  tail -n +2 > "${TMPDIR}/NAMES.KPopCounter.txt"
 
 export R_DATATABLE_NUM_PROCS_PERCENT=100
 #export R_DATATABLE_THROTTLE=1000000
@@ -98,7 +104,7 @@ cat <<'_____'
   conditional_echo("[12/15] Writing twister")
   data.table::fwrite(twister,paste0(output,".KPopTwister.txt"),row.names=TRUE,quote=TRUE,sep="\t",buffMB=64)
 _____
-) "${TMPDIR}/TABLE.KPopCounter.txt" "${TMPDIR}/NAMES.KPopCounter.txt" "$PREFIX_OUT" "$PREFIX_OUT_KMERS" "$SAMPLING_FRACTION" "$NORMALIZE" "$THRESHOLD_KMERS" "$THREADS" "$TEMPORARIES" "$VERBOSE"
+) "${TMPDIR}/TABLE.KPopCounter.txt" "${TMPDIR}/NAMES.KPopCounter.txt" "$PREFIX_OUT" "$PREFIX_OUT_KMERS" "$SAMPLING_FRACTION" "$NORMALIZE" "$THRESHOLD_KMERS" "$THREADS" "$TEMPORARIES" "$VERBOSE" 2> /dev/null
 
 # We convert the results to binary form and remove temporary files
 conditional_echo "$(date +"%c"): [13/15] Encoding twisted..."

@@ -36,8 +36,8 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopTwist";
-  version = "24";
-  date = "05-Feb-2025"
+  version = "25";
+  date = "08-Feb-2025"
 } and authors = [
   "2022-2025", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
@@ -146,14 +146,8 @@ let () =
   if !Parameters.verbose then
     TA.header ();
   (*
-     For the time being, we just check if the file is there, and repeat input parameters
+     For the time being, we just repeat input parameters
   *)
-  begin try
-    KMerDB.Spectra.make_filename !Parameters.input |> open_in |> close_in
-  with e ->
-    TA.header ();
-    raise e
-  end;
   Printf.printf "%s\001%.12g\001%.12g\001%.12g\001%s\001%b\001%.12g\001%s\001%s\001%d\001%b\001%b\n%!"
     !Parameters.input !Parameters.sampling !Parameters.threshold_counts !Parameters.power !Parameters.transformation
     !Parameters.normalize !Parameters.threshold_kmers !Parameters.output !Parameters.output_kmers !Parameters.threads
