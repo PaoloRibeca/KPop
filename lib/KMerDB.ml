@@ -45,6 +45,8 @@ module FBAVector = Numbers.Bigarray.Vector (
 
 include (
   struct
+    let ( .@() ) = IBAVector.( .@() )
+    let ( .@()<- ) = IBAVector.( .@()<- )
     type marshalled_t = {
       n_cols: int;
       n_rows: int;
@@ -176,9 +178,9 @@ include (
           let v =
             match what with
             | Col ->
-              IBAVector.N.to_int core.storage.(n).IBAVector.@(i)
+              IBAVector.N.to_int core.storage.(n).@(i)
             | Row ->
-              IBAVector.N.to_int core.storage.(i).IBAVector.@(n) in
+              IBAVector.N.to_int core.storage.(i).@(n) in
           sum := !sum +. (float_of_int v ** power)
         done;
         let threshold =
@@ -191,9 +193,9 @@ include (
           let v =
             match what with
             | Col ->
-              IBAVector.N.to_int core.storage.(n).IBAVector.@(i)
+              IBAVector.N.to_int core.storage.(n).@(i)
             | Row ->
-              IBAVector.N.to_int core.storage.(i).IBAVector.@(n) in
+              IBAVector.N.to_int core.storage.(i).@(n) in
           let f_v = float_of_int v in
           if f_v >= threshold then begin
             incr non_zero;
@@ -673,7 +675,7 @@ include (
                 (* All counts are non-negative *)
                 if norm > 0. then
                   (* We add the renormalised sum to the suitable row histogram *)
-                  IBAVector.N.to_float col.IBAVector.@(i) *. max_norm /. norm |> FVF.add row_combinators.(i - lo_row))
+                  IBAVector.N.to_float col.@(i) *. max_norm /. norm |> FVF.add row_combinators.(i - lo_row))
               found_cols
           done;
           (* For each row histogram in the input range, we now generate a combination and pass it along *)
@@ -693,7 +695,7 @@ include (
             Numbers.Float.(norm ++ res_i);
             let res_i = Int32.of_float res_i in
             (* Actual copy to storage *)
-            new_col.IBAVector.@(i) <- res_i
+            new_col.@(i) <- res_i
           done;
           let old_processed_rows = !processed_rows in
           processed_rows := !processed_rows + n_processed;
@@ -858,7 +860,7 @@ include (
                   (fun (_, row_idx) ->
                     Printf.bprintf buf "%s%.*g"
                       (if !first_done || filter.print_row_names then "\t" else "") filter.precision begin
-                        IBAVector.N.to_int db.core.storage.(col_idx).IBAVector.@(row_idx) |>
+                        IBAVector.N.to_int db.core.storage.(col_idx).@(row_idx) |>
                           transform
                             ~col_num:db.core.n_cols ~col_stats:stats.col_stats.(col_idx)
                             ~row_num:db.core.n_rows ~row_stats:stats.row_stats.(row_idx)
@@ -919,7 +921,7 @@ include (
                   (fun i (_, col_idx) ->
                     Printf.bprintf buf "%s%.*g"
                       (if i > 0 || filter.print_row_names then "\t" else "") filter.precision begin
-                        IBAVector.N.to_int db.core.storage.(col_idx).IBAVector.@(row_idx) |>
+                        IBAVector.N.to_int db.core.storage.(col_idx).@(row_idx) |>
                           transform
                             ~col_num:db.core.n_cols ~col_stats:stats.col_stats.(col_idx)
                             ~row_num:db.core.n_rows ~row_stats:stats.row_stats.(row_idx)
@@ -993,7 +995,7 @@ include (
               Array.iter
                 (fun (row_name, row_idx) ->
                   let value =
-                    IBAVector.N.to_int db.core.storage.(col_idx).IBAVector.@(row_idx) |>
+                    IBAVector.N.to_int db.core.storage.(col_idx).@(row_idx) |>
                       transform
                         ~col_num:db.core.n_cols ~col_stats:stats.col_stats.(col_idx)
                         ~row_num:db.core.n_rows ~row_stats:stats.row_stats.(row_idx) in
@@ -1046,8 +1048,7 @@ include (
                   else
                     norm in
                 Float.Array.init n_r
-                  (fun j ->
-                    IBAVector.N.to_float db.core.storage.(idx).IBAVector.@(j) /. norm)) } in
+                  (fun j -> IBAVector.N.to_float db.core.storage.(idx).@(j) /. norm)) } in
       let metric = Float.Array.make n_r 1.
       and matrix_1 = make_submatrix selection_1 and matrix_2 = make_submatrix selection_2 in
       Matrix.to_binary ~verbose {
