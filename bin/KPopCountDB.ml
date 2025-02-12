@@ -23,8 +23,10 @@ type to_do_t =
   | Add_meta of string
   | Add_files of string list
   | Combination_criterion_set of KMerDB.CombinationCriterion.t
+  | Split_spectra of string
   | Add_combined_selected of string (* The new label *)
   | Remove_selected
+  | Distill_kmers of string * string
   | Summary
   | Selected_from_labels of StringSet.t
   | Selected_from_regexps of regexps_t
@@ -66,8 +68,8 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopCountDB";
-  version = "47";
-  date = "05-Feb-2025"
+  version = "48";
+  date = "11-Feb-2025"
 } and authors = [
   "2020-2025", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
@@ -105,16 +107,48 @@ let () =
     [ "-m"; "--metadata"; "--add-metadata" ],
       Some "<metadata_table_file_name>",
       [ "add to the database present in the register metadata from the specified file.";
+        "Metadata should be presented as a tab-separated text table, with a header";
+        "containing metadata field labels and with row names being sample labels.";
         "Metadata field names and values must not contain double quote '\"' characters" ],
       TA.Optional,
       (fun _ -> Add_meta (TA.get_parameter ()) |> List.accum Parameters.program);
     [ "-k"; "--kmers"; "--add-kmers"; "--add-kmer-files" ],
-      Some "<k-mer_table_file_name>[','...','<k-mer_table_file_name>]",
+      Some "<k-mer_table_file_prefix>[','...','<k-mer_table_file_prefix>]",
       [ "add to the database present in the register k-mers from the specified files";
         " (which must have extension '.KPopSpectra.txt' unless file is '/dev/*')" ],
       TA.Optional,
       (fun _ ->
         Add_files (TA.get_parameter () |> String.Split.on_char_as_list ',') |> List.accum Parameters.program);
+    [ "--combination-criterion"; "--spectrum-combination-criterion" ],
+      Some "'mean'|'median'",
+      [ "set the criterion used to combine the k-mer frequencies of spectra.";
+        "To avoid rounding issues, each k-mer frequency is also rescaled";
+        "by the largest normalization across spectra";
+        " ('mean' averages frequencies across spectra;";
+        "  'median' computes the median across spectra)" ],
+      TA.Default (fun () -> KMerDB.CombinationCriterion.to_string Defaults.combination_criterion),
+      (fun _ ->
+        Combination_criterion_set (TA.get_parameter () |> KMerDB.CombinationCriterion.of_string)
+          |> List.accum Parameters.program);
+    [ "-c"; "--combine"; "--combine-by-class"; "--combine-spectra-by-class" ],
+      Some "<classes_metadata_field_name>",
+      [ "split the table into classes according to the labels contained in the";
+        "specified metadata field and combine the spectra belonging to each class";
+        "into a separate vector named as the class label. Delete original spectra.";
+        "Class labels and spectra names must be different" ],
+      TA.Optional,
+      (fun _ -> Split_spectra (TA.get_parameter ()) |> List.accum Parameters.program);
+    [ "-d"; "--distill"; "--distill-kmers" ],
+      Some "<classes_metadata_field_name> <summary_file_prefix>",
+      [ "optimize k-mers by identifying which ones are most informative";
+        "according to the labels contained in the specified metadata field";
+        "and by re-sorting k-mers in decreasing order accordingly.";
+        "Details of the procedure will be written to the specified summary file";
+        " (which will be given extension '.KPopDistill.txt' unless file is '/dev/*')" ],
+      TA.Optional,
+      (fun _ ->
+        let classes_label = TA.get_parameter () in
+        Distill_kmers (classes_label, TA.get_parameter ()) |> List.accum Parameters.program);
     [ "--summary" ],
       None,
       [ "print a summary of the database present in the register" ],
@@ -137,7 +171,7 @@ let () =
       [ "whether spectra should be normalized prior to computing distances" ],
       TA.Optional,
       (fun _ -> Distance_normalisation_set (TA.get_parameter_boolean ()) |> List.accum Parameters.program);
-    [ "-d"; "--distances"; "--compute-distances"; "--compute-spectral-distances" ],
+    [ "--distances"; "--compute-distances"; "--compute-spectral-distances" ],
       Some "REGEXP_SELECTOR REGEXP_SELECTOR <binary_file_prefix>",
       [ "where REGEXP_SELECTOR :=";
         " <metadata_field>'~'<regexp>[','...','<metadata_field>'~'<regexp>]";
@@ -215,14 +249,14 @@ let () =
         "as table or spectra" ],
       TA.Default (fun () -> string_of_int Defaults.filter.precision),
       (fun _ -> Table_precision (TA.get_parameter_int_pos ()) |> List.accum Parameters.program);
-    [ "-t"; "--table" ],
+    [ "-t"; "--table"; "--to-table" ],
       Some "<file_prefix>",
       [ "write the database present in the register as a tab-separated file";
         " (rows are k-mer names, columns are spectrum names.";
         "  The result will be given extension '.KPopCounter.txt' unless file is '/dev/*')" ],
       TA.Optional,
       (fun _ -> To_table (TA.get_parameter ()) |> List.accum Parameters.program);
-    [ "-s"; "--spectra" ],
+    [ "-s"; "--spectra"; "--to-spectra" ],
       Some "<file_prefix>",
       [ "write the database present in the register as k-mer spectra";
         " (the result will be given extension '.KPopSpectra.txt' unless file is '/dev/*')" ],
@@ -247,17 +281,6 @@ let () =
       TA.Optional,
       (fun _ ->
         Selected_from_regexps (TA.get_parameter () |> parse_regexp_selector "-R")
-          |> List.accum Parameters.program);
-    [ "--selection-combination-criterion"; "--combination-criterion" ],
-      Some "'mean'|'median'",
-      [ "set the criterion used to combine the k-mer frequencies of selected spectra.";
-        "To avoid rounding issues, each k-mer frequency is also rescaled";
-        "by the largest normalization across spectra";
-        " ('mean' averages frequencies across spectra;";
-        "  'median' computes the median across spectra)" ],
-      TA.Default (fun () -> KMerDB.CombinationCriterion.to_string Defaults.combination_criterion),
-      (fun _ ->
-        Combination_criterion_set (TA.get_parameter () |> KMerDB.CombinationCriterion.of_string)
           |> List.accum Parameters.program);
     [ "-A"; "--add-combined-selection"; "--selection-combine-and-add" ],
       Some "<spectrum_label>",
@@ -312,6 +335,8 @@ let () =
       (fun _ -> Printf.printf "%s\n%!" info.version; exit 0);
     (* Hidden option to output help in markdown format *)
     [ "--markdown" ], None, [], TA.Optional, (fun _ -> TA.markdown (); exit 0);
+    (* Hidden option to print exception backtrace *)
+    [ "-x"; "--print-exception-backtrace" ], None, [], TA.Optional, (fun _ -> Printexc.record_backtrace true);
     [ "-h"; "--help" ],
       None,
       [ "print syntax and exit" ],
@@ -344,12 +369,20 @@ let () =
           current := KMerDB.add_files ~verbose:!Parameters.verbose !current prefixes
         | Combination_criterion_set criterion ->
           combination_criterion := criterion
+        | Split_spectra classes_label ->
+          current :=
+            KMerDB.split_spectra ~threads:!Parameters.threads ~verbose:!Parameters.verbose
+            !current classes_label !combination_criterion
         | Add_combined_selected new_label ->
           current :=
             KMerDB.add_combined_selected ~threads:!Parameters.threads ~verbose:!Parameters.verbose
               !current new_label !selected !combination_criterion
         | Remove_selected ->
           current := KMerDB.remove_selected !current !selected
+        | Distill_kmers (classes_label, summary_prefix) ->
+          current :=
+            KMerDB.distill_kmers ~threads:!Parameters.threads ~verbose:!Parameters.verbose
+              !current classes_label summary_prefix
         | Summary ->
           KMerDB.output_summary ~verbose:!Parameters.verbose !current
         | Selected_from_labels labels ->
@@ -405,5 +438,8 @@ let () =
       program
   with exc ->
     Printf.peprintf "(%s): %s\n%!" __FUNCTION__
-      ("FATAL: Uncaught exception: " ^ Printexc.to_string exc |> String.TermIO.red)
+      ("FATAL: Uncaught exception: " ^ Printexc.to_string exc |> String.TermIO.red);
+    Printf.peprintf "(%s): This should not have happened - please contact <paolo.ribeca@gmail.com>\n%!" __FUNCTION__;
+    Printf.peprintf "(%s): You might also wish to rerun me with option -x to get a full backtrace.\n%!" __FUNCTION__;
+    Printexc.print_backtrace stderr
 
