@@ -21,8 +21,9 @@ module Parameters =
     let input = ref ""
     let output = ref ""
     let output_kmers = ref ""
+    let kmers_keep = ref 1.
     (* The following three are KPopCountDB.TableFilter.default *)
-    let sampling = ref 1.
+    let kmers_sample = ref 1.
     let threshold_counts = ref 1.
     let power = ref 1.
     (*let precision = 15*)
@@ -36,8 +37,8 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopTwist";
-  version = "25";
-  date = "08-Feb-2025"
+  version = "26";
+  date = "12-Feb-2025"
 } and authors = [
   "2022-2025", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
@@ -48,13 +49,22 @@ let () =
   TA.set_synopsis "-i|--input <binary_input_prefix> -o|--output <binary_output_prefix> [OPTIONS]";
   TA.parse [
     TA.make_separator "Algorithmic parameters";
-    [ "-f"; "-F"; "-s"; "-S"; "--fraction"; "--sampling"; "--sampling-fraction" ],
+    [ "-k"; "--keep"; "--keep-kmers"; "--kmers-keep" ],
+      Some "<non_negative_float",
+      [ "before twisting the table discard k-mers in excess of this number,";
+        "keeping the rows at top of the table.";
+        "A fractional threshold between 0. and 1. is taken as a relative one";
+        "with respect to the number of all k-mers present" ],
+      TA.Default (fun () -> string_of_float !Parameters.kmers_keep),
+      (fun _ -> Parameters.kmers_keep := TA.get_parameter_float_non_neg ());
+    [ "-s"; "--sample"; "--sample-kmers"; "--kmers-sample" ],
       Some "<fractional_float>",
-      [ "fraction of the k-mers to be considered and resampled before twisting" ],
-      TA.Default (fun () -> string_of_float !Parameters.sampling),
-      (fun _ -> Parameters.sampling := TA.get_parameter_float_fraction ());
+      [ "fraction of the k-mers to be randomly resampled and kept";
+        "after parameter -k has been applied and before twisting" ],
+      TA.Default (fun () -> string_of_float !Parameters.kmers_sample),
+      (fun _ -> Parameters.kmers_sample := TA.get_parameter_float_fraction ());
     [ "--counts-threshold" ],
-      Some "<non_negative_integer>",
+      Some "<non_negative_float>",
       [ "set to zero all counts that are less than this threshold";
         "before transforming them.";
         "A fractional threshold between 0. and 1. is taken as a relative one";
@@ -101,7 +111,7 @@ let () =
         " (will be '.KPopTwister' and '.KPopTwisted' unless file is '/dev/*')" ],
       TA.Mandatory,
       (fun _ -> Parameters.output := TA.get_parameter ());
-    [ "-k"; "--output-kmers" ],
+    [ "-K"; "--output-kmers"; "--output-twisted-kmers" ],
       Some "<binary_file_prefix>",
       [ "use this prefix when dumping generated twisted k-mers.";
         "File extension is automatically determined";
@@ -148,8 +158,9 @@ let () =
   (*
      For the time being, we just repeat input parameters
   *)
-  Printf.printf "%s\001%.12g\001%.12g\001%.12g\001%s\001%b\001%.12g\001%s\001%s\001%d\001%b\001%b\n%!"
-    !Parameters.input !Parameters.sampling !Parameters.threshold_counts !Parameters.power !Parameters.transformation
-    !Parameters.normalize !Parameters.threshold_kmers !Parameters.output !Parameters.output_kmers !Parameters.threads
-    !Parameters.temporaries !Parameters.verbose
+  Printf.printf "%s\001%.12g\001%.12g\001%.12g\001%.12g\001%s\001%b\001%.12g\001%s\001%s\001%d\001%b\001%b\n%!"
+    !Parameters.input !Parameters.kmers_keep !Parameters.kmers_sample
+    !Parameters.threshold_counts !Parameters.power !Parameters.transformation
+    !Parameters.normalize !Parameters.threshold_kmers
+    !Parameters.output !Parameters.output_kmers !Parameters.threads !Parameters.temporaries !Parameters.verbose
 
