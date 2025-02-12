@@ -18,6 +18,10 @@ open BiOCamLib.Better (* We cannot open BiOCamLib here due to the ambiguity with
 module Numbers = BiOCamLib.Numbers
 module Processes = BiOCamLib.Processes
 
+module FAVector = Numbers.FAVector
+module BAVector = Numbers.BAVector
+module FreqVector = Numbers.FreqVector
+
 (* We put this one here for lack of a better place *)
 module Spectra =
   struct
@@ -27,7 +31,7 @@ module Spectra =
   end
 
 (* For counts. We assume each count to be < 2^31 *)
-module IBAVector = Numbers.Bigarray.Vector (
+module I32BAVector = BAVector (
   struct
     include Numbers.Int32
     type elt_t = Bigarray.int32_elt
@@ -35,7 +39,7 @@ module IBAVector = Numbers.Bigarray.Vector (
   end
 )
 (* For normalisations and combined spectra. We assume normalisations might be > 2^31 *)
-module FBAVector = Numbers.Bigarray.Vector (
+module FBAVector = BAVector (
   struct
     include Numbers.Float
     type elt_t = Bigarray.float64_elt
@@ -45,8 +49,8 @@ module FBAVector = Numbers.Bigarray.Vector (
 
 include (
   struct
-    let ( .@() ) = IBAVector.( .@() )
-    let ( .@()<- ) = IBAVector.( .@()<- )
+    let ( .@() ) = I32BAVector.( .@() )
+    let ( .@()<- ) = I32BAVector.( .@()<- )
     type marshalled_t = {
       n_cols: int;
       n_rows: int;
@@ -55,7 +59,7 @@ include (
       idx_to_row_names: string array;
       idx_to_meta_names: string array;
       meta: string array array;
-      storage: IBAVector.t array
+      storage: I32BAVector.t array
     }
     module ColOrRow =
       struct
@@ -178,9 +182,9 @@ include (
           let v =
             match what with
             | Col ->
-              IBAVector.N.to_int core.storage.(n).@(i)
+              I32BAVector.N.to_int core.storage.(n).@(i)
             | Row ->
-              IBAVector.N.to_int core.storage.(i).@(n) in
+              I32BAVector.N.to_int core.storage.(i).@(n) in
           sum := !sum +. (float_of_int v ** power)
         done;
         let threshold =
@@ -193,9 +197,9 @@ include (
           let v =
             match what with
             | Col ->
-              IBAVector.N.to_int core.storage.(n).@(i)
+              I32BAVector.N.to_int core.storage.(n).@(i)
             | Row ->
-              IBAVector.N.to_int core.storage.(i).@(n) in
+              I32BAVector.N.to_int core.storage.(i).@(n) in
           let f_v = float_of_int v in
           if f_v >= threshold then begin
             incr non_zero;
@@ -357,7 +361,7 @@ include (
         let resize_array ?(is_buffer = true) =
           _resize_t_array_ ~is_buffer M.length resize (fun l -> M.make l M.N.zero)
       end
-    module IBAVectorMisc = BAVectorMisc (IBAVector)
+    module I32BAVectorMisc = BAVectorMisc (I32BAVector)
     module FBAVectorMisc = BAVectorMisc (FBAVector)
     (* Utility functions *)
     let invert_table a =
@@ -377,7 +381,7 @@ include (
             (* We have to resize all the relevant containers *)
             idx_to_col_names = Array.append !db.core.idx_to_col_names [| label |];
             meta = resize_string_array_array ~is_buffer:true aug_n_cols !db.core.n_meta !db.core.meta;
-            storage = IBAVectorMisc.resize_array ~is_buffer:true aug_n_cols !db.core.n_rows !db.core.storage
+            storage = I32BAVectorMisc.resize_array ~is_buffer:true aug_n_cols !db.core.n_rows !db.core.storage
           }
         }
       end
@@ -402,7 +406,7 @@ include (
         idx_to_row_names = resize_string_array ~is_buffer:false db.core.n_rows db.core.idx_to_row_names;
         idx_to_meta_names = resize_string_array ~is_buffer:false db.core.n_meta db.core.idx_to_meta_names;
         meta = resize_string_array_array ~is_buffer:false db.core.n_cols db.core.n_meta db.core.meta;
-        storage = IBAVectorMisc.resize_array ~is_buffer:false db.core.n_cols db.core.n_rows db.core.storage
+        storage = I32BAVectorMisc.resize_array ~is_buffer:false db.core.n_cols db.core.n_rows db.core.storage
       };
       close_out output;
       if verbose then
@@ -544,18 +548,18 @@ include (
                         res.(n_rows) <- line.(0);
                         res
                       end;
-                      storage = IBAVectorMisc.resize_array ~is_buffer:true !db.core.n_cols aug_n_rows !db.core.storage
+                      storage = I32BAVectorMisc.resize_array ~is_buffer:true !db.core.n_cols aug_n_rows !db.core.storage
                     }
                   }
                 end;
                 let row_idx = StringHashtbl.find !db.row_names_to_idx line.(0) in
                 let v =
                   try
-                    IBAVector.N.of_string line.(1)
+                    I32BAVector.N.of_string line.(1)
                   with _ ->
                     Wrong_format (!line_num, line.(1)) |> raise in
                 (* If there are repeated k-mers, we just accumulate them *)
-                !db.core.storage.(!col_idx).IBAVector.+(row_idx) <- v
+                !db.core.storage.(!col_idx).I32BAVector.+(row_idx) <- v
               end
             done
           with End_of_file ->
@@ -663,7 +667,7 @@ include (
           else
             raise End_of_file)
         (fun (lo_row, hi_row) ->
-          let module FVF = Numbers.Frequencies.Vector(Numbers.Float)(Numbers.MakeComparableNumber) in
+          let module FVF = FreqVector(Numbers.Float)(Numbers.MakeComparableNumber) in
           (* We need one histogram per row to be able to compute statistics such as the median *)
           let row_combinators = Array.init (hi_row - lo_row + 1) (fun _ -> FVF.empty ~non_negative:true ()) in
           for i = lo_row to hi_row do
@@ -675,7 +679,7 @@ include (
                 (* All counts are non-negative *)
                 if norm > 0. then
                   (* We add the renormalised sum to the suitable row histogram *)
-                  IBAVector.N.to_float col.@(i) *. max_norm /. norm |> FVF.add row_combinators.(i - lo_row))
+                  I32BAVector.N.to_float col.@(i) *. max_norm /. norm |> FVF.add row_combinators.(i - lo_row))
               found_cols
           done;
           (* For each row histogram in the input range, we now generate a combination and pass it along *)
@@ -730,6 +734,33 @@ include (
             res
       end;
       !db
+    exception Classes_label_not_found of string
+    let get_indicator_vector db classes_label =
+      match StringHashtbl.find_opt db.meta_names_to_idx classes_label with
+      | None ->
+        Classes_label_not_found classes_label |> raise
+      | Some classes_label_idx ->
+        (* We derive the class indicator vector *)
+        let n_samples = db.core.n_cols in
+        let num_classes = ref 0 and class_to_ind = ref StringMap.empty and ind_to_class = ref IntMap.empty
+        and res = Array.make n_samples (-1) in
+        (* We iterate explicitly as there might be trailing space at the end of vectors *)
+        for i = 0 to n_samples - 1 do
+          res.(i) <- begin
+            let class_label = db.core.meta.(i).(classes_label_idx) in
+            match StringMap.find_opt class_label !class_to_ind with
+            | None ->
+              (* We insert the new label *)
+              let res = !num_classes in
+              class_to_ind := StringMap.add class_label res !class_to_ind;
+              ind_to_class := IntMap.add res class_label !ind_to_class;
+              incr num_classes;
+              res
+            | Some ind ->
+              ind
+          end
+        done;
+        !num_classes, !ind_to_class, res
     let remove_selected db selected =
       (* First, we compute the indices of the columns to be kept.
          We keep the same column order as in the original matrix *)
@@ -741,9 +772,7 @@ include (
         db.core.idx_to_col_names;
       let idxs = IntSet.elements_array !idxs in
       let n = Array.length idxs in
-      let filter_array a =
-        Array.init n
-          (fun i -> a.(idxs.(i))) in
+      let filter_array a = Array.init n (fun i -> a.(idxs.(i))) in
       let core =
         { db.core with
           n_cols = n;
@@ -754,6 +783,129 @@ include (
         col_names_to_idx = invert_table core.idx_to_col_names;
         row_names_to_idx = invert_table core.idx_to_row_names;
         meta_names_to_idx = invert_table core.idx_to_meta_names }
+    exception Class_label_is_also_spectrum_name of string
+    let split_spectra ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false)
+        db classes_label criterion =
+      let _, ind_to_class, ind_classes = get_indicator_vector db classes_label in
+      if verbose then begin
+        Printf.eprintf "(%s): Classes=[" __FUNCTION__;
+        Array.iter (Printf.eprintf " %d") ind_classes;
+        Printf.eprintf " ]\n%!"
+      end;
+      (* We split spectra names according to their class *)
+      let module I2SMM = BiOCamLib.Tools.Multimap (ComparableInt) (ComparableString) in
+      let split_names = ref I2SMM.empty in
+      Array.iteri
+        (fun i ind ->
+          split_names := I2SMM.add ind db.core.idx_to_col_names.(i) !split_names)
+        ind_classes;
+      let res = ref db in
+      I2SMM.iter_set
+        (fun ind spectra_names ->
+          let class_name = IntMap.find ind ind_to_class in
+          if StringHashtbl.mem db.col_names_to_idx class_name then
+            Class_label_is_also_spectrum_name class_name |> raise;
+          res := add_combined_selected ~threads ~elements_per_step ~verbose !res class_name spectra_names criterion)
+        !split_names;
+      remove_selected !res (Array.to_seq db.core.idx_to_col_names |> StringSet.of_seq)
+    (* *)
+    module LF_FAVector = Numbers.LinearFit(FAVector)
+    exception Invalid_number_of_classes of int
+    let distill_kmers ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false)
+        db classes_label summary_prefix =
+      let num_classes, _, ind_classes = get_indicator_vector db classes_label and n_samples = db.core.n_cols in
+      if num_classes = 1  || num_classes = n_samples then
+        Invalid_number_of_classes num_classes |> raise;
+      if verbose then begin
+        Printf.eprintf "(%s): Classes=[" __FUNCTION__;
+        Array.iter (Printf.eprintf " %d") ind_classes;
+        Printf.eprintf " ]\n%!"
+      end;
+      let n_kmers = db.core.n_rows and processed_kmers = ref 0
+      and n_on = ref 0 and n_off = ref 0 in
+      (* We compute normalisations *)
+      for i = 0 to n_samples - 1 do
+        for j = i + 1 to n_samples - 1 do
+          (if ind_classes.(i) = ind_classes.(j) then n_on else n_off) |> incr
+        done
+      done;
+      if verbose then
+        Printf.eprintf "(%s): Normalizations are on=%d, off=%d\n%!" __FUNCTION__ !n_on !n_off;
+      let n_on = FAVector.N.of_int !n_on and n_off = FAVector.N.of_int !n_off
+      and res_on = FAVector.make n_kmers FAVector.N.zero and res_off = FAVector.make n_kmers FAVector.N.zero in
+      Processes.Parallel.process_stream_chunkwise
+        (fun () ->
+          if !processed_kmers < n_kmers then
+            let to_do =
+              max 1 (elements_per_step / (n_samples * (n_samples - 1) / 2)) |> min (n_kmers - !processed_kmers) in
+            let new_processed_kmers = !processed_kmers + to_do in
+            let res = !processed_kmers, new_processed_kmers - 1 in
+            processed_kmers := new_processed_kmers;
+            res
+          else
+            raise End_of_file)
+        (fun (lo_kmer, hi_kmer) ->
+          let res = ref [] in
+          for kmer = lo_kmer to hi_kmer do
+            let off = ref I32BAVector.N.zero and on = ref I32BAVector.N.zero in
+            (* We iterate over all the couples of samples *)
+            for i = 0 to n_samples - 1 do
+              let counts_i = db.core.storage.(i).@(kmer) in
+              for j = i + 1 to n_samples - 1 do
+                if ind_classes.(i) = ind_classes.(j) then
+                  on := I32BAVector.N.(!on + abs (counts_i - db.core.storage.(j).@(kmer)))
+                else
+                  off := I32BAVector.N.(!off + abs (counts_i - db.core.storage.(j).@(kmer)))
+              done
+            done;
+            List.accum res begin
+              kmer,
+              I32BAVector.N.to_float !on |> FAVector.N.of_float, I32BAVector.N.to_float !off |> FAVector.N.of_float
+            end
+          done;
+          !res)
+        (fun block ->
+          let old_processed_kmers = !processed_kmers in
+          List.iter
+            (fun (kmer, on, off) ->
+              res_on.FAVector.@(kmer) <- FAVector.N.(on / n_on);
+              res_off.FAVector.@(kmer) <- FAVector.N.(off / n_off);
+              incr processed_kmers)
+            block;
+            if verbose && !processed_kmers / 100 > old_processed_kmers / 100 then
+              Printf.eprintf "%s\r(%s): Distilled %d/%d kmers%!"
+                String.TermIO.clear __FUNCTION__ !processed_kmers n_kmers)
+        threads;
+      let fit, _, residuals = LF_FAVector.make res_on res_off in
+      if verbose then
+        Printf.eprintf "%s\r(%s): Distilled %d/%d kmers. Fit is %.6g + %.6g * x\n%!"
+          String.TermIO.clear __FUNCTION__ !processed_kmers n_kmers
+          (LF_FAVector.get_intercept fit |> FAVector.N.to_float) (LF_FAVector.get_slope fit |> FAVector.N.to_float);
+      (* And finally, we permute k-mers according to their residuals *)
+      let to_be_sorted = Array.init n_kmers (fun i -> residuals.FAVector.@(i), i) in
+      Array.sort (fun (r_1, _) (r_2, _) -> compare r_2 r_1) to_be_sorted;
+      let idx_to_row_names = Array.map (fun (_, src) -> db.core.idx_to_row_names.(src)) to_be_sorted in
+      let core =
+        { db.core with
+          idx_to_row_names;
+          storage =
+            Array.map
+              (fun kmers ->
+                I32BAVector.init n_kmers
+                  (fun i -> kmers.I32BAVector.@(snd to_be_sorted.(i))))
+                  db.core.storage } in
+      (* We output the summary *)
+      let permute_fa fav = Float.Array.init n_kmers (fun i -> FAVector.(N.to_float fav.@(snd to_be_sorted.(i)))) in
+      let summary = {
+        Matrix.which = Distill;
+        matrix = {
+          col_names = idx_to_row_names;
+          row_names = [| "Inner"; "Outer"; "Residual" |];
+          data = [| permute_fa res_on; permute_fa res_off; permute_fa residuals |]
+        }
+      } in
+      Matrix.to_file ~threads (Matrix.transpose ~threads summary) summary_prefix;
+      { db with core; row_names_to_idx = invert_table idx_to_row_names }
     (* *)
     module TableFilter =
       struct
@@ -860,7 +1012,7 @@ include (
                   (fun (_, row_idx) ->
                     Printf.bprintf buf "%s%.*g"
                       (if !first_done || filter.print_row_names then "\t" else "") filter.precision begin
-                        IBAVector.N.to_int db.core.storage.(col_idx).@(row_idx) |>
+                        I32BAVector.N.to_int db.core.storage.(col_idx).@(row_idx) |>
                           transform
                             ~col_num:db.core.n_cols ~col_stats:stats.col_stats.(col_idx)
                             ~row_num:db.core.n_rows ~row_stats:stats.row_stats.(row_idx)
@@ -921,7 +1073,7 @@ include (
                   (fun i (_, col_idx) ->
                     Printf.bprintf buf "%s%.*g"
                       (if i > 0 || filter.print_row_names then "\t" else "") filter.precision begin
-                        IBAVector.N.to_int db.core.storage.(col_idx).@(row_idx) |>
+                        I32BAVector.N.to_int db.core.storage.(col_idx).@(row_idx) |>
                           transform
                             ~col_num:db.core.n_cols ~col_stats:stats.col_stats.(col_idx)
                             ~row_num:db.core.n_rows ~row_stats:stats.row_stats.(row_idx)
@@ -995,7 +1147,7 @@ include (
               Array.iter
                 (fun (row_name, row_idx) ->
                   let value =
-                    IBAVector.N.to_int db.core.storage.(col_idx).@(row_idx) |>
+                    I32BAVector.N.to_int db.core.storage.(col_idx).@(row_idx) |>
                       transform
                         ~col_num:db.core.n_cols ~col_stats:stats.col_stats.(col_idx)
                         ~row_num:db.core.n_rows ~row_stats:stats.row_stats.(row_idx) in
@@ -1048,7 +1200,7 @@ include (
                   else
                     norm in
                 Float.Array.init n_r
-                  (fun j -> IBAVector.N.to_float db.core.storage.(idx).@(j) /. norm)) } in
+                  (fun j -> I32BAVector.N.to_float db.core.storage.(idx).@(j) /. norm)) } in
       let metric = Float.Array.make n_r 1.
       and matrix_1 = make_submatrix selection_1 and matrix_2 = make_submatrix selection_2 in
       Matrix.to_binary ~verbose {
@@ -1057,7 +1209,8 @@ include (
           Matrix.Base.get_distance_rowwise ~threads ~elements_per_step ~verbose distance metric matrix_1 matrix_2
       } prefix
   end: sig
-    (* Conceptually, each k-mer spectrum is stored as a column, even though in practice we store the transposed matrix *)
+    (* Conceptually, each k-mer spectrum is stored as a column, even though in practice we store the transposed matrix -
+        i.e., storage is a vector of spectra *)
     type marshalled_t = {
       n_cols: int; (* The number of spectra *)
       n_rows: int; (* The number of k-mers *)
@@ -1068,7 +1221,7 @@ include (
       idx_to_meta_names: string array;
       (* *)
       meta: string array array; (* Dims = n_cols * n_meta *)
-      storage: IBAVector.t array (* Frequencies are stored as integers. Dims = n_cols * n_rows *)
+      storage: I32BAVector.t array (* Frequencies are stored as integers. Dims = n_cols * n_rows *)
     }
     module Transformation:
       sig
@@ -1135,8 +1288,16 @@ include (
         name the combination as directed, and add it to the database *)
     val add_combined_selected: ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
                                t -> string -> StringSet.t -> CombinationCriterion.t -> t
+    (* Combine spectra into class representatives according to the specified class labels *)
+    exception Class_label_is_also_spectrum_name of string
+    val split_spectra: ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
+                       t -> string -> CombinationCriterion.t -> t
     (* Remove spectra with the given labels *)
     val remove_selected: t -> StringSet.t -> t
+    (* Distill k-mers, i.e., sort them by decreasing discriminative power according to the specified class labels *)
+    exception Classes_label_not_found of string
+    exception Invalid_number_of_classes of int
+    val distill_kmers: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> string -> string -> t
     (* Output information about the contents *)
     val output_summary: ?verbose:bool -> t -> unit
     (* Binary marshalling of the database *)
