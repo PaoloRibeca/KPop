@@ -16,6 +16,9 @@
 open BiOCamLib
 open Better
 
+let ( .@() ) = Float.Array.( .@() )
+let ( .@()<- ) = Float.Array.( .@()<- )
+
 (* Extends BiOCamLib matrix class with distance machinery.
    Encapsulation checks are not performed at this level *)
 module Base:
@@ -32,21 +35,6 @@ module Base:
     (* Compute distances between the rows of two matrices - more general version of the previous one *)
     val get_distance_rowwise: ?normalize:bool -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
                               Space.Distance.t -> Float.Array.t -> t -> t -> t
-    module NearestNeighbor:
-      sig
-        type tt = t
-        module Preconditioner:
-          sig
-            type t
-
-          end
-        type t
-        val make_rowwise: Space.Distance.t -> Float.Array.t -> Preconditioner.t -> tt -> t
-        val find_and_replace:
-          ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
-          t -> ((string * Float.Array.t * string * Float.Array.t * float) option -> (string * Float.Array.t) option) ->
-          unit
-      end
   end
 = struct
     include Matrix
@@ -76,7 +64,7 @@ module Base:
         (fun (lo_row, norms) ->
           List.iteri
             (fun offs_i norm_i ->
-              Float.Array.set res (lo_row + offs_i) (if norm_i = 0. then 1. else norm_i);
+              res.@(lo_row + offs_i) <- if norm_i = 0. then 1. else norm_i;
               if verbose && !processed_rows mod elements_per_step = 0 then
                 Printf.eprintf "%s\r(%s): Done %d/%d rows%!"
                   String.TermIO.clear __FUNCTION__ !processed_rows n_rows;
@@ -116,12 +104,11 @@ module Base:
           (* We iterate backwards so as to avoid to have to reverse the list in the end *)
           for i = hi_row downto lo_row do
             let data_row = m.data.(i) in
-            let v =
-              Float.Array.init d (fun col -> Float.Array.get data_row col *. Float.Array.get normalized_metric col) in
+            let v = Float.Array.init d (fun col -> data_row.@(col) *. normalized_metric.@(col)) in
             if normalize then begin
               let norm = Space.Distance.compute_norm distance metric v in
               if norm <> 0. then
-                Float.Array.iteri (fun i x -> Float.Array.set v i (x /. norm)) v
+                Float.Array.iteri (fun i x -> v.@(i) <- (x /. norm)) v
             end;
             List.accum res v
           done;
@@ -182,15 +169,15 @@ module Base:
           (fun (i, j) ->
             i, j, begin
               Space.Distance.compute
-                ~adaptor_a:(fun a -> a /. Float.Array.get norms i) ~adaptor_b:(fun b -> b /. Float.Array.get norms j)
+                ~adaptor_a:(fun a -> a /. norms.@(i)) ~adaptor_b:(fun b -> b /. norms.@(j))
                 distance metric m.data.(i) m.data.(j)
             end))
         (List.iter
           (fun (i, j, dist) ->
             (* Only here do we actually fill out the memory for the result *)
-            Float.Array.set data.(i) j dist;
+            data.(i).@(j) <- dist;
             (* We symmetrise the matrix *)
-            Float.Array.set data.(j) i dist;
+            data.(j).@(i) <- dist;
             if verbose && !elts_done mod elements_per_step = 0 then
               Printf.eprintf "%s\r(%s): Done %d/%d elements%!"
                 String.TermIO.clear __FUNCTION__ !elts_done total;
@@ -258,12 +245,12 @@ module Base:
           (fun (i, j) ->
             i, j, begin
               Space.Distance.compute
-                ~adaptor_a:(fun a -> a /. Float.Array.get n1 i) ~adaptor_b:(fun b -> b /. Float.Array.get n2 j)
+                ~adaptor_a:(fun a -> a /. n1.@(i)) ~adaptor_b:(fun b -> b /. n2.@(j))
                 distance metric m1.data.(i) m2.data.(j)
             end))
         (List.iter
           (fun (i, j, dist) ->
-            Float.Array.set data.(j) i dist;
+            data.(j).@(i) <- dist;
             if verbose && !elts_done mod elements_per_step = 0 then
               Printf.eprintf "%s\r(%s): Done %d/%d elements=%.3g%%%!"
                 String.TermIO.clear __FUNCTION__
@@ -277,87 +264,6 @@ module Base:
       { col_names = m1.row_names;
         row_names = m2.row_names;
         data = data }
-    module [@warning "-27-32-69"] NearestNeighbor =
-      struct
-        (* These are column statistics *)
-        module Statistics =
-          struct
-            type t = {
-              min: float;
-              max: float;
-              sum: float
-            }
-            let empty = {
-              min = 0.;
-              max = 0.;
-              sum = 0.
-            }
-            let compute ?(threads = 1) ?(verbose = false) m =
-              (* Column n *)
-              let compute_one n =
-                let min = ref 0. and max = ref 0. and sum = ref 0. in
-                Array.iter
-                  (fun row ->
-                    let v = Float.Array.get row n in
-                    min := Stdlib.min !min v;
-                    max := Stdlib.max !max v;
-                    sum := !sum +. v)
-                  m.data;
-                { min = !min;
-                  max = !max;
-                  sum = !sum } in
-              let n = Array.length m.col_names in
-              let step = n / threads / 5 |> max 1 and processed = ref 0 and res = Array.make n empty in
-              Processes.Parallel.process_stream_chunkwise
-                (fun () ->
-                  if verbose then
-                    Printf.eprintf "\rComputing column statistics [%d/%d]%!" !processed n;
-                  let to_do = n - !processed in
-                  if to_do > 0 then begin
-                    let to_do = min to_do step in
-                    let res = !processed, to_do in
-                    processed := !processed + to_do;
-                    res
-                  end else
-                    raise End_of_file)
-                (fun (processed, to_do) ->
-                  let res = ref [] in
-                  for i = 0 to to_do - 1 do
-                    processed + i |> compute_one |> List.accum res
-                  done;
-                  processed, List.rev !res)
-                (fun (base, stats) ->
-                  List.iteri
-                    (fun i s ->
-                      res.(base + i) <- s)
-                    stats)
-                threads;
-              res
-          end
-        module Preconditioner =
-          struct
-            type t
-
-          end
-        type tt = t
-        type t = {
-          vectors: Float.Array.t StringMap.t;
-
-
-        }
-        let make_rowwise dist metr precond rowwise =
-          (* Input has sample names as rows, dimensions as columns.
-             Output is one specific dimension selected according to the preconditioner,
-              and an interator built upon it *)
-
-          { vectors = StringMap.empty }
-
-        let find_and_replace ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false) nn f =
-
-
-          ()
-
-      end
   end
 
 (* KPop-specialised matrices.
@@ -367,6 +273,7 @@ include (
     module Type =
       struct
         type t =
+          | Distill
           | Twister
           | Inertia
           | Metrics
@@ -374,6 +281,7 @@ include (
           | Vectors
           | DMatrix
         let to_string = function
+          | Distill -> "KPopDistill"
           | Twister -> "KPopTwister"
           | Inertia -> "KPopInertia"
           | Metrics -> "KPopMetrics"
@@ -382,6 +290,7 @@ include (
           | DMatrix -> "KPopDMatrix"
         exception Unknown_type of string
         let of_string = function
+            "KPopDistill" -> Distill
           | "KPopTwister" -> Twister
           | "KPopInertia" -> Inertia
           | "KPopMetrics" -> Metrics
@@ -403,7 +312,7 @@ include (
     let make_filename_binary which name =
       match which, name with
       | _, _ when String.length name >= 5 && String.sub name 0 5 = "/dev/" -> name
-      | Type.Twisted, prefix | DMatrix, prefix | Metrics, prefix | Vectors, prefix ->
+      | Type.Distill, prefix | Metrics, prefix | Twisted, prefix | Vectors, prefix | DMatrix, prefix ->
         prefix ^ "." ^ Type.to_string which
       | Twister, _ | Inertia, _ -> assert false (* Should always be done through KPopTwister *)
     let make_filename_summary = function
@@ -442,86 +351,266 @@ include (
       struct
         type t =
           | Gaps
+          | Centroids
         let to_string = function
           | Gaps -> "gaps"
+          | Centroids -> "centroids"
         exception Unknown_algorithm of string
         let of_string = function
           | "gaps" -> Gaps
+          | "centroids" -> Centroids
           | w -> Unknown_algorithm w |> raise
+        (* Implementation module *)
+        module Bipartition =
+          struct
+            exception Invalid_acceptance_probability_at_zero of float
+            exception Invalid_difference_magnification_factor of float
+            exception Insufficient_elements of int
+            exception Invalid_element of int * int
+            let make
+                ?(acceptance_probability_at_zero = 0.2) ?(difference_magnification_factor = 10.) ?(verbose = false)
+                m init_set =
+              if acceptance_probability_at_zero <= 0. || acceptance_probability_at_zero > 1. then
+                Invalid_acceptance_probability_at_zero acceptance_probability_at_zero |> raise;
+              if difference_magnification_factor <= 0. then
+                Invalid_difference_magnification_factor difference_magnification_factor |> raise;
+              if m.which <> Vectors then
+                Unexpected_type (m.which, Vectors) |> raise;
+              let inverse_acceptance = (1. -. acceptance_probability_at_zero) /. acceptance_probability_at_zero
+              and negative_scale = -. difference_magnification_factor
+              and elements = IntSet.elements_array init_set in
+              let num_elements = Array.length elements in
+              if num_elements < 2 then
+                Insufficient_elements num_elements |> raise;
+              let n = Array.length m.matrix.row_names
+              and d = Array.length m.matrix.col_names
+              and one = ref IntSet.empty and cardinal_one = ref 0
+              and two = ref IntSet.empty and cardinal_two = ref 0 in
+              let centroid_one = Float.Array.make d 0. |> ref
+              and centroid_two = Float.Array.make d 0. |> ref in
+              IntSet.iter
+                (fun i ->
+                  if i >= n then
+                    Invalid_element (i, n) |> raise;
+                  let v = m.matrix.data.(i) in
+                  (* We randomly assign the element to either set *)
+                  if Random.bool () then begin
+                    two := IntSet.add i !two;
+                    incr cardinal_two;
+                    Float.Array.iteri
+                      (fun j x -> !centroid_two.@(j) <- !centroid_two.@(j) +. x)
+                      v
+                  end else begin
+                    one := IntSet.add i !one;
+                    incr cardinal_one;
+                    Float.Array.iteri
+                      (fun j x -> !centroid_one.@(j) <- !centroid_one.@(j) +. x)
+                      v
+                  end)
+                init_set;
+              (* Temporary space *)
+              let old_centroid_one = Float.Array.make d 0. |> ref
+              and old_centroid_two = Float.Array.make d 0. |> ref
+              and compute_objective () =
+                let normalize sum card =
+                  if card > 1. then
+                    sum /. card
+                  else
+                    sum in
+                let cardinal_one = float_of_int !cardinal_one
+                and cardinal_two = float_of_int !cardinal_two and res = ref 0. in
+                if cardinal_one > 0. && cardinal_two > 0. then
+                  Float.Array.iter2
+                    (fun sum_one sum_two ->
+                      let min, max = min_max (normalize sum_one cardinal_one) (normalize sum_two cardinal_two) in
+                      res := !res +. (max -. min))
+                    !centroid_one !centroid_two;
+                !res /. sqrt (1. +. Float.abs (cardinal_one -. cardinal_two)) in
+              let objective = compute_objective () |> ref in
+
+              if verbose then begin
+                Printf.eprintf "(%s): Begin (objective=%.3g, one=[" __FUNCTION__ !objective;
+                IntSet.iter (Printf.eprintf " %d") !one;
+                Printf.eprintf " ], two=[";
+                IntSet.iter (Printf.eprintf " %d") !two;
+                Printf.eprintf " ])\n%!"
+              end;
+
+              (* All-time bests *)
+              let max_objective = ref !objective and max_one = ref !one and max_two = ref !two
+              and terminator = max num_elements 40 and rejected = ref 0 and steps = ref 0 in
+              (* We stop if no improvement happens for as many moves as the number of elements *)
+              while !rejected < terminator do
+
+                if !steps mod 1000 = 0 then
+                  Printf.eprintf " Step #%d: objective=%.3g, max_objective=%.3g\n%!" !steps !objective !max_objective;
+                incr steps;
+
+                (* We save the old state *)
+                let old_one = !one and old_cardinal_one = !cardinal_one
+                and old_two = !two and old_cardinal_two = !cardinal_two
+                and old_objective = !objective in
+                Float.Array.blit !centroid_one 0 !old_centroid_one 0 d;
+                Float.Array.blit !centroid_two 0 !old_centroid_two 0 d;
+                let selected = elements.(Random.int num_elements) in
+                let v = m.matrix.data.(selected) in
+                if IntSet.mem selected !one then begin
+                  (* Move element from partition one to partition two *)
+                  one := IntSet.remove selected !one;
+                  decr cardinal_one;
+                  two := IntSet.add selected !two;
+                  incr cardinal_two;
+                  Float.Array.iter2i
+                    (fun i sum_one sum_two ->
+                      let coord = v.@(i) in
+                      !centroid_one.@(i) <- sum_one -. coord;
+                      !centroid_two.@(i) <- sum_two +. coord)
+                    !old_centroid_one !old_centroid_two
+                end else begin
+                  (* Move element from partition two to partition one *)
+                  two := IntSet.remove selected !two;
+                  decr cardinal_two;
+                  one := IntSet.add selected !one;
+                  incr cardinal_one;
+                  Float.Array.iter2i
+                    (fun i sum_one sum_two ->
+                      let coord = v.@(i) in
+                      !centroid_two.@(i) <- sum_two -. coord;
+                      !centroid_one.@(i) <- sum_one +. coord)
+                    !old_centroid_one !old_centroid_two
+                end;
+                objective := compute_objective ();
+                (* Should we accept the move? *)
+                let delta = !objective -. old_objective in
+                let score = 1. /. (1. +. inverse_acceptance *. exp (negative_scale *. delta)) in
+                if Random.float 1. <= score then begin
+                  (* Accept *)
+                  rejected := 0;
+                  if !objective > !max_objective then begin
+                    (* Update all-time minimum *)
+                    max_objective := !objective;
+                    max_one := !one;
+                    max_two := !two
+                  end
+                end else begin
+                  (* Reject *)
+                  incr rejected;
+                  (* We have to restore the previous state *)
+                  one := old_one;
+                  cardinal_one := old_cardinal_one;
+                  two := old_two;
+                  cardinal_two := old_cardinal_two;
+                  let tmp = !centroid_one in
+                  centroid_one := !old_centroid_one;
+                  old_centroid_one := tmp;
+                  let tmp = !centroid_two in
+                  centroid_two := !old_centroid_two;
+                  old_centroid_two := tmp;
+                  objective := old_objective
+                end
+              done;
+
+              if verbose then begin
+                Printf.eprintf "(%s): End (objective=%.3g, max=%.3g, one=[" __FUNCTION__ !objective !max_objective;
+                IntSet.iter (fun i -> m.matrix.row_names.(i) |> Printf.eprintf " '%s'") !max_one;
+                Printf.eprintf " ], two=[";
+                IntSet.iter (fun i -> m.matrix.row_names.(i) |> Printf.eprintf " '%s'") !max_two;
+                Printf.eprintf " ], steps=%d)\n%!" !steps
+              end;
+
+              !max_one, !max_two, !max_objective, !steps
+          end
       end
     let get_splits ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false) algorithm_type max_splits m =
-      ignore (algorithm_type); (* At the moment we do not implement anything else *)
       if m.which <> Vectors then
         Unexpected_type (m.which, Vectors) |> raise;
-      (* Embeddings are stored rowwise.
-         We begin by sorting coordinates along each dimension (i.e., by sorting columns) *)
-      let n = Array.length m.matrix.row_names in
-      let cols_per_step = max 1 (elements_per_step / n) and processed_cols = ref 0
-      and d = Array.length m.matrix.col_names in
-      let row_permutations = Array.make d [||] and gaps = Tools.StackArray.create () in
-      (* Generate points to be computed by the parallel process *)
-      Processes.Parallel.process_stream_chunkwise
-        (fun () ->
-          if !processed_cols < d then
-            let to_do = min cols_per_step (d - !processed_cols) in
-            let new_processed_cols = !processed_cols + to_do in
-            let res = !processed_cols, new_processed_cols - 1 in
-            processed_cols := new_processed_cols;
-            res
-          else
-            raise End_of_file)
-        (fun (lo_col, hi_col) ->
-          let res = ref [] in
-          (* We iterate backwards so as to avoid to have to reverse the list in the end *)
-          for i = hi_col downto lo_col do
-            (* We annotate the transposed value with its row index *)
-            let coords__idxs = Array.init n (fun row -> Float.Array.get m.matrix.data.(row) i, row) in
-            (* We sort the vector *)
-            Array.sort (fun (coord_1, _) (coord_2, _) -> compare coord_1 coord_2) coords__idxs;
-            (* We compute gaps, i.e. differences between consecutive coordinates.
-               Gaps are annotated with their indices *)
-            let gaps__idxs = Array.init (n - 1) (fun j -> fst coords__idxs.(j + 1) -. fst coords__idxs.(j), i, j) in
-            (* We sort the vector *)
-            Array.sort (fun (gap_1, _, _) (gap_2, _, _) -> compare gap_1 gap_2) gaps__idxs;
-            (* We return the permutation of row indices and the gap vector *)
-            List.accum res (Array.init n (fun row -> snd coords__idxs.(row)), gaps__idxs)
-          done;
-          lo_col, !res)
-        (fun (lo_col, cols) ->
-          List.iteri
-            (fun offs_i (perm_i, gaps_i) ->
-              row_permutations.(lo_col + offs_i) <- perm_i;
-              Tools.StackArray.push_array gaps gaps_i;
-              if verbose && !processed_cols mod cols_per_step = 0 then
-                Printf.eprintf "%s\r(%s): Done %d/%d cols%!"
-                  String.TermIO.clear __FUNCTION__ !processed_cols n;
-              incr processed_cols)
-            cols)
-        threads;
-      (* We sort the gaps *)
-      let gaps = Tools.StackArray.contents gaps in
-      Array.sort
-        (fun (gap_1, dim_1, idx_1) (gap_2, dim_2, idx_2) ->
-          (* We sort splits by decreasing gap size first, then by increasing dimension (and row index) *)
-          let rgap = compare gap_2 gap_1 in
-          if rgap <> 0 then
-            rgap
-          else begin
-            let dim = compare dim_1 dim_2 in
-            if dim <> 0 then
-              dim
+      match algorithm_type with
+      | SplitsAlgorithm.Gaps ->
+        (* Embeddings are stored rowwise.
+          We begin by sorting coordinates along each dimension (i.e., by sorting columns) *)
+        let n = Array.length m.matrix.row_names in
+        let cols_per_step = max 1 (elements_per_step / n) and processed_cols = ref 0
+        and d = Array.length m.matrix.col_names in
+        let row_permutations = Array.make d [||] and gaps = Tools.StackArray.create () in
+        (* Generate points to be computed by the parallel process *)
+        Processes.Parallel.process_stream_chunkwise
+          (fun () ->
+            if !processed_cols < d then
+              let to_do = min cols_per_step (d - !processed_cols) in
+              let new_processed_cols = !processed_cols + to_do in
+              let res = !processed_cols, new_processed_cols - 1 in
+              processed_cols := new_processed_cols;
+              res
             else
-              compare idx_1 idx_2
-          end)
-        gaps;
-      (* We generate splits from the selected number of gaps *)
-      let res = Trees.Splits.create m.matrix.row_names in
-      for i = 0 to (Array.length gaps |> min max_splits) - 1 do
-        let gap, dim, idx = gaps.(i) in
-        let split = Array.sub row_permutations.(dim) 0 (idx + 1) |> Trees.Splits.Split.of_array in
-        Trees.Splits.add_split res split gap
-      done;
-      res
+              raise End_of_file)
+          (fun (lo_col, hi_col) ->
+            let res = ref [] in
+            (* We iterate backwards so as to avoid to have to reverse the list in the end *)
+            for i = hi_col downto lo_col do
+              (* We annotate the transposed value with its row index *)
+              let coords__idxs = Array.init n (fun row -> m.matrix.data.(row).@(i), row) in
+              (* We sort the vector *)
+              Array.sort (fun (coord_1, _) (coord_2, _) -> compare coord_1 coord_2) coords__idxs;
+              (* We compute gaps, i.e. differences between consecutive coordinates.
+                Gaps are annotated with their indices *)
+              let gaps__idxs = Array.init (n - 1) (fun j -> fst coords__idxs.(j + 1) -. fst coords__idxs.(j), i, j) in
+              (* We sort the vector *)
+              Array.sort (fun (gap_1, _, _) (gap_2, _, _) -> compare gap_1 gap_2) gaps__idxs;
+              (* We return the permutation of row indices and the gap vector *)
+              List.accum res (Array.init n (fun row -> snd coords__idxs.(row)), gaps__idxs)
+            done;
+            lo_col, !res)
+          (fun (lo_col, cols) ->
+            List.iteri
+              (fun offs_i (perm_i, gaps_i) ->
+                row_permutations.(lo_col + offs_i) <- perm_i;
+                Tools.StackArray.push_array gaps gaps_i;
+                if verbose && !processed_cols mod cols_per_step = 0 then
+                  Printf.eprintf "%s\r(%s): Done %d/%d cols%!"
+                    String.TermIO.clear __FUNCTION__ !processed_cols n;
+                incr processed_cols)
+              cols)
+          threads;
+        if verbose then
+          Printf.eprintf "%s\r(%s): Done %d/%d cols.\n%!"
+            String.TermIO.clear __FUNCTION__ !processed_cols n;
+        (* We sort the gaps *)
+        let gaps = Tools.StackArray.contents gaps in
+        Array.sort
+          (fun (gap_1, dim_1, idx_1) (gap_2, dim_2, idx_2) ->
+            (* We sort splits by decreasing gap size first, then by increasing dimension (and row index) *)
+            let rgap = compare gap_2 gap_1 in
+            if rgap <> 0 then
+              rgap
+            else begin
+              let dim = compare dim_1 dim_2 in
+              if dim <> 0 then
+                dim
+              else
+                compare idx_1 idx_2
+            end)
+          gaps;
+        (* We generate splits from the selected number of gaps *)
+        let res = Trees.Splits.create m.matrix.row_names in
+        for i = 0 to (Array.length gaps |> min max_splits) - 1 do
+          let gap, dim, idx = gaps.(i) in
+          let split = Array.sub row_permutations.(dim) 0 (idx + 1) |> Trees.Splits.Split.of_array in
+          Trees.Splits.add_split res split gap
+        done;
+        res
+      | Centroids ->
+        let res = Trees.Splits.create m.matrix.row_names in
+        let rec refine_by_bipartition set =
+          if IntSet.cardinal set > 1 then begin
+            (* Bipartition.evolve () should work fine provided that there are at least 2 elements *)
+            let one, two, objective, _ = SplitsAlgorithm.Bipartition.make ~verbose m set in
+            Trees.Splits.add_split res (IntSet.elements_array one |> Trees.Splits.Split.of_array) objective;
+            refine_by_bipartition one;
+            refine_by_bipartition two
+          end else
+            Trees.Splits.add_split res (IntSet.elements_array set |> Trees.Splits.Split.of_array) 0. in
+        Seq.init (Array.length m.matrix.row_names) (fun i -> i) |> IntSet.of_seq |> refine_by_bipartition;
+        res
     let get_distance_matrix ?(normalize = true) ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false)
         distance metric m =
       if m.which <> Twisted then
@@ -656,7 +745,7 @@ include (
               Float.Array.init r1
                 (fun i ->
                   Space.Distance.compute
-                    ~adaptor_a:(fun a -> a /. Float.Array.get n1 i) ~adaptor_b:(fun b -> b /. Float.Array.get n2 j)
+                    ~adaptor_a:(fun a -> a /. n1.@(i)) ~adaptor_b:(fun b -> b /. n2.@(j))
                     distance metric m1.matrix.data.(i) m2.matrix.data.(j)) in
             (* ...and summarise them *)
             summarize_distance_matrix_row
@@ -758,6 +847,7 @@ include (
     module Type:
       sig
         type t =
+          | Distill
           | Twister
           | Inertia
           | Metrics
@@ -796,6 +886,7 @@ include (
       sig
         type t =
           | Gaps
+          | Centroids
         val to_string: t -> string
         exception Unknown_algorithm of string
         val of_string: string -> t
