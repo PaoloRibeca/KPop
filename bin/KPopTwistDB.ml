@@ -107,8 +107,8 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopTwistDB";
-  version = "37";
-  date = "05-Feb-2025"
+  version = "38";
+  date = "10-Feb-2025"
 } and authors = [
   "2022-2025", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
@@ -232,7 +232,7 @@ let () =
       TA.Optional,
       (fun _ -> List.accum Parameters.program Embeddings_from_twisted);
     [ "--splits-algorithm" ],
-      Some "'gaps'",
+      Some "'gaps'|'centroids'",
       [ "algorithm to use when computing splits from embeddings" ],
       TA.Default (fun () -> Matrix.SplitsAlgorithm.to_string Defaults.splits_algorithm),
       (fun _ ->
@@ -350,6 +350,8 @@ let () =
     [ "--debug-twisting" ], None, [], TA.Optional, (fun _ -> Parameters.debug_twisting := true);
     (* Hidden option to emit help in markdown format *)
     [ "--markdown" ], None, [], TA.Optional, (fun _ -> TA.markdown (); exit 0);
+    (* Hidden option to print exception backtrace *)
+    [ "-x"; "--print-exception-backtrace" ], None, [], TA.Optional, (fun _ -> Printexc.record_backtrace true);
     [ "-h"; "--help" ],
       None,
       [ "print syntax and exit" ],
@@ -556,6 +558,8 @@ let () =
             !distances prefix)
       program
   with exc ->
-    Printf.eprintf "[#%s]: (%s): %s\n%!" (Unix.getpid () |> string_of_int |> String.TermIO.blue) __FUNCTION__
-      ("FATAL: Uncaught exception: " ^ Printexc.to_string exc |> String.TermIO.red)
-
+    Printf.peprintf "(%s): %s\n%!" __FUNCTION__
+      ("FATAL: Uncaught exception: " ^ Printexc.to_string exc |> String.TermIO.red);
+    Printf.peprintf "(%s): This should not have happened - please contact <paolo.ribeca@gmail.com>\n%!" __FUNCTION__;
+    Printf.peprintf "(%s): You might also wish to rerun me with option -x to get a full backtrace.\n%!" __FUNCTION__;
+    Printexc.print_backtrace stderr
