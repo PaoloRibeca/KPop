@@ -669,7 +669,7 @@ include (
         (fun (lo_row, hi_row) ->
           let module FVF = FreqVector(Numbers.Float)(Numbers.MakeComparableNumber) in
           (* We need one histogram per row to be able to compute statistics such as the median *)
-          let row_combinators = Array.init (hi_row - lo_row + 1) (fun _ -> FVF.empty ~non_negative:true ()) in
+          let row_combinators = Array.init (hi_row - lo_row + 1) (fun _ -> FVF.make ~non_negative:true ()) in
           for i = lo_row to hi_row do
             (* We iterate over valid columns *)
             Array.iter
@@ -809,8 +809,8 @@ include (
         !split_names;
       remove_selected !res (Array.to_seq db.core.idx_to_col_names |> StringSet.of_seq)
     (* *)
-    module IntIntSet = Set.Make(MakeComparable (struct type t = int * int end))
     module Stats = Numbers.OnlineStats(Numbers.Float) (*(I32BAVector.N)*)
+    module Freqs = Numbers.FreqVector(Numbers.Float)(Numbers.MakeComparableNumber)
     module LF_FAVector = Numbers.LinearFit(FAVector)
     exception Invalid_number_of_classes of int
     let distill_kmers ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false)
@@ -826,34 +826,14 @@ include (
         Array.iter (Printf.eprintf " %d") ind_classes;
         Printf.eprintf " ]\n%!"
       end;
-      let n_kmers = db.core.n_rows and processed_kmers = ref 0
-      and n_sums_on = ref 0 and n_sums_off = ref 0 and n_covs = ref IntIntSet.empty in
-      (* We compute normalisations *)
-      for i = 0 to n_samples - 1 do
-        for j = i + 1 to n_samples - 1 do
-          let ind_class_i = ind_classes.(i) and ind_class_j = ind_classes.(j) in
-          let inds_class =
-            if ind_class_j < ind_class_i then
-              ind_class_j, ind_class_i
-            else
-              ind_class_i, ind_class_j in
-          if IntIntSet.mem inds_class !n_covs |> not then
-            n_covs := IntIntSet.add inds_class !n_covs;
-          (if ind_class_i = ind_class_j then n_sums_on else n_sums_off) |> incr
-        done
-      done;
-      let n_covs_on = ref 0 and n_covs_off = ref 0 in
-      IntIntSet.iter
-        (fun (i, j) -> (if i = j then n_covs_on else n_covs_off) |> incr)
-        !n_covs;
-      if verbose then
-        Printf.eprintf "(%s): Normalizations are sums=(on=%d,off=%d) covs=(on=%d,off=%d)\n%!"
-          __FUNCTION__ !n_sums_on !n_sums_off !n_covs_on !n_covs_off;
-      let n_sums_on = float_of_int !n_sums_on and n_sums_off = float_of_int !n_sums_off
-      and n_covs_on = float_of_int !n_covs_on and n_covs_off = float_of_int !n_covs_off in
+      let n_kmers = db.core.n_rows and processed_kmers = ref 0 in
       let stats_classes = Array.init n_classes (fun _ -> Array.init n_classes (fun _ -> Stats.make ()))
-      and sums_on = FAVector.(make n_kmers N.zero) and sums_off = FAVector.(make n_kmers N.zero)
-      and covs_on = FAVector.(make n_kmers N.zero) and covs_off = FAVector.(make n_kmers N.zero) in
+      and avgs_on_mean = FAVector.(make n_kmers N.zero) and avgs_off_mean = FAVector.(make n_kmers N.zero)
+      and avgs_on_median = FAVector.(make n_kmers N.zero) and avgs_off_median = FAVector.(make n_kmers N.zero)
+      and vars_on_mean = FAVector.(make n_kmers N.zero) and vars_off_mean = FAVector.(make n_kmers N.zero)
+      and vars_on_median = FAVector.(make n_kmers N.zero) and vars_off_median = FAVector.(make n_kmers N.zero)
+      and covs_on_mean = FAVector.(make n_kmers N.zero) and covs_off_mean = FAVector.(make n_kmers N.zero)
+      and covs_on_median = FAVector.(make n_kmers N.zero) and covs_off_median = FAVector.(make n_kmers N.zero) in
       Processes.Parallel.process_stream_chunkwise
         (fun () ->
           if !processed_kmers < n_kmers then
@@ -869,20 +849,19 @@ include (
           let res = ref [] in
           for kmer = lo_kmer to hi_kmer do
             I32BAVector.(
-              let sums_on = ref 0. and sums_off = ref 0. in
               (* We iterate over all the couples of samples *)
               for i = 0 to n_samples - 1 do
                 let ind_class_i = ind_classes.(i)
+                (* Counts must be normalised *)
                 and counts_i = N.to_float db.core.storage.(i).@(kmer) /. stats_table.col_stats.(i).sum in
                 for j = i + 1 to n_samples - 1 do
                   let ind_class_j = ind_classes.(j)
+                  (* Counts must be normalised *)
                   and counts_j = N.to_float db.core.storage.(j).@(kmer) /. stats_table.col_stats.(j).sum in
                   let diff = Float.abs (counts_i -. counts_j) in
-                  if ind_class_i = ind_class_j then begin
-                    sums_on := !sums_on +. diff;
+                  if ind_class_i = ind_class_j then
                     Stats.add stats_classes.(ind_class_i).(ind_class_j) diff
-                  end else begin
-                    sums_off := !sums_off +. diff;
+                  else begin
                     if ind_class_i < ind_class_j then
                       Stats.add stats_classes.(ind_class_i).(ind_class_j) diff
                     else
@@ -890,60 +869,107 @@ include (
                   end
                 done
               done;
-              let covs_on = ref 0. and covs_off = ref 0. in
+              let avgs_on = Freqs.make () and avgs_off = Freqs.make ()
+              and vars_on = Freqs.make () and vars_off = Freqs.make ()
+              and covs_on = Freqs.make () and covs_off = Freqs.make () in
               (* We iterate over all the couples of classes *)
               for i = 0 to n_classes - 1 do
                 let stats = stats_classes.(i).(i) in
-                covs_on := !covs_on +. Stats.sample_coefficient_of_variation stats;
+                Stats.mean stats |> Freqs.add avgs_on;
+                Stats.sample_variance stats |> Freqs.add vars_on;
+                Stats.sample_coefficient_of_variation stats |> Freqs.add covs_on;
                 Stats.clear stats;
                 for j = i + 1 to n_classes - 1 do
                   let stats = stats_classes.(i).(j) in
-                  covs_off := !covs_off +. Stats.sample_coefficient_of_variation stats;
+                  Stats.mean stats |> Freqs.add avgs_off;
+                  Stats.sample_variance stats |> Freqs.add vars_off;
+                  Stats.sample_coefficient_of_variation stats |> Freqs.add covs_off;
                   Stats.clear stats
                 done
               done;
-              List.accum res
-                (kmer, !sums_on /. n_sums_on, !sums_off /. n_sums_off, !covs_on /. n_covs_on, !covs_off /. n_covs_off)
+              begin
+                kmer, Freqs.mean avgs_on, Freqs.mean avgs_off, Freqs.median avgs_on, Freqs.median avgs_off,
+                      Freqs.mean vars_on, Freqs.mean vars_off, Freqs.median vars_on, Freqs.median vars_off,
+                      Freqs.mean covs_on, Freqs.mean covs_off, Freqs.median covs_on, Freqs.median covs_off
+              end |> List.accum res
             );
           done;
           !res)
         (fun block ->
           let old_processed_kmers = !processed_kmers in
           List.iter
-            (fun (kmer, sums_on_kmer, sums_off_kmer, covs_on_kmer, covs_off_kmer) ->
+            (fun
+              (kmer,
+               avgs_on_mean_kmer, avgs_off_mean_kmer, avgs_on_median_kmer, avgs_off_median_kmer,
+               vars_on_mean_kmer, vars_off_mean_kmer, vars_on_median_kmer, vars_off_median_kmer,
+               covs_on_mean_kmer, covs_off_mean_kmer, covs_on_median_kmer, covs_off_median_kmer) ->
               FAVector.(N.(
-                sums_on.@(kmer) <- of_float sums_on_kmer;
-                sums_off.@(kmer) <- of_float sums_off_kmer;
-                covs_on.@(kmer) <- of_float covs_on_kmer;
-                covs_off.@(kmer) <- of_float covs_off_kmer
+                avgs_on_mean.@(kmer) <- of_float avgs_on_mean_kmer;
+                avgs_off_mean.@(kmer) <- of_float avgs_off_mean_kmer;
+                avgs_on_median.@(kmer) <- of_float avgs_on_median_kmer;
+                avgs_off_median.@(kmer) <- of_float avgs_off_median_kmer;
+                vars_on_mean.@(kmer) <- of_float vars_on_mean_kmer;
+                vars_off_mean.@(kmer) <- of_float vars_off_mean_kmer;
+                vars_on_median.@(kmer) <- of_float vars_on_median_kmer;
+                vars_off_median.@(kmer) <- of_float vars_off_median_kmer;
+                covs_on_mean.@(kmer) <- of_float covs_on_mean_kmer;
+                covs_off_mean.@(kmer) <- of_float covs_off_mean_kmer;
+                covs_on_median.@(kmer) <- of_float covs_on_median_kmer;
+                covs_off_median.@(kmer) <- of_float covs_off_median_kmer
               ));
-              incr processed_kmers)
-            block;
+              incr processed_kmers
+          ) block;
           if verbose && !processed_kmers / 100 > old_processed_kmers / 100 then
             Printf.eprintf "%s\r(%s): Distilled %d/%d kmers%!"
               String.TermIO.clear __FUNCTION__ !processed_kmers n_kmers)
         threads;
-      let fit_sums, _, residuals_sums = LF_FAVector.make sums_on sums_off
-      and fit_covs, _, residuals_covs = LF_FAVector.make covs_on covs_off in
+      let fit_avgs_mean, _, residuals_avgs_mean = LF_FAVector.make avgs_on_mean avgs_off_mean
+      and fit_avgs_median, _, residuals_avgs_median = LF_FAVector.make avgs_on_median avgs_off_median
+      and fit_vars_mean, _, residuals_vars_mean = LF_FAVector.make vars_on_mean vars_off_mean
+      and fit_vars_median, _, residuals_vars_median = LF_FAVector.make vars_on_median vars_off_median
+      and fit_covs_mean, _, residuals_covs_mean = LF_FAVector.make covs_on_mean covs_off_mean
+      and fit_covs_median, _, residuals_covs_median = LF_FAVector.make covs_on_median covs_off_median in
       if verbose then begin
         Printf.eprintf "%s\r(%s): Distilled %d/%d kmers.\n"
           String.TermIO.clear __FUNCTION__ !processed_kmers n_kmers;
-        Printf.eprintf "(%s): Fit for sums is %.6g + %.6g * x\n%!" __FUNCTION__
-          (LF_FAVector.get_intercept fit_sums |> FAVector.N.to_float)
-          (LF_FAVector.get_slope fit_sums |> FAVector.N.to_float);
-        Printf.eprintf "(%s): Fit for covs is %.6g + %.6g * x\n%!" __FUNCTION__
-          (LF_FAVector.get_intercept fit_covs |> FAVector.N.to_float)
-          (LF_FAVector.get_slope fit_covs |> FAVector.N.to_float)
+        Printf.eprintf "(%s): Fit for avgs mean is %.6g + %.6g * x\n%!" __FUNCTION__
+          (LF_FAVector.get_intercept fit_avgs_mean |> FAVector.N.to_float)
+          (LF_FAVector.get_slope fit_avgs_mean |> FAVector.N.to_float);
+        Printf.eprintf "(%s): Fit for avgs median is %.6g + %.6g * x\n%!" __FUNCTION__
+          (LF_FAVector.get_intercept fit_avgs_median |> FAVector.N.to_float)
+          (LF_FAVector.get_slope fit_avgs_median |> FAVector.N.to_float);
+        Printf.eprintf "(%s): Fit for vars mean is %.6g + %.6g * x\n%!" __FUNCTION__
+          (LF_FAVector.get_intercept fit_vars_mean |> FAVector.N.to_float)
+          (LF_FAVector.get_slope fit_vars_mean |> FAVector.N.to_float);
+        Printf.eprintf "(%s): Fit for vars median is %.6g + %.6g * x\n%!" __FUNCTION__
+          (LF_FAVector.get_intercept fit_vars_median |> FAVector.N.to_float)
+          (LF_FAVector.get_slope fit_vars_median |> FAVector.N.to_float);
+        Printf.eprintf "(%s): Fit for covs mean is %.6g + %.6g * x\n%!" __FUNCTION__
+          (LF_FAVector.get_intercept fit_covs_mean |> FAVector.N.to_float)
+          (LF_FAVector.get_slope fit_covs_mean |> FAVector.N.to_float);
+        Printf.eprintf "(%s): Fit for covs median is %.6g + %.6g * x\n%!" __FUNCTION__
+          (LF_FAVector.get_intercept fit_covs_median |> FAVector.N.to_float)
+          (LF_FAVector.get_slope fit_covs_median |> FAVector.N.to_float)
       end;
       (* We output the summary *)
       let summary = {
         Matrix.which = Distill;
         matrix = {
           col_names = db.core.idx_to_row_names;
-          row_names = [| "InnerSum"; "OuterSum"; "ResidualSum"; "InnerCOV"; "OuterCOV"; "ResidualCOV" |];
+          row_names =
+            [| "InnerAvgMean"; "OuterAvgMean"; "ResidualAvgMean";
+               "InnerAvgMedian"; "OuterAvgMedian"; "ResidualAvgMedian";
+               "InnerVarMean"; "OuterVarMean"; "ResidualVarMean";
+               "InnerVarMedian"; "OuterVarMedian"; "ResidualVarMedian";
+               "InnerCOVMean"; "OuterCOVMean"; "ResidualCOVMean";
+               "InnerCOVMedian"; "OuterCOVMedian"; "ResidualCOVMedian" |];
           data = FAVector.(
-            [| to_floatarray sums_on; to_floatarray sums_off; to_floatarray residuals_sums;
-               to_floatarray covs_on; to_floatarray covs_off; to_floatarray residuals_covs |]
+            [| to_floatarray avgs_on_mean; to_floatarray avgs_off_mean; to_floatarray residuals_avgs_mean;
+               to_floatarray avgs_on_median; to_floatarray avgs_off_median; to_floatarray residuals_avgs_median;
+               to_floatarray vars_on_mean; to_floatarray vars_off_mean; to_floatarray residuals_vars_mean;
+               to_floatarray vars_on_median; to_floatarray vars_off_median; to_floatarray residuals_vars_median;
+               to_floatarray covs_on_mean; to_floatarray covs_off_mean; to_floatarray residuals_covs_mean;
+               to_floatarray covs_on_median; to_floatarray covs_off_median; to_floatarray residuals_covs_median |]
           )
         }
       } in
