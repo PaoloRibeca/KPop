@@ -380,9 +380,8 @@ let () =
         | Remove_selected ->
           current := KMerDB.remove_selected !current !selected
         | Distill_kmers (classes_label, summary_prefix) ->
-          current :=
-            KMerDB.distill_kmers ~threads:!Parameters.threads ~verbose:!Parameters.verbose
-              !current classes_label summary_prefix
+          KMerDB.distill_kmers ~threads:!Parameters.threads ~verbose:!Parameters.verbose
+            !current classes_label summary_prefix
         | Summary ->
           KMerDB.output_summary ~verbose:!Parameters.verbose !current
         | Selected_from_labels labels ->

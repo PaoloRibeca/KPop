@@ -809,30 +809,51 @@ include (
         !split_names;
       remove_selected !res (Array.to_seq db.core.idx_to_col_names |> StringSet.of_seq)
     (* *)
+    module IntIntSet = Set.Make(MakeComparable (struct type t = int * int end))
+    module Stats = Numbers.OnlineStats(Numbers.Float) (*(I32BAVector.N)*)
     module LF_FAVector = Numbers.LinearFit(FAVector)
     exception Invalid_number_of_classes of int
     let distill_kmers ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false)
         db classes_label summary_prefix =
-      let num_classes, _, ind_classes = get_indicator_vector db classes_label and n_samples = db.core.n_cols in
-      if num_classes = 1  || num_classes = n_samples then
-        Invalid_number_of_classes num_classes |> raise;
+      (* Here we want no thresholding and linear statistics *)
+      let transf = Transformation.of_parameters { which = "power"; threshold = 1.; power = 1. } in
+      let stats_table = stats_table_of_core_db ~threads ~verbose transf db.core in
+      let n_classes, _, ind_classes = get_indicator_vector db classes_label and n_samples = db.core.n_cols in
+      if n_classes = 1 || n_classes = n_samples then
+        Invalid_number_of_classes n_classes |> raise;
       if verbose then begin
         Printf.eprintf "(%s): Classes=[" __FUNCTION__;
         Array.iter (Printf.eprintf " %d") ind_classes;
         Printf.eprintf " ]\n%!"
       end;
       let n_kmers = db.core.n_rows and processed_kmers = ref 0
-      and n_on = ref 0 and n_off = ref 0 in
+      and n_sums_on = ref 0 and n_sums_off = ref 0 and n_covs = ref IntIntSet.empty in
       (* We compute normalisations *)
       for i = 0 to n_samples - 1 do
         for j = i + 1 to n_samples - 1 do
-          (if ind_classes.(i) = ind_classes.(j) then n_on else n_off) |> incr
+          let ind_class_i = ind_classes.(i) and ind_class_j = ind_classes.(j) in
+          let inds_class =
+            if ind_class_j < ind_class_i then
+              ind_class_j, ind_class_i
+            else
+              ind_class_i, ind_class_j in
+          if IntIntSet.mem inds_class !n_covs |> not then
+            n_covs := IntIntSet.add inds_class !n_covs;
+          (if ind_class_i = ind_class_j then n_sums_on else n_sums_off) |> incr
         done
       done;
+      let n_covs_on = ref 0 and n_covs_off = ref 0 in
+      IntIntSet.iter
+        (fun (i, j) -> (if i = j then n_covs_on else n_covs_off) |> incr)
+        !n_covs;
       if verbose then
-        Printf.eprintf "(%s): Normalizations are on=%d, off=%d\n%!" __FUNCTION__ !n_on !n_off;
-      let n_on = FAVector.N.of_int !n_on and n_off = FAVector.N.of_int !n_off
-      and res_on = FAVector.make n_kmers FAVector.N.zero and res_off = FAVector.make n_kmers FAVector.N.zero in
+        Printf.eprintf "(%s): Normalizations are sums=(on=%d,off=%d) covs=(on=%d,off=%d)\n%!"
+          __FUNCTION__ !n_sums_on !n_sums_off !n_covs_on !n_covs_off;
+      let n_sums_on = float_of_int !n_sums_on and n_sums_off = float_of_int !n_sums_off
+      and n_covs_on = float_of_int !n_covs_on and n_covs_off = float_of_int !n_covs_off in
+      let stats_classes = Array.init n_classes (fun _ -> Array.init n_classes (fun _ -> Stats.make ()))
+      and sums_on = FAVector.(make n_kmers N.zero) and sums_off = FAVector.(make n_kmers N.zero)
+      and covs_on = FAVector.(make n_kmers N.zero) and covs_off = FAVector.(make n_kmers N.zero) in
       Processes.Parallel.process_stream_chunkwise
         (fun () ->
           if !processed_kmers < n_kmers then
@@ -847,65 +868,86 @@ include (
         (fun (lo_kmer, hi_kmer) ->
           let res = ref [] in
           for kmer = lo_kmer to hi_kmer do
-            let off = ref I32BAVector.N.zero and on = ref I32BAVector.N.zero in
-            (* We iterate over all the couples of samples *)
-            for i = 0 to n_samples - 1 do
-              let counts_i = db.core.storage.(i).@(kmer) in
-              for j = i + 1 to n_samples - 1 do
-                if ind_classes.(i) = ind_classes.(j) then
-                  on := I32BAVector.N.(!on + abs (counts_i - db.core.storage.(j).@(kmer)))
-                else
-                  off := I32BAVector.N.(!off + abs (counts_i - db.core.storage.(j).@(kmer)))
-              done
-            done;
-            List.accum res begin
-              kmer,
-              I32BAVector.N.to_float !on |> FAVector.N.of_float, I32BAVector.N.to_float !off |> FAVector.N.of_float
-            end
+            I32BAVector.(
+              let sums_on = ref 0. and sums_off = ref 0. in
+              (* We iterate over all the couples of samples *)
+              for i = 0 to n_samples - 1 do
+                let ind_class_i = ind_classes.(i)
+                and counts_i = N.to_float db.core.storage.(i).@(kmer) /. stats_table.col_stats.(i).sum in
+                for j = i + 1 to n_samples - 1 do
+                  let ind_class_j = ind_classes.(j)
+                  and counts_j = N.to_float db.core.storage.(j).@(kmer) /. stats_table.col_stats.(j).sum in
+                  let diff = Float.abs (counts_i -. counts_j) in
+                  if ind_class_i = ind_class_j then begin
+                    sums_on := !sums_on +. diff;
+                    Stats.add stats_classes.(ind_class_i).(ind_class_j) diff
+                  end else begin
+                    sums_off := !sums_off +. diff;
+                    if ind_class_i < ind_class_j then
+                      Stats.add stats_classes.(ind_class_i).(ind_class_j) diff
+                    else
+                      Stats.add stats_classes.(ind_class_j).(ind_class_i) diff
+                  end
+                done
+              done;
+              let covs_on = ref 0. and covs_off = ref 0. in
+              (* We iterate over all the couples of classes *)
+              for i = 0 to n_classes - 1 do
+                let stats = stats_classes.(i).(i) in
+                covs_on := !covs_on +. Stats.sample_coefficient_of_variation stats;
+                Stats.clear stats;
+                for j = i + 1 to n_classes - 1 do
+                  let stats = stats_classes.(i).(j) in
+                  covs_off := !covs_off +. Stats.sample_coefficient_of_variation stats;
+                  Stats.clear stats
+                done
+              done;
+              List.accum res
+                (kmer, !sums_on /. n_sums_on, !sums_off /. n_sums_off, !covs_on /. n_covs_on, !covs_off /. n_covs_off)
+            );
           done;
           !res)
         (fun block ->
           let old_processed_kmers = !processed_kmers in
           List.iter
-            (fun (kmer, on, off) ->
-              res_on.FAVector.@(kmer) <- FAVector.N.(on / n_on);
-              res_off.FAVector.@(kmer) <- FAVector.N.(off / n_off);
+            (fun (kmer, sums_on_kmer, sums_off_kmer, covs_on_kmer, covs_off_kmer) ->
+              FAVector.(N.(
+                sums_on.@(kmer) <- of_float sums_on_kmer;
+                sums_off.@(kmer) <- of_float sums_off_kmer;
+                covs_on.@(kmer) <- of_float covs_on_kmer;
+                covs_off.@(kmer) <- of_float covs_off_kmer
+              ));
               incr processed_kmers)
             block;
-            if verbose && !processed_kmers / 100 > old_processed_kmers / 100 then
-              Printf.eprintf "%s\r(%s): Distilled %d/%d kmers%!"
-                String.TermIO.clear __FUNCTION__ !processed_kmers n_kmers)
+          if verbose && !processed_kmers / 100 > old_processed_kmers / 100 then
+            Printf.eprintf "%s\r(%s): Distilled %d/%d kmers%!"
+              String.TermIO.clear __FUNCTION__ !processed_kmers n_kmers)
         threads;
-      let fit, _, residuals = LF_FAVector.make res_on res_off in
-      if verbose then
-        Printf.eprintf "%s\r(%s): Distilled %d/%d kmers. Fit is %.6g + %.6g * x\n%!"
-          String.TermIO.clear __FUNCTION__ !processed_kmers n_kmers
-          (LF_FAVector.get_intercept fit |> FAVector.N.to_float) (LF_FAVector.get_slope fit |> FAVector.N.to_float);
-      (* And finally, we permute k-mers according to their residuals *)
-      let to_be_sorted = Array.init n_kmers (fun i -> residuals.FAVector.@(i), i) in
-      Array.sort (fun (r_1, _) (r_2, _) -> compare r_2 r_1) to_be_sorted;
-      let idx_to_row_names = Array.map (fun (_, src) -> db.core.idx_to_row_names.(src)) to_be_sorted in
-      let core =
-        { db.core with
-          idx_to_row_names;
-          storage =
-            Array.map
-              (fun kmers ->
-                I32BAVector.init n_kmers
-                  (fun i -> kmers.I32BAVector.@(snd to_be_sorted.(i))))
-                  db.core.storage } in
+      let fit_sums, _, residuals_sums = LF_FAVector.make sums_on sums_off
+      and fit_covs, _, residuals_covs = LF_FAVector.make covs_on covs_off in
+      if verbose then begin
+        Printf.eprintf "%s\r(%s): Distilled %d/%d kmers.\n"
+          String.TermIO.clear __FUNCTION__ !processed_kmers n_kmers;
+        Printf.eprintf "(%s): Fit for sums is %.6g + %.6g * x\n%!" __FUNCTION__
+          (LF_FAVector.get_intercept fit_sums |> FAVector.N.to_float)
+          (LF_FAVector.get_slope fit_sums |> FAVector.N.to_float);
+        Printf.eprintf "(%s): Fit for covs is %.6g + %.6g * x\n%!" __FUNCTION__
+          (LF_FAVector.get_intercept fit_covs |> FAVector.N.to_float)
+          (LF_FAVector.get_slope fit_covs |> FAVector.N.to_float)
+      end;
       (* We output the summary *)
-      let permute_fa fav = Float.Array.init n_kmers (fun i -> FAVector.(N.to_float fav.@(snd to_be_sorted.(i)))) in
       let summary = {
         Matrix.which = Distill;
         matrix = {
-          col_names = idx_to_row_names;
-          row_names = [| "Inner"; "Outer"; "Residual" |];
-          data = [| permute_fa res_on; permute_fa res_off; permute_fa residuals |]
+          col_names = db.core.idx_to_row_names;
+          row_names = [| "InnerSum"; "OuterSum"; "ResidualSum"; "InnerCOV"; "OuterCOV"; "ResidualCOV" |];
+          data = FAVector.(
+            [| to_floatarray sums_on; to_floatarray sums_off; to_floatarray residuals_sums;
+               to_floatarray covs_on; to_floatarray covs_off; to_floatarray residuals_covs |]
+          )
         }
       } in
-      Matrix.to_file ~threads (Matrix.transpose ~threads summary) summary_prefix;
-      { db with core; row_names_to_idx = invert_table idx_to_row_names }
+      Matrix.to_file ~threads (Matrix.transpose ~threads summary) summary_prefix
     (* *)
     module TableFilter =
       struct
@@ -1297,7 +1339,7 @@ include (
     (* Distill k-mers, i.e., sort them by decreasing discriminative power according to the specified class labels *)
     exception Classes_label_not_found of string
     exception Invalid_number_of_classes of int
-    val distill_kmers: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> string -> string -> t
+    val distill_kmers: ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> string -> string -> unit
     (* Output information about the contents *)
     val output_summary: ?verbose:bool -> t -> unit
     (* Binary marshalling of the database *)
