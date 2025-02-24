@@ -68,8 +68,8 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopCountDB";
-  version = "48";
-  date = "11-Feb-2025"
+  version = "49";
+  date = "23-Feb-2025"
 } and authors = [
   "2020-2025", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
@@ -114,8 +114,9 @@ let () =
       (fun _ -> Add_meta (TA.get_parameter ()) |> List.accum Parameters.program);
     [ "-k"; "--kmers"; "--add-kmers"; "--add-kmer-files" ],
       Some "<k-mer_table_file_prefix>[','...','<k-mer_table_file_prefix>]",
-      [ "add to the database present in the register k-mers from the specified files";
-        " (which must have extension '.KPopSpectra.txt' unless file is '/dev/*')" ],
+      [ "add to the database present in the register the k-mer spectra contained in the";
+        "specified files, each of which can consist of one or more concatenated spectra";
+        " (files must have extension '.KPopSpectra.txt' unless file is '/dev/*')" ],
       TA.Optional,
       (fun _ ->
         Add_files (TA.get_parameter () |> String.Split.on_char_as_list ',') |> List.accum Parameters.program);
@@ -156,7 +157,7 @@ let () =
       (fun _ -> Summary |> List.accum Parameters.program);
     [ "-o"; "--output" ],
       Some "<binary_file_prefix>",
-      [ "dump the database present in the register to the specified file";
+      [ "save the database present in the register to the specified file";
         " (which will be given extension '.KPopCounter' unless file is '/dev/*')" ],
       TA.Optional,
       (fun _ -> To_file (TA.get_parameter ()) |> List.accum Parameters.program);

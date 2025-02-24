@@ -955,7 +955,7 @@ include (
       let summary = {
         Matrix.which = Distill;
         matrix = {
-          col_names = db.core.idx_to_row_names;
+          col_names = Array.sub db.core.idx_to_row_names 0 db.core.n_rows;
           row_names =
             [| "InnerAvgMean"; "OuterAvgMean"; "ResidualAvgMean";
                "InnerAvgMedian"; "OuterAvgMedian"; "ResidualAvgMedian";

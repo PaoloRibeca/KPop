@@ -261,7 +261,7 @@ let () =
       (fun _ -> Distances_from_twisted_binary (TA.get_parameter ()) |> List.accum Parameters.program);
     [ "-o"; "--output" ],
       Some "'T'|'t'|'e'|'d'|'s' <binary_file_prefix>",
-      [ "dump the database present in the specified register";
+      [ "save the database present in the specified register";
         " ('T'=twister; 't'=twisted; 'e'=embeddings; 'd'=distances; 's'=splits)";
         "to the specified binary file.";
         "File extension is automatically assigned depending on database type";
@@ -288,7 +288,7 @@ let () =
       (fun _ -> Set_precision_splits (TA.get_parameter_int_pos ()) |> List.accum Parameters.program);
     [ "-O"; "--Output" ],
       Some "'T'|'t'|'e'|'d'|'m'|'s' <table_file_prefix>",
-      [ "dump the database present in the specified register";
+      [ "save the database present in the specified register";
         " ('T'=twister; 't'=twisted; 'e'=embeddings; 'd'=distances; 'm'=metric;";
         "  's'=splits)";
         "to the specified tabular file(s).";

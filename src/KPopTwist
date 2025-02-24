@@ -54,7 +54,7 @@ cat <<'_____'
   args<-commandArgs(trailingOnly=TRUE)
   output<-args[3]
   output_kmers<-args[4]
-  keep<-as.numeric(args[5])
+  keep<-args[5]
   if (is.na(args[6])||args[6]=="")
     args[6]<-"1."
   fraction<-as.numeric(args[6])
@@ -73,8 +73,13 @@ cat <<'_____'
   conditional_echo("[3/16] Reading counts")
   stuff<-data.table::fread(args[1],sep="\t",header=TRUE)
   conditional_echo("[4/16] Discarding k-mers")
-  kept<-ifelse(keep<1,as.integer(nrow(stuff)*kept),keep)
-  stuff<-stuff[1:kept,]
+  if (keep!="") {
+    idx_kmers<-1:ncol(kmers)
+    names(idx_kmers)<-kmers
+    keep<-t(data.table::fread(keep,sep="\t",header=FALSE))
+    kmers<-keep
+    stuff<-stuff[idx_kmers[keep],]
+  }
   conditional_echo("[5/16] Resampling k-mers")
   sampled<-sort(sample(nrow(stuff),as.integer(nrow(stuff)*fraction)))
   kmers<-kmers[sampled]
