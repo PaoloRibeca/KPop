@@ -1,4 +1,24 @@
 (*
+    KPopTwistDB.ml -- (c) 2022-2026 Paolo Ribeca, <paolo.ribeca@gmail.com>
+
+    This file is part of KPop, a scalable method for comparative analysis
+    of microbial genomes and environmental samples based on full k-mer
+    spectra and correspondence analysis (CA).
+
+    KPopTwistDB is the binary for projecting new samples through an
+    existing Twister and computing downstream artefacts: pairwise
+    distances, summaries, nearest neighbours, embeddings, phylogenetic
+    splits (`gaps`, `centroids`, `hdbscan`) and greedy leader
+    clustering.  It implements the CLI surface (`Tools.Argv`-based
+    options, `to_do_t` two-pass dry-run / execution model) for every
+    operation on the Twister and Twisted database registers.
+
+    This program was designed and developed by the author(s),
+    with the assistance of the following AI tool(s):
+      2026 Claude (Anthropic).
+    The final logic and implementation were reviewed and verified in
+    their entirety by the author(s).
+
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
@@ -37,8 +57,9 @@ module KeepAtMost =
       | s ->
         try
           let res = int_of_string s in
+          (* This raise is OK because it is caught by the surrounding 'with _' *)
           if res <= 0 then
-            raise_notrace Exit; (* This one is OK as it will be caught *)
+            raise_notrace Exit;
           Some res
         with _ ->
           Exception.raise_unrecognized_initializer __FUNCTION__ "value for --keep-at-most option" s
@@ -49,15 +70,20 @@ module KeepAtMost =
 
 type to_do_t =
   | Empty of RegisterType.t
-  | Binary_to_register of RegisterType.t * string (* Input prefix *)
-  | Tables_to_register of RegisterType.t * string (* Input prefix *)
-  | Add_binary_to_twisted of string (* Input prefix *)
-  | Twist_database of string (* Input prefix *)
-(* | Add_kmers_binary_to_twisted of string *)
-  | Register_to_binary of RegisterType.t * string (* Output prefix *)
+  (* Parameter is input prefix *)
+  | Binary_to_register of RegisterType.t * string
+  (* Parameter is input prefix *)
+  | Tables_to_register of RegisterType.t * string
+  (* Parameter is input prefix *)
+  | Add_binary_to_twisted of string
+  (* Parameter is input prefix *)
+  | Twist_database of string
+  (* Parameter is output prefix *)
+  | Register_to_binary of RegisterType.t * string
   | Set_precision_tables of int
   | Set_precision_splits of int
-  | Register_to_tables of RegisterType.t * string (* Output prefix *)
+  (* Parameter is output prefix *)
+  | Register_to_tables of RegisterType.t * string
   | Set_metric of Space.Distance.Metric.t
   | Set_distance of Space.Distance.t
   | Set_distance_normalize of bool
@@ -66,6 +92,15 @@ type to_do_t =
   | Embeddings_from_twisted of string
   | Set_splits_algorithm of Twisted.SplitsAlgorithm.t
   | Set_splits_keep_at_most of int
+  | Set_centroids_balance_penalty of Twisted.BalancePenalty.t
+  | Set_centroids_num_seeds of int
+  | Set_centroids_seed of int option
+  | Set_gaps_prefilter_kneedle of bool
+  | Set_hdbscan_min_cluster_size of int
+  | Set_hdbscan_min_samples of int option
+  | Set_hdbscan_mst_mode of Clustering.HdbscanMstMode.t
+  | Set_hdbscan_num_neighbors of int option
+  | Set_hdbscan_index_type of Interfaiss.Type.t
   | Splits_from_twisted of string (* Output prefix *)
   | Set_summary_keep_at_most of KeepAtMost.t
   (* Parameters are input probes, output prefix for summary/distance matrix,
@@ -76,6 +111,13 @@ type to_do_t =
   | Set_neighbors_index_type of Interfaiss.Type.t
   (* Parameters are input probes and output summary *)
   | Summary_from_twisted_neighbors of string * string
+  (* Clustering *)
+  | Set_cluster_method of Clustering.Method.t
+  | Set_cluster_order of Clustering.Order.t
+  | Set_cluster_density_sample_number of int
+  | Set_cluster_index_type of Interfaiss.Type.t
+  | Cluster_kmers of string
+  | Cluster_samples of string
 
 module Defaults =
   struct
@@ -84,12 +126,26 @@ module Defaults =
     let metric = Space.Distance.Metric.of_string "powers(1,1,1)"
     let precision_tables = 15
     let precision_splits = 10
-    let splits_algorithm = Twisted.SplitsAlgorithm.of_string "gaps"
+    let splits_algorithm = Twisted.SplitsAlgorithm.of_string "centroids"
     let splits_keep_at_most = 10000
+    let centroids_balance_penalty = Twisted.BalancePenalty.default
+    let centroids_num_seeds = 10
+    let centroids_seed = (None : int option)
+    let gaps_prefilter_kneedle = true
+    let hdbscan_min_cluster_size = 5
+    let hdbscan_min_samples = (None : int option)
+    let hdbscan_mst_mode = Clustering.HdbscanMstMode.of_string "auto"
+    let hdbscan_num_neighbors = (None : int option)
+    let hdbscan_index_type = Interfaiss.Type.of_string "hnsw(32)"
     let summary_keep_at_most = Some 2
     let neighbors_keep_at_most = Some 6
     let neighbors_guard_policy = Twisted.NeighborsPolicy.of_string "times(2)"
     let neighbors_index_type = Interfaiss.Type.of_string "hnsw(32)"
+    (* Clustering *)
+    let cluster_method = Clustering.Method.FirstNN
+    let cluster_order = Clustering.Order.Inertia
+    let cluster_density_sample_number = 200
+    let cluster_index_type = Interfaiss.Type.of_string "hnsw(32)"
     let threads = Processes.Parallel.get_nproc ()
     let verbose = false
   end
@@ -103,15 +159,16 @@ module Parameters =
 
 let info = {
   Tools.Argv.name = "KPopTwistDB";
-  version = "47";
-  date = "09-Nov-2025"
+  version = "48";
+  date = "07-Apr-2026"
 } and authors = [
-  "2022-2025", "Paolo Ribeca", "paolo.ribeca@gmail.com";
+  "2022-2026", "Paolo Ribeca", "paolo.ribeca@gmail.com";
   "2024     ", "Ünsal Öztürk", "uensal.oeztuerk@gmail.com"
 ]
 
 let () =
   let module TA = Tools.Argv in
+  let prefix = Printf.sprintf "(%s):" __FUNCTION__ in
   TA.set_header (info, authors, [ BiOCamLib.Info.info; KPop.Info.info ]);
   TA.set_synopsis "[ACTIONS]";
   TA.parse [
@@ -123,9 +180,8 @@ let () =
         " ('T'=twister; 't'=twisted)" ],
       TA.Optional,
       (fun _ ->
-        match TA.get_parameter () |> RegisterType.of_string with
-        | Twister | Twisted as register_type ->
-          Empty register_type |> List.accum Parameters.program);
+        let register_type = TA.get_parameter () |> RegisterType.of_string in
+        Empty register_type |> List.accum Parameters.program);
     [ "-i"; "--input" ],
       Some "'T'|'t' <binary_file_prefix>",
       [ "load the specified binary database into the specified register";
@@ -135,9 +191,8 @@ let () =
         "  unless file is '/dev/*')" ],
       TA.Optional,
       (fun _ ->
-        match TA.get_parameter () |> RegisterType.of_string with
-        | Twister | Twisted as register_type ->
-          Binary_to_register (register_type, TA.get_parameter ()) |> List.accum Parameters.program);
+        let register_type = TA.get_parameter () |> RegisterType.of_string in
+        Binary_to_register (register_type, TA.get_parameter ()) |> List.accum Parameters.program);
     [ "-I"; "--Input" ],
       Some "'T'|'t' <tabular_file_prefix>",
       [ "load the specified tabular database(s) into the specified register";
@@ -148,9 +203,8 @@ let () =
         "  unless file is '/dev/*')" ],
       TA.Optional,
       (fun _ ->
-        match TA.get_parameter () |> RegisterType.of_string with
-        | Twister | Twisted as register_type ->
-          Tables_to_register (register_type, TA.get_parameter ()) |> List.accum Parameters.program);
+        let register_type = TA.get_parameter () |> RegisterType.of_string in
+        Tables_to_register (register_type, TA.get_parameter ()) |> List.accum Parameters.program);
     [ "-a"; "--add"; "--add-to-twisted" ],
       Some "<binary_file_prefix>",
       [ "add the contents of the specified binary database to the twisted register.";
@@ -168,9 +222,8 @@ let () =
         "  unless file is '/dev/*')" ],
       TA.Optional,
       (fun _ ->
-        match TA.get_parameter () |> RegisterType.of_string with
-        | Twister | Twisted as register_type ->
-          Register_to_binary (register_type, TA.get_parameter ()) |> List.accum Parameters.program);
+        let register_type = TA.get_parameter () |> RegisterType.of_string in
+        Register_to_binary (register_type, TA.get_parameter ()) |> List.accum Parameters.program);
     [ "--precision-for-tables" ],
       Some "<positive_integer>",
       [ "set how many precision digits should be used when outputting numbers";
@@ -337,6 +390,68 @@ let () =
       (fun _ ->
         let twisted_prefix = TA.get_parameter () in
         Summary_from_twisted_neighbors (twisted_prefix, TA.get_parameter ()) |> List.accum Parameters.program);
+    TA.make_separator_multiline [ ""; "Actions on the database registers - Clustering operations:" ];
+    [ "--cluster-method" ],
+      Some "'firstNN'|'density'",
+      [ "method used to estimate the greedy leader epsilon threshold:";
+        "'firstNN': kneedle elbow in sorted FAISS 1-NN distances";
+        "  (O(n log n) with HNSW, O(n^2) with flat);";
+        "'density': kneedle elbow in sorted dist_star values, where dist_star";
+        "  is the distance maximising k/V(d_k,D) for each point";
+        "  (O(n_sample * n), or O(n^2) when --cluster-order density is also set;";
+        "  use --cluster-order firstNN for O(n log n) ordering instead)" ],
+      TA.Default (Clustering.Method.to_string Defaults.cluster_method |> Fun.const),
+      (fun _ ->
+        Set_cluster_method (TA.get_parameter () |> Clustering.Method.of_string) |> List.accum Parameters.program);
+    [ "--cluster-order" ],
+      Some "'inertia'|'firstNN'|'density'",
+      [ "order in which points are processed by the greedy leader clusterer:";
+        "'inertia': decreasing row inertia proxy sum_d(lambda_d * T[i,d]^2),";
+        "  so the most informative k-mers / most distinctive samples become";
+        "  cluster representatives;";
+        "'firstNN': increasing FAISS 1-NN distance (densest regions first, O(n log n));";
+        "  when --cluster-method firstNN is also set, the FAISS distances computed";
+        "  for epsilon estimation are reused for ordering at no extra cost;";
+        "'density': increasing dist_star (densest regions first, O(n^2));";
+        "  when --cluster-method density is also set, the dist_star values";
+        "  computed for epsilon estimation are reused for ordering" ],
+      TA.Default (Clustering.Order.to_string Defaults.cluster_order |> Fun.const),
+      (fun _ ->
+        Set_cluster_order (TA.get_parameter () |> Clustering.Order.of_string) |> List.accum Parameters.program);
+    [ "--cluster-density-sample-number" ],
+      Some "<positive_integer>",
+      [ "number of points randomly sampled for dist_star estimation";
+        "when --cluster-method density and --cluster-order inertia or firstNN are set.";
+        "When --cluster-order density is also set, all n points are used" ],
+      TA.Default (string_of_int Defaults.cluster_density_sample_number |> Fun.const),
+      (fun _ ->
+        Set_cluster_density_sample_number (TA.get_parameter_int_pos ())
+        |> List.accum Parameters.program);
+    [ "--cluster-index-type" ],
+      Some "'flat'|'hnsw('<positive_integer>')'",
+      [ "FAISS index type used for 1-NN estimation and greedy leader clustering" ],
+      TA.Default (Interfaiss.Type.to_string Defaults.cluster_index_type |> Fun.const),
+      (fun _ ->
+        Set_cluster_index_type (TA.get_parameter () |> Interfaiss.Type.of_string) |> List.accum Parameters.program);
+    [ "-c"; "--cluster" ],
+      Some "'T' <kmer_list_file>|'t' <class_file>",
+      [ "apply greedy leader clustering to the contents of the specified register";
+        " ('T'=twister, clusters k-mers; 't'=twisted, clusters samples).";
+        "Uses the current metric, distance, and normalization settings.";
+        "The cluster assignment table is written to stdout.";
+        "For 'T': k-mer standard coordinates are recovered from the twister";
+        "  as km_std[i][d] = Twister[d,i] * sqrt(inertia[d]);";
+        "  the names of representative k-mers are written to <kmer_list_file>,";
+        "  one per line and with no header, ready to be passed to KPopTwist --keep.";
+        "For 't': a two-line tab-separated class file is written to <class_file>";
+        "  (header line of sample names; 'CLASS' line of class labels,";
+        "   each being the representative name prefixed with 'C@'),";
+        "  ready to be passed to KPopCountDB -m <class_file> -c CLASS" ],
+      TA.Optional,
+      (fun _ ->
+        match TA.get_parameter () |> RegisterType.of_string with
+        | Twister -> Cluster_kmers (TA.get_parameter ()) |> List.accum Parameters.program
+        | Twisted -> Cluster_samples (TA.get_parameter ()) |> List.accum Parameters.program);
     TA.make_separator_multiline [ ""; "Experimental actions - They may be removed from future versions:" ];
     [ "--precision-for-splits" ],
       Some "<positive_integer>",
@@ -357,6 +472,151 @@ let () =
         "when generating them from embeddings" ],
       TA.Default (string_of_int Defaults.splits_keep_at_most |> Fun.const),
       (fun _ -> Set_splits_keep_at_most (TA.get_parameter_int_pos ()) |> List.accum Parameters.program);
+    [ "--centroids-balance-penalty" ],
+      Some "'penalty('ALPHA','BETA')'",
+      [ "set the cardinality-imbalance penalty applied in the";
+        "'centroids' splits algorithm.  The denominator of the";
+        "centroids objective is computed as";
+        "  (1 + |c1 - c2|^ALPHA)^BETA";
+        "where c1, c2 are the cardinalities of the two sides of a";
+        "bipartition.  Both ALPHA and BETA must be non-negative.";
+        "Useful settings include:";
+        "  'penalty(1,0.5)' = sqrt(1 + |c1 - c2|)   - soft (default)";
+        "  'penalty(1,1)'   = 1 + |c1 - c2|         - linear";
+        "  'penalty(1,2)'   = (1 + |c1 - c2|)^2     - hard, linear curvature";
+        "  'penalty(2,0.5)' = sqrt(1 + (c1 - c2)^2) - soft, L2 curvature";
+        "  'penalty(2,1)'   = 1 + (c1 - c2)^2       - canonical L2 imbalance";
+        "  'penalty(1,0)'   = 1                     - no penalty";
+        "Ignored unless --splits-algorithm 'centroids' is in effect." ],
+      TA.Default (Twisted.BalancePenalty.to_string Defaults.centroids_balance_penalty |> Fun.const),
+      (fun _ ->
+        Set_centroids_balance_penalty (TA.get_parameter () |> Twisted.BalancePenalty.of_string)
+        |> List.accum Parameters.program);
+    [ "--centroids-num-seeds" ],
+      Some "<positive_integer>",
+      [ "number of independent random initialisations of the 'centroids'";
+        "splits algorithm to run and aggregate.  The full recursive";
+        "divisive bipartition is emitted K times, each with a different";
+        "RNG state derived from the base seed (see --centroids-seed).";
+        "Splits found in multiple iterations get their weights summed";
+        "by the candidate pool, so the aggregate weight of a split";
+        "behaves as a bootstrap-support score: a split agreed upon by";
+        "every iteration carries roughly K times the weight of a";
+        "seed-specific one, and Yggdrasill's compatibility filter then";
+        "selects a consensus tree.  Setting K=1 reproduces the single-";
+        "recursion behaviour.";
+        "Ignored unless --splits-algorithm 'centroids' is in effect." ],
+      TA.Default (string_of_int Defaults.centroids_num_seeds |> Fun.const),
+      (fun _ ->
+        Set_centroids_num_seeds (TA.get_parameter_int_pos ())
+        |> List.accum Parameters.program);
+    [ "--centroids-seed" ],
+      Some "<non_negative_integer>",
+      [ "seed for the random initialisation of the 'centroids' splits";
+        "algorithm's simulated-annealing bipartitioner.  When unset";
+        "(default), the seed is derived deterministically from the input";
+        "matrix's row names, so runs on the same input are reproducible";
+        "and runs on different inputs use different initialisations.";
+        "When set, the explicit value is used verbatim -- useful for";
+        "stress-testing across multiple seeds, or for reproducing a";
+        "specific run reported elsewhere.  When --centroids-num-seeds";
+        "is K>1, this seed is the base; the K iterations derive";
+        "independent RNG states from it.";
+        "Ignored unless --splits-algorithm 'centroids' is in effect." ],
+      TA.Default (Fun.const "auto-derived from input"),
+      (fun _ ->
+        Set_centroids_seed (Some (TA.get_parameter_int_non_neg ()))
+        |> List.accum Parameters.program);
+    [ "--splits-gaps-kneedle" ],
+      Some "'true'|'false'",
+      [ "whether to apply a per-dimension Kneedle elbow filter to the";
+        "sorted-ascending gap array before pooling candidates globally.";
+        "When 'true' (default), each CA dimension's gap series is";
+        "truncated at the elbow of the sorted curve, dropping the long";
+        "tail of small noise gaps and producing a cleaner candidate pool";
+        "for downstream tree assembly.  When 'false', all n-1 gaps per";
+        "dimension are kept (legacy unfiltered behaviour).";
+        "Ignored unless --splits-algorithm 'gaps' is in effect." ],
+      TA.Default (string_of_bool Defaults.gaps_prefilter_kneedle |> Fun.const),
+      (fun _ ->
+        Set_gaps_prefilter_kneedle (TA.get_parameter_boolean ())
+        |> List.accum Parameters.program);
+    [ "--hdbscan-min-cluster-size" ],
+      Some "<positive_integer>",
+      [ "minimum cluster size for the 'hdbscan' splits algorithm.";
+        "Controls the condensation step: when the binary merge tree is";
+        "walked top-down, a split is treated as a real cluster split";
+        "only if BOTH sides contain at least this many points; otherwise";
+        "the smaller side is absorbed as noise into the parent.  Smaller";
+        "values produce a denser tree (more fine-grained clusters);";
+        "larger values produce a flatter, more conservative tree.";
+        "Ignored unless --splits-algorithm 'hdbscan' is in effect." ],
+      TA.Default (string_of_int Defaults.hdbscan_min_cluster_size |> Fun.const),
+      (fun _ ->
+        Set_hdbscan_min_cluster_size (TA.get_parameter_int_pos ())
+        |> List.accum Parameters.program);
+    [ "--hdbscan-min-samples" ],
+      Some "<positive_integer>",
+      [ "k for the core-distance neighbourhood of the 'hdbscan' splits";
+        "algorithm.  Each point's core distance is set to the distance";
+        "to its k-th nearest neighbour; higher k yields a smoother";
+        "density estimate that is more robust to outliers, at the cost";
+        "of underestimating fine-grained structure.  When unset (default),";
+        "k is taken equal to --hdbscan-min-cluster-size, matching the";
+        "reference HDBSCAN one-knob ergonomic.";
+        "Ignored unless --splits-algorithm 'hdbscan' is in effect." ],
+      TA.Default (Fun.const "same as --hdbscan-min-cluster-size"),
+      (fun _ ->
+        Set_hdbscan_min_samples (Some (TA.get_parameter_int_pos ()))
+        |> List.accum Parameters.program);
+    [ "--hdbscan-mst-mode" ],
+      Some "'auto'|'sparse'|'dense'",
+      [ "minimum-spanning-tree construction strategy for the 'hdbscan'";
+        "splits algorithm.";
+        "'auto'   (default) tries 'sparse' first and falls back to 'dense'";
+        "  on disconnection.  Best of both worlds for typical typing data:";
+        "  fast when the k-NN graph covers all MST edges, robust otherwise.";
+        "'sparse' uses only a FAISS k-NN graph (O(n log n) typical; raises";
+        "  an error if --hdbscan-num-neighbors is too small to cover all";
+        "  MST edges).  Use when you need a hard guarantee that the sparse";
+        "  path was used.";
+        "'dense'  uses all n(n-1)/2 pairwise distances (O(n^2) always;";
+        "  guaranteed completion but slow on large n).";
+        "Note: the MST is over mutual-reachability distances rather than";
+        "Euclidean, so a Euclidean k-NN graph can miss MST edges even with";
+        "an exact index; this is what makes 'auto' useful.";
+        "Ignored unless --splits-algorithm 'hdbscan' is in effect." ],
+      TA.Default (Clustering.HdbscanMstMode.to_string Defaults.hdbscan_mst_mode |> Fun.const),
+      (fun _ ->
+        Set_hdbscan_mst_mode (TA.get_parameter () |> Clustering.HdbscanMstMode.of_string)
+        |> List.accum Parameters.program);
+    [ "--hdbscan-num-neighbors" ],
+      Some "<positive_integer>",
+      [ "number of nearest neighbours per point used to build the FAISS";
+        "k-NN candidate graph for the sparse 'hdbscan' MST.  Larger values";
+        "cost more compute and memory but cover more potential MST edges;";
+        "too-small values produce a disconnected MST and an explanatory";
+        "error.  When unset (default), it is auto-computed at runtime as";
+        "max(--hdbscan-min-samples + 1, min(n - 1, 30)), which is usually";
+        "enough on typing-scale data.";
+        "Ignored unless --splits-algorithm 'hdbscan' and";
+        "--hdbscan-mst-mode 'sparse' are in effect." ],
+      TA.Default (Fun.const "auto (max(min_samples + 1, min(n - 1, 30)))"),
+      (fun _ ->
+        Set_hdbscan_num_neighbors (Some (TA.get_parameter_int_pos ()))
+        |> List.accum Parameters.program);
+    [ "--hdbscan-index-type" ],
+      Some "'flat'|'pq('PQ_PARAMETERS')'|'hnsw('<positive_integer>')'",
+      [ "FAISS index type used by the sparse 'hdbscan' MST.";
+        "Same syntax as --neighbors-index-type: 'flat' is exact but O(n^2)";
+        "search; 'hnsw(M)' is approximate-NN with graph parameter M;";
+        "'pq(...)' is product-quantised.";
+        "Ignored unless --splits-algorithm 'hdbscan' and";
+        "--hdbscan-mst-mode 'sparse' are in effect." ],
+      TA.Default (Interfaiss.Type.to_string Defaults.hdbscan_index_type |> Fun.const),
+      (fun _ ->
+        Set_hdbscan_index_type (TA.get_parameter () |> Interfaiss.Type.of_string)
+        |> List.accum Parameters.program);
     [ "-S"; "--splits"; "--compute-splits"; "--twisted-to-splits" ],
       Some "<phylosplits_tabular_file_prefix>",
       [ "compute phylogenetic splits";
@@ -401,6 +661,7 @@ let () =
   end;
   if !Parameters.verbose then
     TA.header ();
+  Random.self_init ();
   (* We perform a dry run of the program to detect possible errors *)
   let twister_loaded = ref false
   and distance = ref Defaults.distance and distance_normalize = ref Defaults.distance_normalize in
@@ -434,19 +695,55 @@ let () =
         | Cosine, true | Angle, true | Euclidean, _ | Minkowski _, _ ->
           ()
         end
-      | Set_splits_algorithm _ | Set_splits_keep_at_most _ | Set_summary_keep_at_most _
-      | Set_neighbors_keep_at_most _ | Set_neighbors_guard_policy _ | Set_neighbors_index_type _ ->
-        ())
+      | Set_splits_algorithm _ | Set_splits_keep_at_most _
+      | Set_centroids_balance_penalty _ | Set_centroids_num_seeds _ | Set_centroids_seed _
+      | Set_gaps_prefilter_kneedle _
+      | Set_hdbscan_min_cluster_size _ | Set_hdbscan_min_samples _
+      | Set_hdbscan_mst_mode _ | Set_hdbscan_num_neighbors _ | Set_hdbscan_index_type _
+      | Set_summary_keep_at_most _
+      | Set_neighbors_keep_at_most _ | Set_neighbors_guard_policy _ | Set_neighbors_index_type _
+      | Set_cluster_method _ | Set_cluster_order _ | Set_cluster_density_sample_number _
+      | Set_cluster_index_type _ ->
+        ()
+      | Cluster_kmers _ ->
+        if not !twister_loaded then
+          TA.parse_error
+            "Option '--cluster T' requires a twister to have been loaded first!";
+        (match !distance, !distance_normalize with
+        | Space.Distance.Cosine, false | Space.Distance.Angle, false ->
+          TA.parse_error
+            "Distances 'cosine' and 'angle' require embeddings to be normalized \
+             (add --distance-normalize true before --cluster)"
+        | _ -> ())
+      | Cluster_samples _ ->
+        (match !distance, !distance_normalize with
+        | Space.Distance.Cosine, false | Space.Distance.Angle, false ->
+          TA.parse_error
+            "Distances 'cosine' and 'angle' require embeddings to be normalized \
+             (add --distance-normalize true before --cluster)"
+        | _ -> ()))
     program;
   (* These are the registers available to the program *)
   let twister = ref Twister.empty and twisted = ref Twisted.empty and metric = ref Defaults.metric
   and distance = ref Defaults.distance and distance_normalize = ref Defaults.distance_normalize
   and splits_keep_at_most = ref Defaults.splits_keep_at_most and splits_algorithm = ref Defaults.splits_algorithm
+  and centroids_balance_penalty = ref Defaults.centroids_balance_penalty
+  and centroids_num_seeds = ref Defaults.centroids_num_seeds
+  and centroids_seed = ref Defaults.centroids_seed
+  and gaps_prefilter_kneedle = ref Defaults.gaps_prefilter_kneedle
+  and hdbscan_min_cluster_size = ref Defaults.hdbscan_min_cluster_size
+  and hdbscan_min_samples = ref Defaults.hdbscan_min_samples
+  and hdbscan_mst_mode = ref Defaults.hdbscan_mst_mode
+  and hdbscan_num_neighbors = ref Defaults.hdbscan_num_neighbors
+  and hdbscan_index_type = ref Defaults.hdbscan_index_type
   and summary_keep_at_most = ref Defaults.summary_keep_at_most
   and neighbors_keep_at_most = ref Defaults.neighbors_keep_at_most
   and neighbors_guard_policy = ref Defaults.neighbors_guard_policy
   and neighbors_index_type = ref Defaults.neighbors_index_type
-  and precision_tables = ref Defaults.precision_tables and precision_splits = ref Defaults.precision_splits in
+  and precision_tables = ref Defaults.precision_tables and precision_splits = ref Defaults.precision_splits
+  and cluster_method = ref Defaults.cluster_method and cluster_order = ref Defaults.cluster_order
+  and cluster_density_sample_number = ref Defaults.cluster_density_sample_number
+  and cluster_index_type = ref Defaults.cluster_index_type in
   let twisted_of_binary = Twisted.of_binary ~verbose:!Parameters.verbose
   and twisted_of_files = Twisted.of_files ~threads:!Parameters.threads ~verbose:!Parameters.verbose in
   try
@@ -512,10 +809,37 @@ let () =
           splits_algorithm := algo
         | Set_splits_keep_at_most kam ->
           splits_keep_at_most := kam
+        | Set_centroids_balance_penalty pen ->
+          centroids_balance_penalty := pen
+        | Set_centroids_num_seeds n ->
+          centroids_num_seeds := n
+        | Set_centroids_seed s ->
+          centroids_seed := s
+        | Set_gaps_prefilter_kneedle b ->
+          gaps_prefilter_kneedle := b
+        | Set_hdbscan_min_cluster_size n ->
+          hdbscan_min_cluster_size := n
+        | Set_hdbscan_min_samples k ->
+          hdbscan_min_samples := k
+        | Set_hdbscan_mst_mode mode ->
+          hdbscan_mst_mode := mode
+        | Set_hdbscan_num_neighbors k ->
+          hdbscan_num_neighbors := k
+        | Set_hdbscan_index_type idx ->
+          hdbscan_index_type := idx
         | Splits_from_twisted prefix ->
           let res =
             Twisted.get_splits
               ~normalize:!distance_normalize ~threads:!Parameters.threads ~verbose:!Parameters.verbose
+              ~balance_penalty:!centroids_balance_penalty
+              ~gaps_prefilter_kneedle:!gaps_prefilter_kneedle
+              ~num_seeds:!centroids_num_seeds
+              ?seed:!centroids_seed
+              ~hdbscan_min_cluster_size:!hdbscan_min_cluster_size
+              ?hdbscan_min_samples:!hdbscan_min_samples
+              ~hdbscan_mst_mode:!hdbscan_mst_mode
+              ?hdbscan_num_neighbors:!hdbscan_num_neighbors
+              ~hdbscan_index_type:!hdbscan_index_type
               !distance !metric !splits_algorithm !splits_keep_at_most !twisted in
           Exception.catch_unexpected_end_of_output __FUNCTION__
             (fun () -> Trees.Splits.to_file ~precision:!precision_splits res prefix)
@@ -541,11 +865,100 @@ let () =
                 ~normalize:!distance_normalize ~how_many:!neighbors_keep_at_most
                 ~policy:!neighbors_guard_policy ~index_type:!neighbors_index_type
                 ~threads:!Parameters.threads ~verbose:!Parameters.verbose
-                !metric (twisted_of_binary prefix_in) !twisted prefix_out))
+                !metric (twisted_of_binary prefix_in) !twisted prefix_out)
+        (* Clustering setters *)
+        | Set_cluster_method m ->
+          cluster_method := m
+        | Set_cluster_order o ->
+          cluster_order := o
+        | Set_cluster_density_sample_number n ->
+          cluster_density_sample_number := n
+        | Set_cluster_index_type it ->
+          cluster_index_type := it
+        (* Clustering actions *)
+        | Cluster_kmers output_file ->
+          (* Recover standard k-mer coordinates from the Twister register:
+             km_std[i][dim] = Twister[dim,i] * sqrt(inertia[dim]) *)
+          let tw = !twister in
+          let twm = tw.Twister.twister.Matrix.matrix in
+          let iv = tw.Twister.inertia.Matrix.matrix.Matrix.Base.data.(0) in
+          let mm = Array.length twm.Matrix.Base.col_names in
+          if mm = 0 then
+            Exception.raise __FUNCTION__ IO_Format
+              "twister register is empty, nothing to cluster";
+          let kk = Array.length twm.Matrix.Base.row_names in
+          let ( .@!() ) = Float.Array.( .@!() ) in
+          let kc = Array.init mm (fun i ->
+            Float.Array.init kk (fun dim ->
+              twm.Matrix.Base.data.(dim).@!(i) *. sqrt iv.@!(dim))) in
+          let rep_orig =
+            Clustering.run
+              ~verbose:!Parameters.verbose
+              ~what_label:"k-mers"
+              ~method_:!cluster_method
+              ~order_:!cluster_order
+              ~density_sample_number:!cluster_density_sample_number
+              ~index_type:!cluster_index_type
+              ~metric:!metric
+              ~distance:!distance
+              ~distance_normalize:!distance_normalize
+              kc twm.Matrix.Base.col_names iv in
+          (* Write representative k-mer names to output file, one per line, no header *)
+          Exception.catch_unexpected_end_of_output __FUNCTION__
+            (fun () ->
+              let output = open_out output_file in
+              Array.iteri
+                (fun i ri ->
+                  if ri = i then
+                    Printf.fprintf output "%s\n" twm.Matrix.Base.col_names.(i))
+                rep_orig;
+              close_out output);
+          if !Parameters.verbose then
+            Printf.eprintf "%s Representative k-mer list written to '%s'.\n%!"
+              prefix output_file
+        | Cluster_samples output_file ->
+          let mat = (!twisted).Twisted.twisted.Matrix.matrix in
+          let iv = (!twisted).Twisted.inertia.Matrix.matrix.Matrix.Base.data.(0) in
+          if Array.length mat.Matrix.Base.row_names = 0 then
+            Exception.raise __FUNCTION__ IO_Format
+              "twisted register is empty, nothing to cluster";
+          let rep_orig =
+            Clustering.run
+              ~verbose:!Parameters.verbose
+              ~what_label:"samples"
+              ~method_:!cluster_method
+              ~order_:!cluster_order
+              ~density_sample_number:!cluster_density_sample_number
+              ~index_type:!cluster_index_type
+              ~metric:!metric
+              ~distance:!distance
+              ~distance_normalize:!distance_normalize
+              mat.Matrix.Base.data mat.Matrix.Base.row_names iv in
+          (* Write a two-line tab-separated class file readable by KPopCountDB -m/-c:
+             line 1: sample names (header); line 2: CLASS followed by representative names *)
+          let n = Array.length mat.Matrix.Base.row_names in
+          Exception.catch_unexpected_end_of_output __FUNCTION__
+            (fun () ->
+              let output = open_out output_file in
+              for i = 0 to n - 1 do
+                output_char output '\t';
+                output_string output mat.Matrix.Base.row_names.(i)
+              done;
+              output_char output '\n';
+              output_string output "CLASS";
+              for i = 0 to n - 1 do
+                output_char output '\t';
+                output_string output ("C@" ^ mat.Matrix.Base.row_names.(rep_orig.(i)))
+              done;
+              output_char output '\n';
+              close_out output);
+          if !Parameters.verbose then
+            Printf.eprintf "%s Sample class file written to '%s'.\n%!"
+              prefix output_file)
       program
   with e ->
     Exception.handle __FUNCTION__ TA.usage (fun () ->
-      Printf.peprintf "(%s): This should not have happened - please contact <paolo.ribeca@gmail.com>\n%!" __FUNCTION__;
-      Printf.peprintf "(%s): You might also wish to rerun me with option -x to get a full backtrace.\n%!" __FUNCTION__
+      Printf.peprintf "%s This should not have happened - please contact <paolo.ribeca@gmail.com>\n%!" prefix;
+      Printf.peprintf "%s You might also wish to rerun me with option -x to get a full backtrace.\n%!" prefix
     ) e
 

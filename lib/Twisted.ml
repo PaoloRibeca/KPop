@@ -1,4 +1,23 @@
 (*
+    Twisted.ml -- (c) 2022-2026 Paolo Ribeca, <paolo.ribeca@gmail.com>
+
+    This file is part of KPop, a scalable method for comparative analysis
+    of microbial genomes and environmental samples based on full k-mer
+    spectra and correspondence analysis (CA).
+
+    Twisted.ml implements the Twisted database (CA-embedded sample
+    coordinates) together with the operations that consume it: FAISS-
+    backed nearest-neighbour search, distance summarisation, embedding
+    output, the three phylogenetic-splits algorithms (gaps, centroids
+    with multi-seed bootstrap, and HDBSCAN with dense / sparse / auto
+    MST modes), and the binary `.KPopTwisted` file format.
+
+    This program was designed and developed by the author(s),
+    with the assistance of the following AI tool(s):
+      2026 Claude (Anthropic).
+    The final logic and implementation were reviewed and verified in
+    their entirety by the author(s).
+
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
@@ -79,6 +98,7 @@ module SplitsAlgorithm:
     type t =
       | Gaps
       | Centroids
+      | Hdbscan
     val to_string: t -> string
     val of_string: string -> t
   end
@@ -86,14 +106,52 @@ module SplitsAlgorithm:
     type t =
       | Gaps
       | Centroids
+      | Hdbscan
     let of_string = function
       | "gaps" -> Gaps
       | "centroids" -> Centroids
+      | "hdbscan" -> Hdbscan
       | s ->
         Exception.raise_unrecognized_initializer __FUNCTION__ "algorithm" s
     let to_string = function
       | Gaps -> "gaps"
       | Centroids -> "centroids"
+      | Hdbscan -> "hdbscan"
+  end
+
+module BalancePenalty:
+  sig
+    (* The cardinality-imbalance penalty used as the denominator of the
+       centroids objective.  Given the two side cardinalities c1, c2,
+       the denominator is computed as (1 + |c1 - c2|^alpha)^beta.
+       alpha = 1 and beta = 0.5 reproduce the original sqrt(1 + |c1 - c2|)
+       soft penalty exactly. *)
+    type t = { alpha: float; beta: float }
+    val default: t
+    val to_string: t -> string
+    val of_string: string -> t
+  end
+= struct
+    type t = { alpha: float; beta: float }
+    let default = { alpha = 1.; beta = 0.5 }
+    let of_string_re = Str.regexp "[(,)]"
+    let of_string s =
+      let raise kind =
+        Exception.raise __FUNCTION__ IO_Format
+          (Printf.sprintf "%s balance penalty '%s'" kind s) in
+      match Str.full_split of_string_re s with
+      | [ Text "penalty"; Delim "(";
+          Text alpha; Delim ","; Text beta;
+          Delim ")" ] ->
+        let alpha, beta =
+          try float_of_string alpha, float_of_string beta
+          with _ -> raise "Invalid" in
+        if alpha < 0. || beta < 0. then raise "Invalid";
+        { alpha; beta }
+      | _ ->
+        raise "Unknown"
+    let to_string { alpha; beta } =
+      Printf.sprintf "penalty(%.15g,%.15g)" alpha beta
   end
 
 (* Twisted vectors (in standard coordinates) are a combination of KPop matrices.
@@ -317,11 +375,9 @@ include (
       and embeddings_qs = to_embeddings ~normalize ~elements_per_step ~threads ~verbose distance metric qs
       (* ...and copy them to bigarrays *)
       and data_db = Bigarray.Array2.create Bigarray.Float32 Bigarray.C_layout n_db d
-      and data_qs = Bigarray.Array2.create Bigarray.Float32 Bigarray.C_layout n_qs d
-      and embeddings_to_bigarray embs data =
-        Array.iteri (fun i -> Float.Array.iteri (fun j x -> data.{i, j} <- x)) embs.Matrix.matrix.data in
-      embeddings_to_bigarray embeddings_db data_db;
-      embeddings_to_bigarray embeddings_qs data_qs;
+      and data_qs = Bigarray.Array2.create Bigarray.Float32 Bigarray.C_layout n_qs d in
+      Matrix.Base.to_bigarray embeddings_db.matrix.data data_db;
+      Matrix.Base.to_bigarray embeddings_qs.matrix.data data_qs;
       (* We generate and train the Faiss index *)
       if verbose then
         Printf.eprintf "(%s): Generating and training vector index '%s'...%!"
@@ -411,8 +467,18 @@ include (
     module Bipartition =
       struct
         let make
-            ?(acceptance_probability_at_zero = 0.2) ?(difference_magnification_factor = 10.) ?(verbose = false)
+            ?(acceptance_probability_at_zero = 0.2) ?(difference_magnification_factor = 10.)
+            ?(balance_penalty = BalancePenalty.default)
+            ?rng_state ?(verbose = false)
             m init_set =
+          (* If no RNG state is supplied, derive one deterministically from
+             the input matrix's row names.  This makes runs reproducible by
+             default (same input -> same partition) and data-dependent
+             (different inputs use different initialisations). *)
+          let rng_state =
+            match rng_state with
+            | Some s -> s
+            | None -> Random.State.make [| Hashtbl.hash m.Matrix.Base.row_names |] in
           if acceptance_probability_at_zero <= 0. || acceptance_probability_at_zero > 1. then
             Exception.raise __FUNCTION__ Initialize
               (Printf.sprintf "Invalid acceptance probability at zero (expected float between 0. and 1., found %.16g)"
@@ -440,7 +506,7 @@ include (
                 Exception.raise_index_out_of_range __FUNCTION__ i "set" n;
               let v = m.data.(i) in
               (* We randomly assign the element to either set *)
-              if Random.bool () then begin
+              if Random.State.bool rng_state then begin
                 two := IntSet.add i !two;
                 incr cardinal_two;
                 Float.Array.iteri
@@ -471,7 +537,14 @@ include (
                   let min, max = min_max (normalize sum_one cardinal_one) (normalize sum_two cardinal_two) in
                   res := !res +. (max -. min))
                 !centroid_one !centroid_two;
-            !res /. sqrt (1. +. Float.abs (cardinal_one -. cardinal_two)) in
+            (* Cardinality-imbalance penalty.  Denominator is
+               (1 + |c1 - c2|^alpha)^beta; alpha = 1, beta = 0.5 reproduces
+               the original sqrt(1 + |c1 - c2|) exactly. *)
+            let imbalance = Float.abs (cardinal_one -. cardinal_two) in
+            let denom =
+              (1. +. (imbalance ** balance_penalty.BalancePenalty.alpha))
+              ** balance_penalty.BalancePenalty.beta in
+            !res /. denom in
           let objective = compute_objective () |> ref in
           if verbose then begin
             Printf.eprintf "(%s): Begin (objective=%.3g, one=[" __FUNCTION__ !objective;
@@ -494,7 +567,7 @@ include (
             and old_objective = !objective in
             Float.Array.blit !centroid_one 0 !old_centroid_one 0 d;
             Float.Array.blit !centroid_two 0 !old_centroid_two 0 d;
-            let selected = elements.(Random.int num_elements) in
+            let selected = elements.(Random.State.int rng_state num_elements) in
             let v = m.data.(selected) in
             if IntSet.mem selected !one then begin
               (* Move element from partition one to partition two *)
@@ -525,7 +598,7 @@ include (
             (* Should we accept the move? *)
             let delta = !objective -. old_objective in
             let score = 1. /. (1. +. inverse_acceptance *. exp (negative_scale *. delta)) in
-            if Random.float 1. <= score then begin
+            if Random.State.float rng_state 1. <= score then begin
               (* Accept *)
               rejected := 0;
               if !objective > !max_objective then begin
@@ -560,8 +633,18 @@ include (
           end;
           !max_one, !max_two, !max_objective, !steps
       end
+    (* Dense HDBSCAN* against the embedded coordinates *)
     let get_splits
         ?(normalize = true) ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false)
+        ?(balance_penalty = BalancePenalty.default)
+        ?(gaps_prefilter_kneedle = false)
+        ?(num_seeds = 1)
+        ?seed
+        ?(hdbscan_min_cluster_size = 5)
+        ?hdbscan_min_samples
+        ?(hdbscan_mst_mode = Clustering.HdbscanMstMode.Auto)
+        ?hdbscan_num_neighbors
+        ?hdbscan_index_type
         distance metric algorithm_type max_splits t =
       (* We compute embeddings *)
       let m = to_embeddings ~normalize ~elements_per_step ~threads ~verbose distance metric t in
@@ -572,6 +655,15 @@ include (
         let n = Array.length m.matrix.row_names in
         let cols_per_step = max 1 (elements_per_step / n) and processed_cols = ref 0
         and d = Array.length m.matrix.col_names in
+        (* Per-dimension inertia weights: sigma_d = sqrt(I_d).  We multiply each
+           gap width by sigma_d before the global sort so that the cross-
+           dimension ranking is inertia-aware: a gap of the same physical width
+           on a high-inertia dimension carries more signal than on a low-
+           inertia one, and the ranking the compatibility filter sees should
+           reflect that.  Within a single dimension the multiplier is a
+           positive constant, so the ordering of the within-dimension gaps is
+           unchanged. *)
+        let inertias = get_inertias t in
         let row_permutations = Array.make d [||] and gaps = Tools.ArrayStack.empty () in
         (* Generate points to be computed by the parallel process *)
         Processes.Parallel.process_stream_chunkwise
@@ -592,11 +684,31 @@ include (
               let coords__idxs = Array.init n (fun row -> m.matrix.data.(row).@(i), row) in
               (* We sort the vector *)
               Array.sort (fun (coord_1, _) (coord_2, _) -> compare coord_1 coord_2) coords__idxs;
-              (* We compute gaps, i.e. differences between consecutive coordinates.
-                Gaps are annotated with their indices *)
-              let gaps__idxs = Array.init (n - 1) (fun j -> fst coords__idxs.(j + 1) -. fst coords__idxs.(j), i, j) in
+              (* We compute gaps, i.e. differences between consecutive coordinates,
+                 each multiplied by sigma_d = sqrt(I_d) so that high-inertia
+                 dimensions' gaps rank above low-inertia ones in the global
+                 cross-dimension sort.  Gaps are annotated with their indices. *)
+              let sigma_d = sqrt inertias.@(i) in
+              let gaps__idxs = Array.init (n - 1) (fun j -> (fst coords__idxs.(j + 1) -. fst coords__idxs.(j)) *. sigma_d, i, j) in
               (* We sort the vector *)
               Array.sort (fun (gap_1, _, _) (gap_2, _, _) -> compare gap_1 gap_2) gaps__idxs;
+              (* Optional per-dimension Kneedle filter on the sorted gap array:
+                 keep only gaps at or above the elbow rank.  When the gap
+                 distribution is flat we drop every gap (treating them all as
+                 noise) -- this is the only place where the local semantics
+                 diverge from Clustering.kneedle_elbow's rank-0 fallback. *)
+              let gaps__idxs =
+                if gaps_prefilter_kneedle && Array.length gaps__idxs >= 2 then begin
+                  let get_gap idx = let (g, _, _) = gaps__idxs.(idx) in g in
+                  let mm = Array.length gaps__idxs in
+                  let g0 = get_gap 0 and gm = get_gap (mm - 1) in
+                  if gm -. g0 = 0. then [||]
+                  else begin
+                    let elbow = Clustering.kneedle_elbow get_gap mm in
+                    Array.sub gaps__idxs elbow (mm - elbow)
+                  end
+                end else
+                  gaps__idxs in
               (* We return the permutation of row indices and the gap vector *)
               List.accum res (Array.init n (fun row -> snd coords__idxs.(row)), gaps__idxs)
             done;
@@ -640,18 +752,85 @@ include (
         done;
         res
       | Centroids ->
+        (* Recursive divisive bipartition of the sample set, run for
+           [num_seeds] independent RNG initialisations.  At each level
+           we call Bipartition.make, emit the found split as a
+           candidate (weighted by the objective), and recurse on each
+           side.  The set of recursive splits emitted by a single seed
+           is mutually compatible by construction (each is a
+           refinement of its parent), so within a seed the
+           compatibility filter never rejects centroid splits against
+           one another.  Across seeds, coincident bipartitions get
+           their weights summed by Trees.Splits.add_split, giving
+           bootstrap-support semantics: a split agreed upon by all
+           seeds carries roughly [num_seeds] times the weight of a
+           seed-specific one.
+           The base seed is either the explicit user [?seed] or a
+           hash of the input row names; per-iteration RNG states are
+           derived via [Random.State.make [| base_seed; i |]], so the
+           recursion is deterministic per input/seed/iteration.
+           The seeds are independent and are run in parallel: each
+           worker builds a thread-local Trees.Splits.t, and the
+           serial reducer merges those into the master [res] via
+           [Trees.Splits.add_splits].  Float addition is associative
+           and commutative on the canonical-split keys, so the merge
+           result is independent of worker completion order --
+           output is byte-identical across thread counts.  Per-call
+           Bipartition.make verbose trace is suppressed (it would
+           interleave unreadably); progress is reported by the
+           reducer as one "Done j/K seeds" line. *)
         let res = Trees.Splits.create m.matrix.row_names in
-        let rec refine_by_bipartition set =
-          if IntSet.cardinal set > 1 then begin
-            (* Bipartition.evolve () should work fine provided that there are at least 2 elements *)
-            let one, two, objective, _ = Bipartition.make ~verbose m.matrix set in
-            Trees.Splits.add_split res (IntSet.elements_array one |> Trees.Splits.Split.of_array) objective;
-            refine_by_bipartition one;
-            refine_by_bipartition two
-          end else
-            Trees.Splits.add_split res (IntSet.elements_array set |> Trees.Splits.Split.of_array) 0. in
-        Seq.init (Array.length m.matrix.row_names) Fun.id |> IntSet.of_seq |> refine_by_bipartition;
+        let base_seed =
+          match seed with
+          | Some n -> n
+          | None -> Hashtbl.hash m.matrix.row_names in
+        let full_set =
+          Seq.init (Array.length m.matrix.row_names) Fun.id |> IntSet.of_seq in
+        let next_seed = ref 0 and done_seeds = ref 0 in
+        let centroid_threads = max 1 (min threads num_seeds) in
+        Processes.Parallel.process_stream_chunkwise
+          (fun () ->
+            if !next_seed < num_seeds then begin
+              let i = !next_seed in
+              incr next_seed;
+              i
+            end else
+              raise End_of_file)
+          (fun i ->
+            let rng_state = Random.State.make [| base_seed; i |] in
+            let local = Trees.Splits.create m.matrix.row_names in
+            let rec emit set =
+              if IntSet.cardinal set > 1 then begin
+                let one, two, objective, _steps =
+                  Bipartition.make ~balance_penalty ~rng_state ~verbose:false m.matrix set in
+                let split_arr =
+                  IntSet.elements_array one |> Trees.Splits.Split.of_array in
+                Trees.Splits.add_split local split_arr objective;
+                emit one;
+                emit two
+              end in
+            emit full_set;
+            local)
+          (fun local ->
+            Trees.Splits.add_splits res local;
+            incr done_seeds;
+            if verbose then
+              Printf.eprintf "%s\r(%s): Done %d/%d seeds%!"
+                String.TermIO.clear __FUNCTION__ !done_seeds num_seeds)
+          centroid_threads;
+        if verbose then
+          Printf.eprintf "%s\r(%s): Done %d/%d seeds.\n%!"
+            String.TermIO.clear __FUNCTION__ !done_seeds num_seeds;
         res
+      | Hdbscan ->
+        let min_samples =
+          match hdbscan_min_samples with
+          | Some k -> k
+          | None -> hdbscan_min_cluster_size in
+        Clustering.Hdbscan.make_splits ~threads ~verbose ~mst_mode:hdbscan_mst_mode
+          ?num_neighbors:hdbscan_num_neighbors
+          ?index_type:hdbscan_index_type
+          ~min_cluster_size:hdbscan_min_cluster_size ~min_samples m.matrix
     (* *)
     let to_files ?(precision = 15) ?(threads = 1) ?(elements_per_step = 40000) ?(verbose = false) v prefix =
       Matrix.to_file ~precision ~threads ~elements_per_step ~verbose v.inertia prefix;
@@ -733,6 +912,15 @@ include (
                              Space.Distance.Metric.t -> t -> t -> string -> unit
     (* Output splits for the vectors computed with the specified distance and metric functions *)
     val get_splits: ?normalize:bool -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
+                    ?balance_penalty:BalancePenalty.t ->
+                    ?gaps_prefilter_kneedle:bool ->
+                    ?num_seeds:int ->
+                    ?seed:int ->
+                    ?hdbscan_min_cluster_size:int ->
+                    ?hdbscan_min_samples:int ->
+                    ?hdbscan_mst_mode:Clustering.HdbscanMstMode.t ->
+                    ?hdbscan_num_neighbors:int ->
+                    ?hdbscan_index_type:Interfaiss.Type.t ->
                     Space.Distance.t -> Space.Distance.Metric.t ->
                     SplitsAlgorithm.t -> int -> t -> Trees.Splits.t
     (* Input/Output *)
@@ -742,5 +930,4 @@ include (
     val of_binary: ?verbose:bool -> string -> t
   end
 )
-
 
