@@ -103,6 +103,7 @@ include (
         db =
       let open String.TermIO in
       let prefix = grey (Printf.sprintf "(%s):" __FUNCTION__) in
+      let ( .@@!()<- ) = Bigarray.Array1.unsafe_set in
       let n_kmers_total = db.KMerDB.core.n_rows and n_samples = db.core.n_cols in
       let n_samples_f = float_of_int n_samples in
       (* Check on the number of samples *)
@@ -323,7 +324,7 @@ include (
             let x_norm_ij = x_ij /. col_sums.(j) in
             let p_ij = x_norm_ij /. n_samples_f in
             let s_ij = (p_ij -. ri /. n_samples_f) /. sqrt_ri_over_n in
-            Bigarray.Array1.unsafe_set chi (new_i * n_samples + j) s_ij
+            chi.@@!(new_i * n_samples + j) <- s_ij
           done)
         kmer_indices;
       n_samples, m, kmer_indices, row_masses, chi
@@ -335,6 +336,11 @@ include (
         k_ca k_stride kmer_indices row_masses
         u_flat sv vt_flat
         n_samples m db =
+      let ( .@!() ) = Float.Array.( .@!() ) in
+      (* Bigarray.Array1 unsafe accessors -- second naming tier ( .@@!() )
+         to avoid colliding with the Float.Array ones above. *)
+      let ( .@@!() ) = Bigarray.Array1.unsafe_get in
+      let ( .@@!()<- ) = Bigarray.Array1.unsafe_set in
       let dim_names = Array.init k_ca (fun d -> Printf.sprintf "Dim%d" (d + 1))
       and kmer_names = Array.map (fun i -> db.KMerDB.core.idx_to_row_names.(i)) kmer_indices
       and sample_names = Array.sub db.core.idx_to_col_names 0 n_samples in
@@ -347,19 +353,17 @@ include (
       for d = 0 to k_ca - 1 do
         let i_max = ref 0 and abs_max = ref 0. in
         for i = 0 to m - 1 do
-          let v = Float.abs (Bigarray.Array1.unsafe_get u_flat (i * k_stride + d)) in
+          let v = Float.abs u_flat.@@!(i * k_stride + d) in
           if v > !abs_max then begin abs_max := v; i_max := i end
         done;
-        if Bigarray.Array1.unsafe_get u_flat (!i_max * k_stride + d) < 0. then begin
+        if u_flat.@@!(!i_max * k_stride + d) < 0. then begin
           for i = 0 to m - 1 do
             let idx = i * k_stride + d in
-            Bigarray.Array1.unsafe_set u_flat idx
-              (-. (Bigarray.Array1.unsafe_get u_flat idx))
+            u_flat.@@!(idx) <- -. u_flat.@@!(idx)
           done;
           for j = 0 to n_samples - 1 do
             let idx = d * n_samples + j in
-            Bigarray.Array1.unsafe_set vt_flat idx
-              (-. (Bigarray.Array1.unsafe_get vt_flat idx))
+            vt_flat.@@!(idx) <- -. vt_flat.@@!(idx)
           done
         end
       done;
@@ -372,7 +376,7 @@ include (
           data = [|
             Float.Array.init k_ca
               (fun d ->
-                let sv_d = Bigarray.Array1.unsafe_get sv d in
+                let sv_d = sv.@@!(d) in
                 sv_d *. sv_d)
           |]
         }
@@ -382,7 +386,7 @@ include (
       let sv_psinv =
         Float.Array.init k_ca
           (fun d ->
-            let sv_d = Bigarray.Array1.unsafe_get sv d in
+            let sv_d = sv.@@!(d) in
             if sv_d < sqrt_eps then
               0.
             else
@@ -400,7 +404,7 @@ include (
                 (fun j ->
                   Float.Array.init k_ca
                     (fun d ->
-                      let vt_dj = Bigarray.Array1.unsafe_get vt_flat (d * n_samples + j) in
+                      let vt_dj = vt_flat.@@!(d * n_samples + j) in
                       vt_dj *. sqrt_n))
           }
         }
@@ -419,7 +423,7 @@ include (
                   let sqrt_ri = sqrt row_masses.(new_i) in
                   Float.Array.init k_ca
                     (fun d ->
-                      let u_id = Bigarray.Array1.unsafe_get u_flat (new_i * k_stride + d) in
+                      let u_id = u_flat.@@!(new_i * k_stride + d) in
                       u_id /. sqrt_ri))
           }
         }
@@ -435,11 +439,11 @@ include (
             data =
               Array.init k_ca
                 (fun d ->
-                  let sv_psinv_d = Float.Array.unsafe_get sv_psinv d in
+                  let sv_psinv_d = sv_psinv.@!(d) in
                   Float.Array.init m
                     (fun new_i ->
                       let sqrt_ri = sqrt row_masses.(new_i) in
-                      let u_id = Bigarray.Array1.unsafe_get u_flat (new_i * k_stride + d) in
+                      let u_id = u_flat.@@!(new_i * k_stride + d) in
                       u_id /. sqrt_ri *. sv_psinv_d))
           }
         };
