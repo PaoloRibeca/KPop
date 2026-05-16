@@ -1,4 +1,17 @@
 (*
+    KMerDB_Base.ml -- (c) 2025-2026 Paolo Ribeca, <paolo.ribeca@gmail.com>
+
+    This file is part of KPop, a scalable method for comparative analysis
+    of microbial genomes and environmental samples based on full k-mer
+    spectra and correspondence analysis (CA).
+
+    KMerDB_Base.ml defines the core k-mer spectrum database data
+    structures and operations: the in-memory representation (an
+    `n_rows x n_cols` count matrix plus row/column names, metadata,
+    and per-column auxiliary state), low-level binary `.KPopSpectra`
+    read/write, and the primitive accessors used by `KPopCount` and
+    `KPopCountDB`.
+
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or

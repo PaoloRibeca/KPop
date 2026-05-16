@@ -1,4 +1,16 @@
 (*
+    KPopCountDB.ml -- (c) 2022-2025 Paolo Ribeca, <paolo.ribeca@gmail.com>
+
+    This file is part of KPop, a scalable method for comparative analysis
+    of microbial genomes and environmental samples based on full k-mer
+    spectra and correspondence analysis (CA).
+
+    KPopCountDB is the binary for manipulating, annotating, and
+    inspecting binary `.KPopSpectra` databases.  Operations include
+    merging spectra, filtering by metadata, attaching class labels,
+    tabular import/export, and k-mer distillation (sorting k-mers based on
+    their information content against a class label set).
+
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or

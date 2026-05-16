@@ -1,4 +1,17 @@
 (*
+    Interfaiss.ml -- (c) 2024-2025 Paolo Ribeca, <paolo.ribeca@gmail.com>
+
+    This file is part of KPop, a scalable method for comparative analysis
+    of microbial genomes and environmental samples based on full k-mer
+    spectra and correspondence analysis (CA).
+
+    Interfaiss.ml exposes the FAISS approximate nearest-neighbour library
+    to OCaml via the `interfaiss.cpp` C++ wrapper.  It defines the
+    `Interfaiss.Type.t` index taxonomy (`flat`, `hnsw(M)`, `pq(...)`),
+    the `create` / `train` / `add` / `query` lifecycle, and the
+    `float32 Bigarray.Array2` data interchange format used by every
+    KPop module that needs k-NN search.
+
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or

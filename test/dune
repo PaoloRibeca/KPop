@@ -1,14 +1,21 @@
 (env
  (dev
-  (ocamlopt_flags (:standard -g)))
+  (ocamlopt_flags (:standard -g -ccopt -fopenmp)))
  (dev-static
-  (ocamlopt_flags (:standard -g -ccopt -static)))
+  (ocamlopt_flags (:standard -g -ccopt -fopenmp -ccopt -static)))
  (release
-  (ocamlopt_flags (:standard -O3 -ccopt -O3)))
+  (ocamlopt_flags (:standard -O3 -ccopt -O3 -ccopt -fopenmp)))
  (release-static
-  (ocamlopt_flags (:standard -O3 -ccopt -O3 -ccopt -static))))
+  (ocamlopt_flags (:standard -O3 -ccopt -O3 -ccopt -fopenmp -ccopt -static))))
+
+(executable
+ (public_name DistanceIterator)
+ (name DistanceIterator)
+ (libraries str unix BiOCamLib KPop))
 
 (executables
- (public_names DistanceIterator)
- (names DistanceIterator)
- (libraries str unix BiOCamLib KPop))
+ (public_name CA RSVD)
+ (name CA RSVD)
+ (libraries str unix BiOCamLib KPop)
+ (link_flags (-cclib -lgfortran -cclib -lquadmath -cclib -lstdc++)))
+

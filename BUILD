@@ -57,20 +57,18 @@ echo -e "include (\n  struct\n    let info = {\n      BiOCamLib.Tools.Argv.name 
 
 dune build --profile="$PROFILE" bin/KPopCount.exe $FLAGS
 dune build --profile="$PROFILE" bin/KPopCountDB.exe $FLAGS
-dune build --profile="$PROFILE" bin/KPopTwist_.exe $FLAGS
+dune build --profile="$PROFILE" bin/KPopTwist.exe $FLAGS
 dune build --profile="$PROFILE" bin/KPopTwistDB.exe $FLAGS
 
 mv _build/default/bin/KPopCount.exe build/KPopCount
 mv _build/default/bin/KPopCountDB.exe build/KPopCountDB
-mv _build/default/bin/KPopTwist_.exe build/KPopTwist_
+mv _build/default/bin/KPopTwist.exe build/KPopTwist
 mv _build/default/bin/KPopTwistDB.exe build/KPopTwistDB
 
 chmod 755 build/*
 
 if [[ "$PROFILE" == "release" || "$PROFILE" == "release-static" ]]; then
-  strip build/{KPopCount,KPopCountDB,KPopTwist_,KPopTwistDB}
+  strip build/{KPopCount,KPopCountDB,KPopTwist,KPopTwistDB}
   rm -rf _build
 fi
-
-cp src/KPop* build
 

@@ -1,4 +1,15 @@
 (*
+    KPopCount.ml -- (c) 2022-2026 Paolo Ribeca, <paolo.ribeca@gmail.com>
+
+    This file is part of KPop, a scalable method for comparative analysis
+    of microbial genomes and environmental samples based on full k-mer
+    spectra and correspondence analysis (CA).
+
+    KPopCount is the binary that extracts k-mer spectra from FASTA,
+    FASTQ, or tabular inputs and emits a binary `.KPopSpectra`
+    database.  It exposes options for k-mer length, read filtering,
+    metadata labelling, and per-sequence vs per-batch accumulation.
+
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or

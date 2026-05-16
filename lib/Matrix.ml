@@ -1,4 +1,18 @@
 (*
+    Matrix.ml -- (c) 2022-2026 Paolo Ribeca, <paolo.ribeca@gmail.com>
+
+    This file is part of KPop, a scalable method for comparative analysis
+    of microbial genomes and environmental samples based on full k-mer
+    spectra and correspondence analysis (CA).
+
+    Matrix.ml extends the BiOCamLib `Matrix` module with the distance
+    machinery used across the KPop suite.  It defines `Matrix.Base`
+    (row normalisations, embeddings, distance-matrix construction,
+    rowwise pairwise distances, FAISS-compatible bigarray packing) and
+    the `Matrix.t` wrapper that tags each matrix with its role
+    (`Twister`, `Twisted`, `Inertia`, `Vectors`, `DMatrix`, ...) along
+    with the tabular and binary I/O formats specific to each.
+
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
@@ -32,11 +46,26 @@ module Base:
     (* Compute distances between the rows of two matrices - more general version of the previous one *)
     val get_distance_rowwise: ?normalize:bool -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
                               Space.Distance.t -> Float.Array.t -> t -> t -> t
+    (* Copy a rowwise [Float.Array.t array] of length n, each row of
+       length d, into a preallocated n x d float32 C-layout Bigarray,
+       as FAISS expects.  Shared by every code path that hands data
+       to Interfaiss.  Caller is responsible for the allocation so
+       that the same destination can be reused (e.g. for both index
+       and query data) and so that the precise float32 layout choice
+       stays at the call site.
+       TODO: parallelise when switching to OCaml 5 *)
+    val to_bigarray:
+      Float.Array.t array ->
+      (float, Bigarray.float32_elt, Bigarray.c_layout) Bigarray.Array2.t -> unit
   end
 = struct
     let ( .@() ) = Float.Array.( .@() )
     let ( .@()<- ) = Float.Array.( .@()<- )
     include Matrix
+    let to_bigarray rows ba =
+      Array.iteri
+        (fun i row -> Float.Array.iteri (fun j x -> ba.{i, j} <- x) row)
+        rows
     (* Compute normalisations for rows *)
     let get_normalizations ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false) distance metric m =
       let n_rows = Array.length m.row_names and n_cols = Array.length m.col_names in

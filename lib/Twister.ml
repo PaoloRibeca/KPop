@@ -1,4 +1,18 @@
 (*
+    Twister.ml -- (c) 2024-2025 Paolo Ribeca, <paolo.ribeca@gmail.com>
+
+    This file is part of KPop, a scalable method for comparative analysis
+    of microbial genomes and environmental samples based on full k-mer
+    spectra and correspondence analysis (CA).
+
+    Twister.ml implements the Twister (CA transformation) database:
+    the scaled row coordinates
+    `Twister[d,i] = U[i,d] / (sqrt(r[i]) * sv[d])` together with the
+    per-dimension inertia.  Exposes the projection routine
+    `add_twisted_from_database` that turns a k-mer spectra database
+    into Twisted sample coordinates, plus the binary `.KPopTwister`
+    file format.
+
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or

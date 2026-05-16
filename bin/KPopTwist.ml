@@ -1,4 +1,25 @@
 (*
+    KPopTwist.ml -- (c) 2022-2026 Paolo Ribeca, <paolo.ribeca@gmail.com>
+
+    This file is part of KPop, a scalable method for comparative analysis
+    of microbial genomes and environmental samples based on full k-mer
+    spectra and correspondence analysis (CA).
+
+    KPopTwist is the binary that runs correspondence analysis on a
+    binary `.KPopSpectra` database and emits the `.KPopTwister`
+    (CA transformation) and `.KPopTwisted` (sample standard
+    coordinates) outputs.  Selects between the full LAPACK SVD
+    (`CA.twist`) and the randomised truncated SVD (`CA.rsvd`)
+    according to the `--dimensions` flag, and exposes the k-mer
+    filtering control parameters (keep-list, random subsampling,
+    row-sum threshold, condition-number filter).
+
+    This program was designed and developed by the author(s),
+    with the assistance of the following AI tool(s):
+      2026 Claude (Anthropic).
+    The final logic and implementation were reviewed and verified in
+    their entirety by the author(s).
+
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
@@ -14,17 +35,17 @@
 *)
 
 open BiOCamLib
-(*open KPop*)
+open Better
+open KPop
 
 module Defaults =
   struct
-    let output_kmers = ""
     let kmers_keep = ""
     let kmers_sample = 1.
-    (*let precision = 15*)
     let threshold_kmers = 0.
+    let condition_number = 0.
+    let dimensions = 0 (* 0 means: use full SVD via twist *)
     let threads = Processes.Parallel.get_nproc ()
-    let temporaries = false
     let verbose = false
   end
 
@@ -32,22 +53,22 @@ module Parameters =
   struct
     let input = ref ""
     let output = ref ""
-    let output_kmers = ref Defaults.output_kmers
+    let output_kmers = ref ""
     let kmers_keep = ref Defaults.kmers_keep
-    (* The following three are KPopCountDB.TableFilter.default *)
     let kmers_sample = ref Defaults.kmers_sample
     let threshold_kmers = ref Defaults.threshold_kmers
+    let condition_number = ref Defaults.condition_number
+    let dimensions = ref Defaults.dimensions
     let threads = ref Defaults.threads
-    let temporaries = ref Defaults.temporaries
     let verbose = ref Defaults.verbose
   end
 
 let info = {
   Tools.Argv.name = "KPopTwist";
-  version = "30";
-  date = "24-Oct-2025"
+  version = "33";
+  date = "07-Apr-2026"
 } and authors = [
-  "2022-2025", "Paolo Ribeca", "paolo.ribeca@gmail.com"
+  "2022-2026", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
 
 let () =
@@ -56,6 +77,14 @@ let () =
   TA.set_synopsis "-i|--input <binary_input_prefix> -o|--output <binary_output_prefix> [OPTIONS]";
   TA.parse [
     TA.make_separator "Algorithmic parameters";
+    [ "-d"; "--dimensions" ],
+      Some "<positive_integer>",
+      [ "number of CA dimensions to compute using the randomised SVD";
+        "(Halko, Martinsson & Tropp 2011).";
+        "When not set, all min(k-mers, samples) - 1 dimensions are computed";
+        "using the full LAPACK SVD, which is more accurate but slower" ],
+      TA.Default (Fun.const "all dimensions (full SVD)"),
+      (fun _ -> Parameters.dimensions := TA.get_parameter_int_pos ());
     [ "--keep"; "--keep-kmers"; "--kmers-keep" ],
       Some "<kmer_list_file>",
       [ "discard the k-mers not listed in this file before twisting the table.";
@@ -69,31 +98,39 @@ let () =
       TA.Default (string_of_float Defaults.kmers_sample |> Fun.const),
       (fun _ -> Parameters.kmers_sample := TA.get_parameter_float_fraction ());
     [ "--kmers-threshold" ],
-      Some "<non-negative_integer>",
-      [ "compute the sum of all transformed (and possibly normalized) counts";
-        "for each k-mer, and eliminate k-mers such that the corresponding sum";
-        "is less than the largest sum rescaled by this threshold.";
+      Some "<non-negative_float>",
+      [ "compute the sum of all counts for each k-mer, and eliminate k-mers";
+        "such that the corresponding sum is less than the largest sum";
+        "rescaled by this threshold.";
         "This filters out k-mers having low frequencies across all spectra" ],
       TA.Default (string_of_float Defaults.threshold_kmers |> Fun.const),
       (fun _ -> Parameters.threshold_kmers := TA.get_parameter_float_non_neg ());
+    [ "--kmers-condition-number" ],
+      Some "<non-negative_float>",
+      [ "compute the row contribution to total inertia CTR_i = ||S[i,:]||^2 for";
+        "each k-mer, and eliminate k-mers such that CTR_i < max(CTR) / parameter.";
+        "A larger value retains more k-mers; 0 (default) disables the filter.";
+        "This filters out k-mers that are nearly uniform across all spectra" ],
+      TA.Default (string_of_float Defaults.condition_number |> Fun.const),
+      (fun _ -> Parameters.condition_number := TA.get_parameter_float_non_neg ());
     TA.make_separator "Input/Output";
     [ "-i"; "--input" ],
       Some "<binary_file_prefix>",
-      [ "load the specified k-mer database in the register and twist it.";
+      [ "load the specified k-mer database in binary format and twist it.";
         "File extension is automatically determined";
         " (will be '.KPopSpectra' unless file is '/dev/*')" ],
       TA.Mandatory,
       (fun _ -> Parameters.input := TA.get_parameter ());
     [ "-o"; "--output" ],
       Some "<binary_file_prefix>",
-      [ "use this prefix when saving generated twister and twisted sequences.";
+      [ "use this prefix when saving the generated twister and twisted sequences.";
         "File extensions are automatically determined";
         " (will be '.KPopTwister' and '.KPopTwisted' unless file is '/dev/*')" ],
       TA.Mandatory,
       (fun _ -> Parameters.output := TA.get_parameter ());
     [ "-k"; "--output-kmers"; "--output-twisted-kmers" ],
       Some "<binary_file_prefix>",
-      [ "use this prefix when saving generated twisted k-mers.";
+      [ "use this prefix when saving the generated twisted k-mers.";
         "File extension is automatically determined";
         " (will be '.KPopTwisted' unless file is '/dev/*')" ],
       TA.Default (Fun.const "do not output"),
@@ -105,11 +142,6 @@ let () =
         " (default automatically detected from your configuration)" ],
       TA.Default (string_of_int Defaults.threads |> Fun.const),
       (fun _ -> Parameters.threads := TA.get_parameter_int_pos ());
-    [ "--keep-temporaries" ],
-      None,
-      [ "keep temporary files rather than deleting them in the end" ],
-      TA.Default (Fun.const "do not keep"),
-      (fun _ -> Parameters.temporaries := true);
     [ "-v"; "--verbose" ],
       None,
       [ "set verbose execution" ],
@@ -128,17 +160,38 @@ let () =
       TA.Optional,
       (fun _ -> TA.usage (); exit 0)
   ];
-  (*let program = List.rev !Parameters.program in
-  if program = [] then begin
-    TA.usage ();
-    exit 0
-  end;*)
   if !Parameters.verbose then
     TA.header ();
-  (*
-     For the time being, we just echo input parameters
-  *)
-  Printf.printf "%s\001%s\001%.12g\001%.12g\001%s\001%s\001%d\001%b\001%b\n%!"
-    !Parameters.input !Parameters.kmers_keep !Parameters.kmers_sample !Parameters.threshold_kmers
-    !Parameters.output !Parameters.output_kmers !Parameters.threads !Parameters.temporaries !Parameters.verbose
+  (* Seed the random number generator for k-mer subsampling *)
+  Random.self_init ();
+  (* Load the k-mer database *)
+  let db = KMerDB.of_binary ~verbose:!Parameters.verbose !Parameters.input in
+  (* Perform correspondence analysis *)
+  let twister, twisted_samples, twisted_kmers =
+    if !Parameters.dimensions = 0 then
+      CA.twist
+        ~kmers_keep:!Parameters.kmers_keep
+        ~kmers_sample:!Parameters.kmers_sample
+        ~threshold_kmers:!Parameters.threshold_kmers
+        ~condition_number:!Parameters.condition_number
+        ~threads:!Parameters.threads
+        ~verbose:!Parameters.verbose
+        db
+    else
+      CA.rsvd
+        ~kmers_keep:!Parameters.kmers_keep
+        ~kmers_sample:!Parameters.kmers_sample
+        ~threshold_kmers:!Parameters.threshold_kmers
+        ~condition_number:!Parameters.condition_number
+        ~threads:!Parameters.threads
+        ~verbose:!Parameters.verbose
+        db
+        !Parameters.dimensions in
+  (* Write twister (transformation matrix + inertia) *)
+  Twister.to_binary ~verbose:!Parameters.verbose twister !Parameters.output;
+  (* Write twisted sequences (column standard coordinates + inertia) *)
+  Twisted.to_binary ~verbose:!Parameters.verbose twisted_samples !Parameters.output;
+  (* Optionally write twisted k-mers (row standard coordinates + inertia) *)
+  if !Parameters.output_kmers <> "" then
+    Twisted.to_binary ~verbose:!Parameters.verbose twisted_kmers !Parameters.output_kmers
 

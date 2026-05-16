@@ -1,4 +1,18 @@
 /*
+  interfaiss.cpp -- (c) 2024      Ünsal Öztürk, <uensal.oeztuerk@gmail.com>
+                    (c) 2024-2025 Paolo Ribeca, <paolo.ribeca@gmail.com>
+
+  This file is part of KPop, a scalable method for comparative analysis
+  of microbial genomes and environmental samples based on full k-mer
+  spectra and correspondence analysis (CA).
+
+  interfaiss.cpp is the C++ wrapper around the FAISS approximate
+  nearest-neighbour library exposed to OCaml via `Interfaiss.ml`.  It
+  implements the index taxonomy (`flat`, `hnsw(M)`, `pq(...)`) and
+  the `create` / `train` / `add` / `query` lifecycle with a common
+  C-callable surface over the `float32 Bigarray.Array2` data
+  interchange format.
+
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
   the Free Software Foundation, either version 3 of the License, or
@@ -53,15 +67,15 @@ void interfaiss_query_index(index_t* idx, int d, idx_t n, const dim_t* queries, 
     if (idx->d != d) {
         throw std::invalid_argument("Dimension mismatch between index and queries");
     }
-
+    //
     faiss::idx_t k_idx = reinterpret_cast<faiss::Index*>(idx->index)->ntotal;
     *k = *k < k_idx ? *k : k_idx;
-
+    //
     dim_t *flat_distances = (dim_t*)malloc(n*(*k)*sizeof(dim_t));
     idx_t *flat_indices   = (idx_t*)malloc(n*(*k)*sizeof(idx_t));
-
+    //
     reinterpret_cast<faiss::Index*>(idx->index)->search(n, queries, *k, flat_distances, flat_indices);
-
+    //
     *distances = flat_distances;
     *indices   = flat_indices;
     return;
@@ -83,7 +97,7 @@ void interfaiss_train_index(index_t* idx, int d, idx_t n, const dim_t* data) {
         fprintf(stderr,"Error: Invalid index or data pointer provided for training.\n");
         return;
     }
-
+    //
     switch (idx->type) {
         case INDEX_PQ: {
             // Training a PQ index

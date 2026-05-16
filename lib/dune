@@ -13,4 +13,4 @@
  (name KPop)
  (libraries BiOCamLib)
  (foreign_archives interfaiss faiss openblas)
- (foreign_stubs (language c) (names interfaiss_ocaml) (flags :standard)))
+ (foreign_stubs (language c) (names interfaiss_ocaml CA RSVD) (flags :standard)))

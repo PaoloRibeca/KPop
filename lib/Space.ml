@@ -1,4 +1,17 @@
 (*
+    Space.ml -- (c) 2022-2025 Paolo Ribeca, <paolo.ribeca@gmail.com>
+
+    This file is part of KPop, a scalable method for comparative analysis
+    of microbial genomes and environmental samples based on full k-mer
+    spectra and correspondence analysis (CA).
+
+    Space.ml provides the distance and metric primitives used throughout
+    the KPop suite.  It defines `Space.Distance.t` (`euclidean`,
+    `cosine`, `angle`, `minkowski(p)`), `Space.Distance.Metric.t` for
+    the inertia-weighting transformation (`flat`, `powers(...)`), and
+    the pairwise `compute` / `compute_norm` helpers operating on
+    `Float.Array.t` row vectors.
+
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
