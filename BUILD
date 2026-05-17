@@ -129,6 +129,7 @@ if [[ -n "$DO_TESTS" ]]; then
   echo "=========================================================="
   case "$DO_TESTS" in
     "splits")
+      bash test/integration_build.sh
       _build/default/test/Splits.exe
       echo
       bash test/integration_splits.sh
@@ -137,10 +138,17 @@ if [[ -n "$DO_TESTS" ]]; then
       bash test/integration_core.sh
       ;;
     "all")
+      bash test/integration_build.sh
       _build/default/test/CA.exe
-      _build/default/test/RSVD.exe
-      _build/default/test/Epsilon.exe
-      _build/default/test/Cluster.exe
+      # RSVD.exe / Epsilon.exe / Cluster.exe are diagnostic tools rather
+      # than self-checking unit tests: invoking them on the fixtures and
+      # checking for a clean exit is the smoke test.  Stdout (large
+      # comparison / diagnostic tables) is discarded; stderr surfaces
+      # any crash.  RSVD's -d 10 keeps dims + oversampling well below
+      # n_samples; Epsilon's -o 1 skips the O(n^2) Part 2 table
+      _build/default/test/RSVD.exe -d 10 test/Primer/Train-5 >/dev/null
+      _build/default/test/Epsilon.exe -o 1 test/Primer/Classes-5 >/dev/null
+      _build/default/test/Cluster.exe -1 test/Primer/Classes-5 >/dev/null
       _build/default/test/Splits.exe
       echo
       bash test/integration_core.sh

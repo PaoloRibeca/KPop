@@ -26,6 +26,9 @@ if [[ ! -x "$YGG" ]]; then
   exit 1
 fi
 
+# Ensure the Classes-5 fixture exists (idempotent regeneration from raw FASTAs)
+bash test/integration_build.sh
+
 TMP="$(mktemp -d -t kpop-integration-splits-XXXXXX)"
 trap 'rm -rf "$TMP"' EXIT
 

@@ -13,19 +13,19 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 *)
 
-(* Four-part test for correspondence_stubs.c / rsvd_stubs.c / Correspondence.ml:
-     Part 1 - KPopCorrespondenceSVD C stub:
-       Calls Correspondence.dgesdd directly on a 4x3 float64 matrix
+(* Four-part test for correspondence_stubs.c / rsvd_stubs.c / CA.ml:
+     Part 1 - KPopCASVD C stub:
+       Calls CA._dgesdd_ directly on a 4x3 float64 matrix
        and verifies reconstruction accuracy and orthonormality.
-     Part 2 - Correspondence.twist end-to-end:
+     Part 2 - CA.twist end-to-end:
        Builds a synthetic 4-kmer x 3-sample KMerDB, runs CA, and
        verifies that applying the returned twister to each sample's
        normalised spectrum recovers its column principal coordinate.
      Part 3 - KPopRSVD C stub:
-       Calls Correspondence.rsvd_stub directly on an 8x6 float64 matrix,
+       Calls CA._rsvd_ directly on an 8x6 float64 matrix,
        verifies orthonormality of U/VT, and checks that singular values
        are close to those from dgesdd.
-     Part 4 - Correspondence.rsvd end-to-end:
+     Part 4 - CA.rsvd end-to-end:
        Runs rsvd on the same synthetic 4-kmer x 3-sample KMerDB as Part 2
        and verifies that the inertia values agree with those from twist. *)
 
@@ -41,7 +41,7 @@ let check label max_err tol =
     (if max_err <= tol then "PASS" else (fail "%s: %.2e exceeds %.2e" label max_err tol; ""))
 
 (* --------------------------------------------------------------------------
-   Part 1: direct test of the KPopCorrespondenceSVD C stub
+   Part 1: direct test of the KPopCASVD C stub
    Matrix A (4 rows = k-mers, 3 cols = samples, row-major):
      1  2  3
      4  5  6
@@ -56,12 +56,12 @@ let () =
                   4.; 5.; 6.;
                   7.; 8.; 9.;
                   2.; 0.; 4. |] in
-  let a       = make_ba (m * n) in
-  let u_flat  = make_ba (m * k) in
-  let sv      = make_ba k in
+  let a = make_ba (m * n) in
+  let u_flat = make_ba (m * k) in
+  let sv = make_ba k in
   let vt_flat = make_ba (k * n) in
   Array.iteri (fun i x -> Bigarray.Array1.set a i x) a_orig;
-  let info = Correspondence.dgesdd a m n u_flat sv vt_flat 1 in
+  let info = CA._dgesdd_ a m n u_flat sv vt_flat 1 in
   if info <> 0 then fail "dgesdd returned info = %d" info;
   Printf.printf "  info = 0:                                          PASS\n%!";
 
@@ -127,7 +127,7 @@ let () =
   check "VT row-orthonormality  max |VT VT^T - I|" !max_vt 1e-9
 
 (* --------------------------------------------------------------------------
-   Part 2: end-to-end test of Correspondence.twist on a synthetic KMerDB.
+   Part 2: end-to-end test of CA.twist on a synthetic KMerDB.
    Count table (4 k-mers x 3 samples):
           s1  s2  s3
      k1:   2   0   4
@@ -140,14 +140,14 @@ let () =
    to a sample's column-normalised spectrum recovers its column principal
    coordinate G[j,d] = VT[d,j]*sv[d]*sqrt(n_samples). *)
 let () =
-  Printf.printf "\n=== Part 2: Correspondence.twist (4 kmers x 3 samples) ===\n%!";
-  let n_kmers   = 4 and n_samples = 3 in
+  Printf.printf "\n=== Part 2: CA.twist (4 kmers x 3 samples) ===\n%!";
+  let n_kmers = 4 and n_samples = 3 in
   (* Count data: counts.(j).(i) = count of k-mer i in sample j *)
   let counts = [| [| 2.; 0.; 1.; 3. |];
                   [| 0.; 3.; 2.; 1. |];
                   [| 4.; 1.; 0.; 2. |] |] in
   (* Build synthetic KMerDB *)
-  let kmer_names   = Array.init n_kmers   (fun i -> Printf.sprintf "k%d" (i + 1))
+  let kmer_names = Array.init n_kmers (fun i -> Printf.sprintf "k%d" (i + 1))
   and sample_names = Array.init n_samples (fun j -> Printf.sprintf "s%d" (j + 1)) in
   let data =
     Array.init n_samples (fun j ->
@@ -157,17 +157,17 @@ let () =
       done;
       v) in
   let db = KMerDB.of_core {
-    KMerDB.n_cols             = n_samples;
-    n_rows                    = n_kmers;
-    n_meta                    = 0;
-    idx_to_col_names          = sample_names;
-    idx_to_row_names          = kmer_names;
-    idx_to_meta_names         = [||];
-    meta                      = [||];
+    KMerDB.n_cols = n_samples;
+    n_rows = n_kmers;
+    n_meta = 0;
+    idx_to_col_names = sample_names;
+    idx_to_row_names = kmer_names;
+    idx_to_meta_names = [||];
+    meta = [||];
     data
   } in
   let twister, twisted_samples, _twisted_kmers =
-    Correspondence.twist ~threads:1 db in
+    CA.twist ~threads:1 db in
 
   (* Shapes: k_ca = min(n_kmers, n_samples) - 1 = 2 *)
   let k_ca = min n_kmers n_samples - 1 in
@@ -229,20 +229,20 @@ let () =
   let k_full = min m n in   (* = 6 *)
   let a_exact = make_ba (m * n) in
   Array.iteri (fun i x -> Bigarray.Array1.set a_exact i x) a_orig;
-  let u_exact  = make_ba (m * k_full) in
+  let u_exact = make_ba (m * k_full) in
   let sv_exact = make_ba k_full in
   let vt_exact = make_ba (k_full * n) in
-  let info = Correspondence.dgesdd a_exact m n u_exact sv_exact vt_exact 1 in
+  let info = CA._dgesdd_ a_exact m n u_exact sv_exact vt_exact 1 in
   if info <> 0 then fail "dgesdd (exact) returned info = %d" info;
 
   (* Randomised SVD via rsvd_stub: k=2, oversampling p=2, power iter q=2 *)
   let k = 2 and p = 2 and q = 2 in
   let a_chi = make_ba (m * n) in
   Array.iteri (fun i x -> Bigarray.Array1.set a_chi i x) a_orig;
-  let u_r  = make_ba (m * k) in
+  let u_r = make_ba (m * k) in
   let sv_r = make_ba k in
   let vt_r = make_ba (k * n) in
-  let info = Correspondence.rsvd_stub a_chi m n k p q u_r sv_r vt_r 1 in
+  let info = CA._rsvd_ a_chi m n k p q u_r sv_r vt_r 1 in
   if info <> 0 then fail "rsvd_stub returned info = %d" info;
   Printf.printf "  info = 0:                                          PASS\n%!";
 
@@ -295,12 +295,12 @@ let () =
    rsvd matches the corresponding values from twist to within 10%.
    -------------------------------------------------------------------------- *)
 let () =
-  Printf.printf "\n=== Part 4: Correspondence.rsvd (4 kmers x 3 samples) ===\n%!";
-  let n_kmers   = 4 and n_samples = 3 in
+  Printf.printf "\n=== Part 4: CA.rsvd (4 kmers x 3 samples) ===\n%!";
+  let n_kmers = 4 and n_samples = 3 in
   let counts = [| [| 2.; 0.; 1.; 3. |];
                   [| 0.; 3.; 2.; 1. |];
                   [| 4.; 1.; 0.; 2. |] |] in
-  let kmer_names   = Array.init n_kmers   (fun i -> Printf.sprintf "k%d" (i + 1))
+  let kmer_names = Array.init n_kmers (fun i -> Printf.sprintf "k%d" (i + 1))
   and sample_names = Array.init n_samples (fun j -> Printf.sprintf "s%d" (j + 1)) in
   let make_db () =
     let data =
@@ -311,21 +311,21 @@ let () =
         done;
         v) in
     KMerDB.of_core {
-      KMerDB.n_cols             = n_samples;
-      n_rows                    = n_kmers;
-      n_meta                    = 0;
-      idx_to_col_names          = sample_names;
-      idx_to_row_names          = kmer_names;
-      idx_to_meta_names         = [||];
-      meta                      = [||];
+      KMerDB.n_cols = n_samples;
+      n_rows = n_kmers;
+      n_meta = 0;
+      idx_to_col_names = sample_names;
+      idx_to_row_names = kmer_names;
+      idx_to_meta_names = [||];
+      meta = [||];
       data
     } in
   let dimensions = 2 in
   let twister_r, _, _ =
-    Correspondence.rsvd ~n_oversampling:1 ~n_power_iter:1 ~threads:1
+    CA.rsvd ~n_oversampling:1 ~n_power_iter:1 ~threads:1
       (make_db ()) dimensions in
   let twister_t, _, _ =
-    Correspondence.twist ~threads:1 (make_db ()) in
+    CA.twist ~threads:1 (make_db ()) in
 
   (* Shapes *)
   let tw_r = twister_r.Twister.twister.Matrix.matrix in
