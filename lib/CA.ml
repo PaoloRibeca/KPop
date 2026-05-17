@@ -46,7 +46,7 @@ include (
         s[d] = d-th singular value, non-increasing (k elements)
         vt[d * n_cols + j] = right singular vector: dimension d, sample j (k x n row-major)
        where k = min(m, n_cols). *)
-    external dgesdd:
+    external _dgesdd_:
       (float, Bigarray.float64_elt, Bigarray.c_layout) Bigarray.Array1.t ->
       int -> int ->
       (float, Bigarray.float64_elt, Bigarray.c_layout) Bigarray.Array1.t ->
@@ -61,7 +61,7 @@ include (
         u[i * k + d] = left singular vector: k-mer i, dimension d (m x k row-major)
         s[d] = d-th singular value, non-increasing (k elements)
         vt[d * n_cols + j] = right singular vector: dimension d, sample j (k x n row-major) *)
-    external rsvd:
+    external _rsvd_:
       (float, Bigarray.float64_elt, Bigarray.c_layout) Bigarray.Array1.t ->
       int -> int ->
       int -> int -> int ->
@@ -475,7 +475,7 @@ include (
       let vt_flat = make_ba (k * n_samples) in
       if verbose then
         Printf.eprintf "%s Computing full SVD (%d x %d)...\n%!" prefix m n_samples;
-      let info = dgesdd chi m n_samples u_flat sv vt_flat threads in
+      let info = _dgesdd_ chi m n_samples u_flat sv vt_flat threads in
       if info < 0 then
         Exception.raise __FUNCTION__ IO_Format
           (Printf.sprintf
@@ -533,7 +533,7 @@ include (
           "%s Computing randomised SVD (target rank %d, sketch %d, power iter %d)...\n%!"
           prefix dimensions l n_power_iter;
       let info =
-        rsvd chi m n_samples dimensions n_oversampling n_power_iter
+        _rsvd_ chi m n_samples dimensions n_oversampling n_power_iter
           u_flat sv vt_flat threads in
       if info < 0 then
         Exception.raise __FUNCTION__ IO_Format
@@ -547,6 +547,29 @@ include (
       assemble_outputs dimensions dimensions kmer_indices row_masses
         u_flat sv vt_flat n_samples m db
   end: sig
+    (* Direct C binding to LAPACK dgesdd_ (thin SVD).  Exposed for unit
+       testing of the C stub from test/CA.ml; production code should call
+       [twist] instead, which handles all the bookkeeping. *)
+    val _dgesdd_:
+      (float, Bigarray.float64_elt, Bigarray.c_layout) Bigarray.Array1.t ->
+      int -> int ->
+      (float, Bigarray.float64_elt, Bigarray.c_layout) Bigarray.Array1.t ->
+      (float, Bigarray.float64_elt, Bigarray.c_layout) Bigarray.Array1.t ->
+      (float, Bigarray.float64_elt, Bigarray.c_layout) Bigarray.Array1.t ->
+      int ->
+      int
+    (* Direct C binding to the randomised truncated SVD.  Exposed for unit
+       testing of the C stub from test/CA.ml; production code should call
+       [rsvd] instead, which handles all the bookkeeping. *)
+    val _rsvd_:
+      (float, Bigarray.float64_elt, Bigarray.c_layout) Bigarray.Array1.t ->
+      int -> int ->
+      int -> int -> int ->
+      (float, Bigarray.float64_elt, Bigarray.c_layout) Bigarray.Array1.t ->
+      (float, Bigarray.float64_elt, Bigarray.c_layout) Bigarray.Array1.t ->
+      (float, Bigarray.float64_elt, Bigarray.c_layout) Bigarray.Array1.t ->
+      int ->
+      int
     (* Perform full Correspondence Analysis on a k-mer database using LAPACK dgesdd_.
        Applies optional k-mer filtering (keep-list, random subsampling, row-sum
        threshold) and computes all min(m, n_samples) - 1 non-trivial CA dimensions.
