@@ -2,10 +2,42 @@
 
 set -e
 
-PROFILE="$1"
-if [[ "$PROFILE" == "" ]]; then
-  PROFILE="dev"
-fi
+# Accepted targets:
+#   <profile>             dev | dev-static | release | release-static (default dev)
+#                         Builds the four KPop binaries.
+#   test                  Builds binaries + Yggdrasill + every test executable,
+#                         then runs them all.  Fails on any test failure.
+#   test-core             Builds the four binaries, then runs
+#                         test/integration_core.sh which replays the Quick
+#                         Start tutorial both without and with k-mer
+#                         selection.  Catches regressions in the
+#                         KPopCount -> KPopCountDB -> KPopTwist -> KPopTwistDB
+#                         core pipeline.
+#   test-splits           Builds binaries + Yggdrasill + test/Splits.exe, then
+#                         runs the OCaml splits-invariants exe and the
+#                         test/integration_splits.sh shell suite.
+case "$1" in
+  "" | "dev" | "dev-static" | "release" | "release-static")
+    PROFILE="${1:-dev}"
+    DO_TESTS=""
+    ;;
+  "test")
+    PROFILE="release-static"
+    DO_TESTS="all"
+    ;;
+  "test-core")
+    PROFILE="release-static"
+    DO_TESTS="core"
+    ;;
+  "test-splits")
+    PROFILE="release-static"
+    DO_TESTS="splits"
+    ;;
+  *)
+    echo "Usage: $0 [dev|dev-static|release|release-static|test|test-core|test-splits]" >&2
+    exit 2
+    ;;
+esac
 
 if [[ "$BLAS_TARGET" == "" ]]; then
   BLAS_TARGET="HASWELL"
@@ -60,6 +92,28 @@ dune build --profile="$PROFILE" bin/KPopCountDB.exe $FLAGS
 dune build --profile="$PROFILE" bin/KPopTwist.exe $FLAGS
 dune build --profile="$PROFILE" bin/KPopTwistDB.exe $FLAGS
 
+# When a test target is in effect we also need Yggdrasill (for the
+# integration scripts) and the relevant test executables.  Those stay
+# under _build/; we move only the four KPop binaries to build/.
+if [[ -n "$DO_TESTS" ]]; then
+  case "$DO_TESTS" in
+    "all")
+      dune build --profile="$PROFILE" BiOCamLib/bin/Yggdrasill.exe $FLAGS
+      dune build --profile="$PROFILE" \
+        test/CA.exe test/RSVD.exe test/Epsilon.exe \
+        test/Cluster.exe test/Splits.exe $FLAGS
+      ;;
+    "splits")
+      dune build --profile="$PROFILE" BiOCamLib/bin/Yggdrasill.exe $FLAGS
+      dune build --profile="$PROFILE" test/Splits.exe $FLAGS
+      ;;
+    "core")
+      # No Yggdrasill or test exes needed; the four KPop binaries suffice
+      :
+      ;;
+  esac
+fi
+
 mv _build/default/bin/KPopCount.exe build/KPopCount
 mv _build/default/bin/KPopCountDB.exe build/KPopCountDB
 mv _build/default/bin/KPopTwist.exe build/KPopTwist
@@ -67,7 +121,39 @@ mv _build/default/bin/KPopTwistDB.exe build/KPopTwistDB
 
 chmod 755 build/*
 
-if [[ "$PROFILE" == "release" || "$PROFILE" == "release-static" ]]; then
+# Run tests before any _build cleanup.  set -e propagates failures.
+if [[ -n "$DO_TESTS" ]]; then
+  echo
+  echo "=========================================================="
+  echo "  Running tests (target '$1')"
+  echo "=========================================================="
+  case "$DO_TESTS" in
+    "splits")
+      _build/default/test/Splits.exe
+      echo
+      bash test/integration_splits.sh
+      ;;
+    "core")
+      bash test/integration_core.sh
+      ;;
+    "all")
+      _build/default/test/CA.exe
+      _build/default/test/RSVD.exe
+      _build/default/test/Epsilon.exe
+      _build/default/test/Cluster.exe
+      _build/default/test/Splits.exe
+      echo
+      bash test/integration_core.sh
+      echo
+      bash test/integration_splits.sh
+      ;;
+  esac
+fi
+
+# Stripping + _build cleanup is for release flows that don't need _build kept
+# around for testing.  Test targets leave _build intact for repeat runs.
+if [[ -z "$DO_TESTS" ]] && \
+   [[ "$PROFILE" == "release" || "$PROFILE" == "release-static" ]]; then
   strip build/{KPopCount,KPopCountDB,KPopTwist,KPopTwistDB}
   rm -rf _build
 fi

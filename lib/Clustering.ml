@@ -773,8 +773,11 @@ include (
           let n = Array.length data in
           let k_query = Bigarray.Array2.dim2 offsets in
           let acc = ref [] in
+          (* FAISS is not guaranteed to return self at column 0 for approximate
+             indices like HNSW; iterating from k = 0 with the [i < j] guard
+             filters self (i < i is false) regardless of where it lands *)
           for i = 0 to n - 1 do
-            for k = 1 to k_query - 1 do
+            for k = 0 to k_query - 1 do
               let j = Int64.to_int offsets.{i, k} in
               if i < j then begin
                 let d_ij = eucl_dist data.(i) data.(j) in
@@ -821,9 +824,25 @@ include (
             Printf.eprintf "%s Building FAISS %s k-NN graph (k=%d)...\n%!"
               prefix (Interfaiss.Type.to_string index_type) num_neighbors;
           let offsets, _ = compute_knn_graph ~index_type ~num_neighbors data in
+          let k_query = Bigarray.Array2.dim2 offsets in
+          (* Walk the FAISS result row, skipping any self-match (which is not
+             guaranteed to be at column 0 with approximate indices like HNSW),
+             and record the distance to the min_samples-th non-self neighbour.
+             Because k_query = num_neighbors + 1 and num_neighbors >= min_samples,
+             this loop always finds at least min_samples non-self entries *)
           let core =
             Array.init n (fun i ->
-              eucl_dist data.(i) data.(Int64.to_int offsets.{i, min_samples})) in
+              let count = ref 0 and dist = ref 0. in
+              let k = ref 0 in
+              while !count < min_samples && !k < k_query do
+                let j = Int64.to_int offsets.{i, !k} in
+                if j <> i then begin
+                  dist := eucl_dist data.(i) data.(j);
+                  incr count
+                end;
+                incr k
+              done;
+              !dist) in
           if verbose then
             Printf.eprintf "%s Building sparse mutual-reachability graph and MST...\n%!"
               prefix;
