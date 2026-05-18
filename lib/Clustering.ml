@@ -18,9 +18,9 @@
 
      * HDBSCAN* (Campello et al., 2013/2015), with sparse / dense /
        auto MST modes.  Currently consumed by the splits-algorithm
-       dispatcher in Twisted.ml (--splits-algorithm hdbscan), but the
+       dispatcher in Twisted.ml (--splits-method hdbscan), but the
        core is general enough to support flat per-point cluster
-       assignment in a future --cluster-method hdbscan.
+       assignment in a future --clusters-method hdbscan.
 
     This program was designed and developed by the author(s),
     with the assistance of the following AI tool(s):
@@ -51,22 +51,42 @@ open BiOCamLib.Better
 
 include (
   struct
-    (* Method used to estimate the epsilon threshold for greedy leader clustering *)
-    module Method =
+    (* Clustering algorithm selector *)
+    module Algorithm =
+      struct
+        type t =
+          | Greedy
+          | Hdbscan
+        let of_string = function
+          | "greedy" -> Greedy
+          | "hdbscan" -> Hdbscan
+          | s ->
+            Exception.raise_unrecognized_initializer __FUNCTION__ "clustering algorithm" s
+        let to_string = function
+          | Greedy -> "greedy"
+          | Hdbscan -> "hdbscan"
+      end
+    (* Strategy used to estimate the epsilon threshold for greedy leader clustering *)
+    module GreedyEpsilon =
       struct
         type t =
           (* Kneedle elbow in sorted FAISS 1-NN distances *)
           | FirstNN
           (* Kneedle elbow in sorted dist_star values *)
           | Density
+          (* Per-point dist_star as the absorption threshold; the processing
+             order is forced to ascending dist_star regardless of [order_] *)
+          | Adaptive
         let of_string = function
           | "firstNN" -> FirstNN
           | "density" -> Density
+          | "adaptive" -> Adaptive
           | s ->
-            Exception.raise_unrecognized_initializer __FUNCTION__ "clustering method" s
+            Exception.raise_unrecognized_initializer __FUNCTION__ "greedy epsilon strategy" s
         let to_string = function
           | FirstNN -> "firstNN"
           | Density -> "density"
+          | Adaptive -> "adaptive"
       end
     (* Order in which points are presented to the greedy leader clusterer *)
     module Order =
@@ -126,8 +146,8 @@ include (
       offsets, distances
     (* Greedy leader clustering via FAISS nearest-neighbour search.
        Epsilon is estimated automatically from a kneedle elbow in either
-       sorted 1-NN distances (Method.FirstNN) or sorted dist_star values
-       (Method.Density).  Estimation tables and the final cluster assignment
+       sorted 1-NN distances (GreedyEpsilon.FirstNN) or sorted dist_star values
+       (GreedyEpsilon.Density).  Estimation tables and the final cluster assignment
        are printed to stdout.
         [coords] : n × d array of standard CA coordinates
         [names] : name for each of the n points
@@ -135,10 +155,10 @@ include (
        Returns [rep_orig] where [rep_orig.(i)] is the original index of the
        representative that point i was assigned to (rep_orig.(i) = i for
        representatives themselves) *)
-    let run
+    let run_greedy
         ?(verbose = false)
         ~what_label
-        ~method_
+        ~epsilon_
         ~order_
         ~density_sample_number
         ~index_type
@@ -232,8 +252,11 @@ include (
           names.(i), !best, !best_k, !best_dist) in
       (* Greedy leader: FAISS index grows as representatives are added.
          FAISS identifies the nearest existing representative (by L2 on embeddings);
-         the exact generalized distance is used for the epsilon comparison *)
-      let greedy_leader order epsilon =
+         the exact generalized distance is used for the epsilon comparison.
+         [epsilon_of] maps an original point index to its absorption threshold:
+         a constant function for the global-epsilon strategies (FirstNN, Density),
+         a per-point lookup for the Adaptive strategy *)
+      let greedy_leader order epsilon_of =
         let rep_orig = Array.make n (-1) in
         let rep_of_faiss = Array.make n (-1) in
         let n_reps = ref 0 in
@@ -245,7 +268,7 @@ include (
             let faiss_slot = Int64.to_int offsets.{0, 0} in
             let rep_idx = rep_of_faiss.(faiss_slot) in
             let dist = embed_dist embeds.(i) embeds.(rep_idx) in
-            if dist < epsilon then
+            if dist < epsilon_of i then
               rep_orig.(i) <- rep_idx
             else begin
               Interfaiss.add index buf;
@@ -283,8 +306,37 @@ include (
          ds_by_orig: dist_star indexed by original point index (reused for Order.Density).
          nn1_by_orig: 1-NN distance indexed by original index  (reused for Order.FirstNN) *)
       let epsilon, ds_all_opt, nn1_from_eps =
-        match method_ with
-        | Method.Density when order_ = Order.Density ->
+        match epsilon_ with
+        | GreedyEpsilon.Adaptive ->
+          (* Per-point absorption threshold: compute dist_star for all n points;
+             each point's own dist_star becomes its absorption epsilon, and
+             the processing order is forced to ascending dist_star regardless
+             of [order_].  No global elbow is computed *)
+          if verbose then
+            Printf.eprintf
+              "%s Computing per-point dist_star for all %d %s (O(n^2))...\n%!"
+              prefix n what_label;
+          let raw = compute_dist_star (Array.init n Fun.id) in
+          if verbose then
+            Printf.eprintf "%s\r%s dist_star for %s: done %d/%d.\n%!"
+              String.TermIO.clear prefix what_label n n;
+          let ds_by_orig = Array.map (fun (_, _, _, ds) -> ds) raw in
+          let sorted = Array.copy raw in
+          Array.sort (fun (_, _, _, a) (_, _, _, b) -> compare a b) sorted;
+          section_sep ();
+          Printf.printf
+            "=== Adaptive epsilon table for %s: per-point dist_star, all points \
+             (n=%d, D=%d, metric=%s, distance=%s, \
+             log_vol(unit D-ball)=%.6g) ===\n\
+             rank\tname\tmax_density\tk_star\tdist_star\n"
+            what_label n d metric_str distance_str log_vol1;
+          Array.iteri
+            (fun rank (name, max_dens, k_star, dist_star) ->
+              Printf.printf "%d\t%s\t%.15g\t%d\t%.15g\n"
+                rank name max_dens k_star dist_star)
+            sorted;
+          0., Some ds_by_orig, None
+        | GreedyEpsilon.Density when order_ = Order.Density ->
           (* Compute dist_star for ALL n points; reuse for both elbow and ordering *)
           if verbose then
             Printf.eprintf
@@ -315,7 +367,7 @@ include (
                 (if rank = elbow then "*" else ""))
             sorted;
           eps, Some ds_by_orig, None
-        | Method.Density ->
+        | GreedyEpsilon.Density ->
           (* Compute dist_star for a random sample; covers Order.Inertia and Order.FirstNN *)
           let eff = min density_sample_number n in
           let idx = Array.init n Fun.id in
@@ -352,7 +404,7 @@ include (
                 (if rank = elbow then "*" else ""))
             sorted;
           eps, None, None
-        | Method.FirstNN ->
+        | GreedyEpsilon.FirstNN ->
           (* FAISS batch 1-NN; nn1_by_orig is also returned for Order.FirstNN *)
           if verbose then
             Printf.eprintf
@@ -391,10 +443,12 @@ include (
               Some (Array.map (fun (_, _, _, ds) -> ds) raw)
             | _ -> None in
           eps, ds_opt, Some nn1_by_orig in
-      (* If Order.FirstNN but Method.Density: FAISS 1-NN wasn't run yet, do it now *)
+      (* If Order.FirstNN but GreedyEpsilon.Density: FAISS 1-NN wasn't run yet, do it now.
+         Adaptive doesn't need it because the order is forced to dist_star *)
       let nn1_opt =
-        match order_, nn1_from_eps with
-        | Order.FirstNN, None ->
+        match epsilon_, order_, nn1_from_eps with
+        | GreedyEpsilon.Adaptive, _, _ -> None
+        | _, Order.FirstNN, None ->
           if verbose then
             Printf.eprintf
               "%s Computing 1-NN distances for %d %s for ordering \
@@ -403,36 +457,50 @@ include (
           let nn1 = faiss_nn1_distances () in
           if verbose then Printf.eprintf "%s done.\n%!" prefix;
           Some nn1
-        | _, opt -> opt in
-      (* Build processing order *)
+        | _, _, opt -> opt in
+      (* Build processing order.  Adaptive forces ascending-dist_star order
+         regardless of [order_] *)
       let order_arr = Array.init n Fun.id in
-      (match order_, ds_all_opt, nn1_opt with
-      | Order.Inertia, _, _ ->
+      (match epsilon_, order_, ds_all_opt, nn1_opt with
+      | GreedyEpsilon.Adaptive, _, Some ds, _ ->
+        Array.sort (fun i j -> compare ds.(i) ds.(j)) order_arr
+      | _, Order.Inertia, _, _ ->
         let ip = inertia_proxy () in
         Array.sort (fun i j -> compare ip.(j) ip.(i)) order_arr
-      | Order.FirstNN, _, Some nn1 ->
+      | _, Order.FirstNN, _, Some nn1 ->
         Array.sort (fun i j -> compare nn1.(i) nn1.(j)) order_arr
-      | Order.Density, Some ds, _ ->
+      | _, Order.Density, Some ds, _ ->
         Array.sort (fun i j -> compare ds.(i) ds.(j)) order_arr
       | _ -> assert false);
+      (* Threshold lookup: global constant for FirstNN/Density, per-point for Adaptive *)
+      let epsilon_of = match epsilon_, ds_all_opt with
+        | GreedyEpsilon.Adaptive, Some ds -> (fun i -> ds.(i))
+        | _ -> (fun _ -> epsilon) in
+      let effective_order_str = match epsilon_ with
+        | GreedyEpsilon.Adaptive -> "density (forced by adaptive)"
+        | _ -> order_str in
+      let epsilon_log_str = match epsilon_ with
+        | GreedyEpsilon.Adaptive -> "per-point dist_star"
+        | _ -> Printf.sprintf "%.15g" epsilon in
       if verbose then
         Printf.eprintf
           "%s Running greedy leader for %s \
-           (epsilon=%.15g, order=%s, metric=%s, distance=%s)...\n%!"
-          prefix what_label epsilon order_str metric_str distance_str;
-      let rep_orig, n_reps = greedy_leader order_arr epsilon in
+           (epsilon=%s, order=%s, metric=%s, distance=%s)...\n%!"
+          prefix what_label epsilon_log_str effective_order_str metric_str distance_str;
+      let rep_orig, n_reps = greedy_leader order_arr epsilon_of in
       let n_abs = n - n_reps in
       (* Print cluster assignment table *)
-      let method_str = match method_ with
-        | Method.FirstNN   -> Printf.sprintf "1-NN elbow epsilon=%.15g" epsilon
-        | Method.Density -> Printf.sprintf "dist_star elbow epsilon=%.15g" epsilon in
+      let epsilon_str = match epsilon_ with
+        | GreedyEpsilon.FirstNN -> Printf.sprintf "1-NN elbow epsilon=%.15g" epsilon
+        | GreedyEpsilon.Density -> Printf.sprintf "dist_star elbow epsilon=%.15g" epsilon
+        | GreedyEpsilon.Adaptive -> "adaptive (per-point dist_star)" in
       section_sep ();
       Printf.printf
         "=== Clustering of %s: greedy leader \
          (%s, metric=%s, distance=%s, index=%s, order=%s, D=%d) ===\n\
          # n=%d n_representatives=%d n_absorbed=%d compression=%.1f%%\n\
          name\trepresentative\tstatus\n"
-        what_label method_str metric_str distance_str idx_str order_str d
+        what_label epsilon_str metric_str distance_str idx_str effective_order_str d
         n n_reps n_abs
         (100. *. float_of_int n_abs /. float_of_int n);
       for i = 0 to n - 1 do
@@ -817,7 +885,7 @@ include (
           if num_neighbors < min_samples then
             Exception.raise __FUNCTION__ Initialize
               (Printf.sprintf
-                 "--hdbscan-num-neighbors (%d) must be >= --hdbscan-min-samples (%d) \
+                 "--splits-hdbscan-num-neighbors (%d) must be >= --splits-hdbscan-min-samples (%d) \
                   so the core distance can be read from the k-NN result"
                  num_neighbors min_samples);
           if verbose then
@@ -894,6 +962,71 @@ include (
             incr kk
           done;
           mst, !count
+        (* Shared MST -> merge-tree -> condense pipeline.  Both [make_splits]
+           and [make_clusters] call this and then differ only in how they
+           consume the resulting (members, persistence) tuples *)
+        let pipeline ~threads ~verbose ~mst_mode ~num_neighbors ~index_type
+            ~min_cluster_size ~min_samples ~prefix n data =
+          let k_sparse () =
+            match num_neighbors with
+            | Some k -> min (n - 1) (max 1 k)
+            | None -> default_num_neighbors ~min_samples n in
+          let try_sparse_mst () =
+            let k = k_sparse () in
+            let core, mreach =
+              sparse_mreach ~prefix ~verbose ~min_samples
+                ~num_neighbors:k ~index_type n data in
+            let mst, count = kruskal_mst n mreach in
+            mst, count, core in
+          let dense_mst () =
+            let mreach = dense_mreach ~prefix ~threads ~verbose ~min_samples n data in
+            let mst, count = kruskal_mst n mreach in
+            if count <> n - 1 then
+              Exception.raise __FUNCTION__ Initialize
+                (Printf.sprintf "Dense MST is disconnected (got %d edges, expected %d) \
+                                 -- this indicates a data anomaly (degenerate or NaN \
+                                 coordinates)"
+                  count (n - 1));
+            mst in
+          let mst =
+            match mst_mode with
+            | HdbscanMstMode.Dense -> dense_mst ()
+            | HdbscanMstMode.Sparse ->
+              let mst, count, _ = try_sparse_mst () in
+              if count <> n - 1 then
+                Exception.raise __FUNCTION__ Initialize
+                  (Printf.sprintf
+                     "MST is disconnected (got %d edges, expected %d): the sparse k-NN \
+                      graph with num_neighbors=%d does not cover all \
+                      necessary mreach edges; try a larger value, or switch to \
+                      mst_mode 'dense' (always works) or 'auto' (sparse \
+                      with per-edge completion)"
+                     count (n - 1) (k_sparse ()));
+              mst
+            | HdbscanMstMode.Auto ->
+              let mst, count, core = try_sparse_mst () in
+              if count = n - 1 then
+                mst
+              else begin
+                if verbose then
+                  Printf.eprintf
+                    "%s Sparse MST incomplete (%d/%d edges); completing per-edge.\n%!"
+                    prefix count (n - 1);
+                let mst', count' =
+                  complete_mst_per_edge ~prefix ~verbose n mst count data core in
+                if count' <> n - 1 then
+                  Exception.raise __FUNCTION__ Initialize
+                    (Printf.sprintf "Per-edge MST completion failed (got %d edges, \
+                                     expected %d) -- this is a bug, please report"
+                      count' (n - 1));
+                mst'
+              end in
+          let tree, root = build_merge_tree n mst in
+          let leaves_of = make_leaves_cache tree (2 * n - 1) in
+          if verbose then
+            Printf.eprintf "%s Condensing tree (min_cluster_size=%d)...\n%!"
+              prefix min_cluster_size;
+          condense tree root min_cluster_size leaves_of n
         let make_splits
             ?(threads = 1) ?(verbose = false)
             ?(mst_mode = HdbscanMstMode.Auto)
@@ -908,67 +1041,9 @@ include (
           else begin
             let open String.TermIO in
             let prefix = grey (Printf.sprintf "(%s):" __FUNCTION__) in
-            let data = m.data in
-            let k_sparse () =
-              match num_neighbors with
-              | Some k -> min (n - 1) (max 1 k)
-              | None -> default_num_neighbors ~min_samples n in
-            let try_sparse_mst () =
-              let k = k_sparse () in
-              let core, mreach =
-                sparse_mreach ~prefix ~verbose ~min_samples
-                  ~num_neighbors:k ~index_type n data in
-              let mst, count = kruskal_mst n mreach in
-              mst, count, core in
-            let dense_mst () =
-              let mreach = dense_mreach ~prefix ~threads ~verbose ~min_samples n data in
-              let mst, count = kruskal_mst n mreach in
-              if count <> n - 1 then
-                Exception.raise __FUNCTION__ Initialize
-                  (Printf.sprintf "Dense MST is disconnected (got %d edges, expected %d) \
-                                   -- this indicates a data anomaly (degenerate or NaN \
-                                   coordinates)"
-                    count (n - 1));
-              mst in
-            let mst =
-              match mst_mode with
-              | HdbscanMstMode.Dense -> dense_mst ()
-              | HdbscanMstMode.Sparse ->
-                let mst, count, _ = try_sparse_mst () in
-                if count <> n - 1 then
-                  Exception.raise __FUNCTION__ Initialize
-                    (Printf.sprintf
-                       "MST is disconnected (got %d edges, expected %d): the sparse k-NN \
-                        graph with --hdbscan-num-neighbors=%d does not cover all \
-                        necessary mreach edges; try a larger value, or switch to \
-                        --hdbscan-mst-mode 'dense' (always works) or 'auto' (sparse \
-                        with per-edge completion)"
-                       count (n - 1) (k_sparse ()));
-                mst
-              | HdbscanMstMode.Auto ->
-                let mst, count, core = try_sparse_mst () in
-                if count = n - 1 then
-                  mst
-                else begin
-                  if verbose then
-                    Printf.eprintf
-                      "%s Sparse MST incomplete (%d/%d edges); completing per-edge.\n%!"
-                      prefix count (n - 1);
-                  let mst', count' =
-                    complete_mst_per_edge ~prefix ~verbose n mst count data core in
-                  if count' <> n - 1 then
-                    Exception.raise __FUNCTION__ Initialize
-                      (Printf.sprintf "Per-edge MST completion failed (got %d edges, \
-                                       expected %d) -- this is a bug, please report"
-                        count' (n - 1));
-                  mst'
-                end in
-            let tree, root = build_merge_tree n mst in
-            let leaves_of = make_leaves_cache tree (2 * n - 1) in
-            if verbose then
-              Printf.eprintf "%s Condensing tree (min_cluster_size=%d)...\n%!"
-                prefix min_cluster_size;
-            let clusters = condense tree root min_cluster_size leaves_of n in
+            let clusters =
+              pipeline ~threads ~verbose ~mst_mode ~num_neighbors ~index_type
+                ~min_cluster_size ~min_samples ~prefix n m.data in
             List.iter (fun (members, persistence) ->
               let split = Trees.Splits.Split.of_array members in
               Trees.Splits.add_split res split persistence)
@@ -980,13 +1055,165 @@ include (
             end;
             res
           end
+        (* Flat per-point cluster assignment.  Returns an int array indexed by
+           original point index: each entry is either a cluster id (>= 0,
+           contiguous from 0) or -1 for noise (point not in any condensed
+           cluster).  Each point is assigned to its smallest containing
+           condensed cluster (canonical HDBSCAN flat output) *)
+        let make_clusters
+            ?(threads = 1) ?(verbose = false)
+            ?(mst_mode = HdbscanMstMode.Auto)
+            ?num_neighbors
+            ?(index_type = Interfaiss.Type.of_string "hnsw(32)")
+            ~min_cluster_size ~min_samples data =
+          let n = Array.length data in
+          let cluster_of = Array.make n (-1) in
+          if n < 2 then
+            cluster_of
+          else begin
+            let open String.TermIO in
+            let prefix = grey (Printf.sprintf "(%s):" __FUNCTION__) in
+            let clusters =
+              pipeline ~threads ~verbose ~mst_mode ~num_neighbors ~index_type
+                ~min_cluster_size ~min_samples ~prefix n data in
+            (* condense emits clusters in reverse DFS-preorder (deepest first
+               on top of the accumulator list).  Walking via List.rev gives
+               root-to-leaf order; overwriting cluster_of as we go means
+               deeper / smaller clusters end up winning the assignment *)
+            List.iteri (fun cid (members, _) ->
+              Array.iter (fun p -> cluster_of.(p) <- cid) members)
+              (List.rev clusters);
+            (* Relabel cluster ids to a contiguous 0..k-1 range (some of the
+               original cid values may have been fully overwritten by deeper
+               clusters and so no longer appear) *)
+            let cid_remap = Hashtbl.create 16 in
+            let next_cid = ref 0 in
+            Array.iteri (fun i cid ->
+              if cid >= 0 then begin
+                let new_cid =
+                  match Hashtbl.find_opt cid_remap cid with
+                  | Some k -> k
+                  | None ->
+                    let k = !next_cid in
+                    incr next_cid;
+                    Hashtbl.add cid_remap cid k;
+                    k in
+                cluster_of.(i) <- new_cid
+              end)
+              cluster_of;
+            if verbose then begin
+              let n_assigned = n - Array.fold_left
+                (fun acc c -> if c < 0 then acc + 1 else acc) 0 cluster_of in
+              Printf.eprintf "%s Assigned %d/%d points to %d %s (%d noise).\n%!"
+                prefix n_assigned n !next_cid
+                (String.pluralize_int "cluster" !next_cid)
+                (n - n_assigned)
+            end;
+            cluster_of
+          end
       end
+    (* HDBSCAN clustering on top of CA-embedded coordinates.  Applies the
+       same metric / distance / normalisation pre-scaling as [run] so that
+       --metric and --distance are honoured uniformly across the two
+       clustering algorithms.  Prints a cluster-assignment table to stdout
+       and returns an int array indexed by original point index: each entry
+       is a cluster id (>= 0) for assigned points, -1 for noise *)
+    let run_hdbscan
+        ?(verbose = false)
+        ?(threads = 1)
+        ~what_label
+        ~min_cluster_size
+        ?min_samples
+        ~mst_mode
+        ?num_neighbors
+        ~index_type
+        ~metric
+        ~distance
+        ~distance_normalize
+        coords names inertia_vec =
+      let n = Array.length coords in
+      let d = Float.Array.length inertia_vec in
+      let idx_str = Interfaiss.Type.to_string index_type in
+      let open String.TermIO in
+      let prefix = grey (Printf.sprintf "(%s):" __FUNCTION__) in
+      let ( .@!() ) = Float.Array.( .@!() ) in
+      (* Same pre-scaling as run_greedy: sqrt(metric_weight[d]) so that L2
+         in embedding space equals the metric-weighted generalised distance,
+         then per-row normalisation for cosine/angle *)
+      let mw = Space.Distance.Metric.compute metric inertia_vec in
+      let flat = Float.Array.make d 1. in
+      let compute_embedding coord =
+        let v = Float.Array.init d (fun k -> coord.@!(k) *. sqrt mw.@!(k)) in
+        if distance_normalize then begin
+          let norm = Space.Distance.compute_norm distance flat v in
+          if norm > 0. then
+            Float.Array.init d (fun k -> v.@!(k) /. norm)
+          else v
+        end else v in
+      let embeds = Array.map compute_embedding coords in
+      let effective_min_samples =
+        match min_samples with
+        | Some k -> k
+        | None -> min_cluster_size in
+      if verbose then
+        Printf.eprintf
+          "%s Running HDBSCAN for %s (min_cluster_size=%d, min_samples=%d, \
+           mst_mode=%s, metric=%s, distance=%s, index=%s)...\n%!"
+          prefix what_label min_cluster_size effective_min_samples
+          (HdbscanMstMode.to_string mst_mode)
+          (Space.Distance.Metric.to_string metric)
+          (Space.Distance.to_string distance) idx_str;
+      let cluster_of =
+        Hdbscan.make_clusters ~threads ~verbose ~mst_mode ?num_neighbors
+          ~index_type ~min_cluster_size ~min_samples:effective_min_samples embeds in
+      (* Print cluster assignment table *)
+      let metric_str = Space.Distance.Metric.to_string metric in
+      let distance_str = Space.Distance.to_string distance in
+      let n_noise =
+        Array.fold_left (fun acc c -> if c < 0 then acc + 1 else acc) 0 cluster_of in
+      let n_assigned = n - n_noise in
+      let n_clusters =
+        Array.fold_left max (-1) cluster_of + 1 in
+      Printf.printf
+        "=== Clustering of %s: HDBSCAN \
+         (min_cluster_size=%d, min_samples=%d, mst_mode=%s, metric=%s, distance=%s, \
+          index=%s, D=%d) ===\n\
+         # n=%d n_clusters=%d n_noise=%d coverage=%.1f%%\n\
+         name\tcluster\tstatus\n"
+        what_label min_cluster_size effective_min_samples
+        (HdbscanMstMode.to_string mst_mode) metric_str distance_str idx_str d
+        n n_clusters n_noise
+        (100. *. float_of_int n_assigned /. float_of_int n);
+      for i = 0 to n - 1 do
+        let cid = cluster_of.(i) in
+        if cid >= 0 then
+          Printf.printf "%s\tC@%d\tmember\n" names.(i) cid
+        else
+          Printf.printf "%s\tnoise\toutlier\n" names.(i)
+      done;
+      if verbose then
+        Printf.eprintf
+          "%s Clustering of %s done. \
+           %d points in %d %s, %d noise (%.1f%% coverage).\n%!"
+          prefix what_label n_assigned n_clusters
+          (String.pluralize_int "cluster" n_clusters) n_noise
+          (100. *. float_of_int n_assigned /. float_of_int n);
+      cluster_of
   end: sig
-    module Method:
+    module Algorithm:
+      sig
+        type t =
+          | Greedy
+          | Hdbscan
+        val of_string: string -> t
+        val to_string: t -> string
+      end
+    module GreedyEpsilon:
       sig
         type t =
           | FirstNN
           | Density
+          | Adaptive
         val of_string: string -> t
         val to_string: t -> string
       end
@@ -1000,10 +1227,10 @@ include (
         val to_string: t -> string
       end
     val kneedle_elbow: (int -> float) -> int -> int
-    val run:
+    val run_greedy:
       ?verbose:bool ->
       what_label:string ->
-      method_:Method.t ->
+      epsilon_:GreedyEpsilon.t ->
       order_:Order.t ->
       density_sample_number:int ->
       index_type:Interfaiss.Type.t ->
@@ -1032,7 +1259,30 @@ include (
           ?index_type:Interfaiss.Type.t ->
           min_cluster_size:int -> min_samples:int ->
           Matrix.Base.t -> Trees.Splits.t
+        val make_clusters:
+          ?threads:int -> ?verbose:bool ->
+          ?mst_mode:HdbscanMstMode.t ->
+          ?num_neighbors:int ->
+          ?index_type:Interfaiss.Type.t ->
+          min_cluster_size:int -> min_samples:int ->
+          Float.Array.t array -> int array
       end
+    val run_hdbscan:
+      ?verbose:bool ->
+      ?threads:int ->
+      what_label:string ->
+      min_cluster_size:int ->
+      ?min_samples:int ->
+      mst_mode:HdbscanMstMode.t ->
+      ?num_neighbors:int ->
+      index_type:Interfaiss.Type.t ->
+      metric:Space.Distance.Metric.t ->
+      distance:Space.Distance.t ->
+      distance_normalize:bool ->
+      Float.Array.t array ->
+      string array ->
+      Float.Array.t ->
+      int array
   end
 )
 

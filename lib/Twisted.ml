@@ -93,30 +93,36 @@ module NeighborsPolicy:
         min (k + i) n
   end
 
-module SplitsAlgorithm:
+module Splits:
   sig
-    type t =
-      | Gaps
-      | Centroids
-      | Hdbscan
-    val to_string: t -> string
-    val of_string: string -> t
+    module Method:
+      sig
+        type t =
+          | Gaps
+          | Centroids
+          | Hdbscan
+        val of_string: string -> t
+        val to_string: t -> string
+      end
   end
 = struct
-    type t =
-      | Gaps
-      | Centroids
-      | Hdbscan
-    let of_string = function
-      | "gaps" -> Gaps
-      | "centroids" -> Centroids
-      | "hdbscan" -> Hdbscan
-      | s ->
-        Exception.raise_unrecognized_initializer __FUNCTION__ "algorithm" s
-    let to_string = function
-      | Gaps -> "gaps"
-      | Centroids -> "centroids"
-      | Hdbscan -> "hdbscan"
+    module Method =
+      struct
+        type t =
+          | Gaps
+          | Centroids
+          | Hdbscan
+        let of_string = function
+          | "gaps" -> Gaps
+          | "centroids" -> Centroids
+          | "hdbscan" -> Hdbscan
+          | s ->
+            Exception.raise_unrecognized_initializer __FUNCTION__ "splits method" s
+        let to_string = function
+          | Gaps -> "gaps"
+          | Centroids -> "centroids"
+          | Hdbscan -> "hdbscan"
+      end
   end
 
 module BalancePenalty:
@@ -649,7 +655,7 @@ include (
       (* We compute embeddings *)
       let m = to_embeddings ~normalize ~elements_per_step ~threads ~verbose distance metric t in
       match algorithm_type with
-      | SplitsAlgorithm.Gaps ->
+      | Splits.Method.Gaps ->
         (* Embeddings are stored rowwise.
           We begin by sorting coordinates along each dimension (i.e., by sorting columns) *)
         let n = Array.length m.matrix.row_names in
@@ -922,7 +928,7 @@ include (
                     ?hdbscan_num_neighbors:int ->
                     ?hdbscan_index_type:Interfaiss.Type.t ->
                     Space.Distance.t -> Space.Distance.Metric.t ->
-                    SplitsAlgorithm.t -> int -> t -> Trees.Splits.t
+                    Splits.Method.t -> int -> t -> Trees.Splits.t
     (* Input/Output *)
     val to_files: ?precision:int -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> string -> unit
     val of_files: ?threads:int -> ?bytes_per_step:int -> ?verbose:bool -> string -> t

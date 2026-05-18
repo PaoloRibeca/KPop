@@ -78,7 +78,7 @@ let () =
   List.iter
     (fun k ->
       let splits = run_splits ~hdbscan_min_cluster_size:k
-                     Twisted.SplitsAlgorithm.Hdbscan twisted in
+                     Twisted.Splits.Method.Hdbscan twisted in
       let _, _, dropped = Trees.Splits.to_tree splits in
       let nd = Trees.Splits.cardinal dropped in
       if nd <> 0 then
@@ -100,12 +100,12 @@ let () =
       let dense =
         run_splits ~hdbscan_min_cluster_size:k
           ~hdbscan_mst_mode:Clustering.HdbscanMstMode.Dense
-          Twisted.SplitsAlgorithm.Hdbscan twisted in
+          Twisted.Splits.Method.Hdbscan twisted in
       let auto_flat =
         run_splits ~hdbscan_min_cluster_size:k
           ~hdbscan_mst_mode:Clustering.HdbscanMstMode.Auto
           ~hdbscan_index_type:flat
-          Twisted.SplitsAlgorithm.Hdbscan twisted in
+          Twisted.Splits.Method.Hdbscan twisted in
       if dump dense <> dump auto_flat then
         fail "K=%d: Auto(flat) and Dense splits differ" k;
       pass (Printf.sprintf "HDBSCAN K=%d: Auto(flat) bit-identical to Dense" k))
@@ -119,8 +119,8 @@ let () =
 let () =
   Printf.printf "=== Part 4: Centroids reproducible across -T 1 and -T 4 ===\n%!";
   let twisted = Twisted.of_binary twisted_prefix in
-  let t1 = run_splits ~threads:1 Twisted.SplitsAlgorithm.Centroids twisted in
-  let t4 = run_splits ~threads:4 Twisted.SplitsAlgorithm.Centroids twisted in
+  let t1 = run_splits ~threads:1 Twisted.Splits.Method.Centroids twisted in
+  let t4 = run_splits ~threads:4 Twisted.Splits.Method.Centroids twisted in
   if dump t1 <> dump t4 then
     fail "centroids: -T 1 and -T 4 outputs differ at seed=42";
   pass "centroids with same seed: byte-identical across -T 1 and -T 4"
@@ -133,8 +133,8 @@ let () =
 let () =
   Printf.printf "=== Part 5: Gaps and Centroids produce splits on Classes-5 ===\n%!";
   let twisted = Twisted.of_binary twisted_prefix in
-  let gaps = run_splits Twisted.SplitsAlgorithm.Gaps twisted in
-  let cen = run_splits Twisted.SplitsAlgorithm.Centroids twisted in
+  let gaps = run_splits Twisted.Splits.Method.Gaps twisted in
+  let cen = run_splits Twisted.Splits.Method.Centroids twisted in
   if Trees.Splits.cardinal gaps = 0 then
     fail "gaps: zero splits emitted on Classes-5";
   if Trees.Splits.cardinal cen = 0 then
@@ -156,7 +156,7 @@ let () =
                 ~hdbscan_min_cluster_size:2 ~hdbscan_min_samples:5
                 ~hdbscan_mst_mode:Clustering.HdbscanMstMode.Sparse
                 ~hdbscan_num_neighbors:2
-                distance metric Twisted.SplitsAlgorithm.Hdbscan 10000 twisted in
+                distance metric Twisted.Splits.Method.Hdbscan 10000 twisted in
       false
     with _ -> true in
   if not raised then

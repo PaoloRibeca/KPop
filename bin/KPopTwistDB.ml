@@ -90,17 +90,17 @@ type to_do_t =
   (* Computes embeddings from twisted vectors using the current metric/distance.
      Parameter is output prefix *)
   | Embeddings_from_twisted of string
-  | Set_splits_algorithm of Twisted.SplitsAlgorithm.t
+  | Set_splits_method of Twisted.Splits.Method.t
   | Set_splits_keep_at_most of int
-  | Set_centroids_balance_penalty of Twisted.BalancePenalty.t
-  | Set_centroids_num_seeds of int
-  | Set_centroids_seed of int option
-  | Set_gaps_prefilter_kneedle of bool
-  | Set_hdbscan_min_cluster_size of int
-  | Set_hdbscan_min_samples of int option
-  | Set_hdbscan_mst_mode of Clustering.HdbscanMstMode.t
-  | Set_hdbscan_num_neighbors of int option
-  | Set_hdbscan_index_type of Interfaiss.Type.t
+  | Set_splits_centroids_balance_penalty of Twisted.BalancePenalty.t
+  | Set_splits_centroids_num_seeds of int
+  | Set_splits_centroids_seed of int option
+  | Set_splits_gaps_prefilter_kneedle of bool
+  | Set_splits_hdbscan_min_cluster_size of int
+  | Set_splits_hdbscan_min_samples of int option
+  | Set_splits_hdbscan_mst_mode of Clustering.HdbscanMstMode.t
+  | Set_splits_hdbscan_num_neighbors of int option
+  | Set_splits_hdbscan_index_type of Interfaiss.Type.t
   | Splits_from_twisted of string (* Output prefix *)
   | Set_summary_keep_at_most of KeepAtMost.t
   (* Parameters are input probes, output prefix for summary/distance matrix,
@@ -112,12 +112,18 @@ type to_do_t =
   (* Parameters are input probes and output summary *)
   | Summary_from_twisted_neighbors of string * string
   (* Clustering *)
-  | Set_cluster_method of Clustering.Method.t
-  | Set_cluster_order of Clustering.Order.t
-  | Set_cluster_density_sample_number of int
-  | Set_cluster_index_type of Interfaiss.Type.t
-  | Cluster_kmers of string
-  | Cluster_samples of string
+  | Set_clusters_method of Clustering.Algorithm.t
+  | Set_clusters_greedy_epsilon of Clustering.GreedyEpsilon.t
+  | Set_clusters_greedy_order of Clustering.Order.t
+  | Set_clusters_greedy_density_sample_number of int
+  | Set_clusters_greedy_index_type of Interfaiss.Type.t
+  | Set_clusters_hdbscan_min_cluster_size of int
+  | Set_clusters_hdbscan_min_samples of int option
+  | Set_clusters_hdbscan_mst_mode of Clustering.HdbscanMstMode.t
+  | Set_clusters_hdbscan_num_neighbors of int option
+  | Set_clusters_hdbscan_index_type of Interfaiss.Type.t
+  | Clusters_kmers of string
+  | Clusters_samples of string
 
 module Defaults =
   struct
@@ -126,26 +132,32 @@ module Defaults =
     let metric = Space.Distance.Metric.of_string "powers(1,1,1)"
     let precision_tables = 15
     let precision_splits = 10
-    let splits_algorithm = Twisted.SplitsAlgorithm.of_string "centroids"
+    let splits_method = Twisted.Splits.Method.of_string "centroids"
     let splits_keep_at_most = 10000
-    let centroids_balance_penalty = Twisted.BalancePenalty.default
-    let centroids_num_seeds = 10
-    let centroids_seed = (None : int option)
-    let gaps_prefilter_kneedle = true
-    let hdbscan_min_cluster_size = 5
-    let hdbscan_min_samples = (None : int option)
-    let hdbscan_mst_mode = Clustering.HdbscanMstMode.of_string "auto"
-    let hdbscan_num_neighbors = (None : int option)
-    let hdbscan_index_type = Interfaiss.Type.of_string "hnsw(32)"
+    let splits_centroids_balance_penalty = Twisted.BalancePenalty.default
+    let splits_centroids_num_seeds = 10
+    let splits_centroids_seed = (None : int option)
+    let splits_gaps_prefilter_kneedle = true
+    let splits_hdbscan_min_cluster_size = 5
+    let splits_hdbscan_min_samples = (None : int option)
+    let splits_hdbscan_mst_mode = Clustering.HdbscanMstMode.of_string "auto"
+    let splits_hdbscan_num_neighbors = (None : int option)
+    let splits_hdbscan_index_type = Interfaiss.Type.of_string "hnsw(32)"
     let summary_keep_at_most = Some 2
     let neighbors_keep_at_most = Some 6
     let neighbors_guard_policy = Twisted.NeighborsPolicy.of_string "times(2)"
     let neighbors_index_type = Interfaiss.Type.of_string "hnsw(32)"
     (* Clustering *)
-    let cluster_method = Clustering.Method.FirstNN
-    let cluster_order = Clustering.Order.Inertia
-    let cluster_density_sample_number = 200
-    let cluster_index_type = Interfaiss.Type.of_string "hnsw(32)"
+    let clusters_method = Clustering.Algorithm.Greedy
+    let clusters_greedy_epsilon = Clustering.GreedyEpsilon.FirstNN
+    let clusters_greedy_order = Clustering.Order.Inertia
+    let clusters_greedy_density_sample_number = 200
+    let clusters_greedy_index_type = Interfaiss.Type.of_string "hnsw(32)"
+    let clusters_hdbscan_min_cluster_size = 5
+    let clusters_hdbscan_min_samples = (None : int option)
+    let clusters_hdbscan_mst_mode = Clustering.HdbscanMstMode.of_string "auto"
+    let clusters_hdbscan_num_neighbors = (None : int option)
+    let clusters_hdbscan_index_type = Interfaiss.Type.of_string "hnsw(32)"
     let threads = Processes.Parallel.get_nproc ()
     let verbose = false
   end
@@ -391,49 +403,120 @@ let () =
         let twisted_prefix = TA.get_parameter () in
         Summary_from_twisted_neighbors (twisted_prefix, TA.get_parameter ()) |> List.accum Parameters.program);
     TA.make_separator_multiline [ ""; "Actions on the database registers - Clustering operations:" ];
-    [ "--cluster-method" ],
-      Some "'firstNN'|'density'",
-      [ "method used to estimate the greedy leader epsilon threshold:";
+    [ "--clusters-method" ],
+      Some "'greedy'|'hdbscan'",
+      [ "clustering algorithm.";
+        "'greedy': greedy-leader clustering (see --clusters-greedy-* knobs).";
+        "'hdbscan': HDBSCAN* density-based clustering (see --clusters-hdbscan-*";
+        "  knobs).  Same metric/distance/normalisation pre-scaling as 'greedy'." ],
+      TA.Default (Clustering.Algorithm.to_string Defaults.clusters_method |> Fun.const),
+      (fun _ ->
+        Set_clusters_method (TA.get_parameter () |> Clustering.Algorithm.of_string) |> List.accum Parameters.program);
+    [ "--clusters-greedy-epsilon" ],
+      Some "'firstNN'|'density'|'adaptive'",
+      [ "epsilon-estimation strategy for the greedy-leader algorithm:";
         "'firstNN': kneedle elbow in sorted FAISS 1-NN distances";
         "  (O(n log n) with HNSW, O(n^2) with flat);";
         "'density': kneedle elbow in sorted dist_star values, where dist_star";
         "  is the distance maximising k/V(d_k,D) for each point";
-        "  (O(n_sample * n), or O(n^2) when --cluster-order density is also set;";
-        "  use --cluster-order firstNN for O(n log n) ordering instead)" ],
-      TA.Default (Clustering.Method.to_string Defaults.cluster_method |> Fun.const),
+        "  (O(n_sample * n), or O(n^2) when --clusters-greedy-order density is also set;";
+        "  use --clusters-greedy-order firstNN for O(n log n) ordering instead);";
+        "'adaptive': per-point dist_star as the absorption threshold (no global";
+        "  epsilon).  Computes dist_star for all n points (O(n^2)) and forces the";
+        "  processing order to ascending dist_star, so --clusters-greedy-order";
+        "  is ignored in this mode.  Handles multi-scale cluster structure that";
+        "  a single global threshold cannot capture.";
+        "Ignored unless --clusters-method 'greedy' is in effect." ],
+      TA.Default (Clustering.GreedyEpsilon.to_string Defaults.clusters_greedy_epsilon |> Fun.const),
       (fun _ ->
-        Set_cluster_method (TA.get_parameter () |> Clustering.Method.of_string) |> List.accum Parameters.program);
-    [ "--cluster-order" ],
+        Set_clusters_greedy_epsilon (TA.get_parameter () |> Clustering.GreedyEpsilon.of_string) |> List.accum Parameters.program);
+    [ "--clusters-greedy-order" ],
       Some "'inertia'|'firstNN'|'density'",
-      [ "order in which points are processed by the greedy leader clusterer:";
+      [ "order in which points are processed by the greedy-leader clusterer:";
         "'inertia': decreasing row inertia proxy sum_d(lambda_d * T[i,d]^2),";
         "  so the most informative k-mers / most distinctive samples become";
         "  cluster representatives;";
         "'firstNN': increasing FAISS 1-NN distance (densest regions first, O(n log n));";
-        "  when --cluster-method firstNN is also set, the FAISS distances computed";
+        "  when --clusters-greedy-epsilon firstNN is also set, the FAISS distances computed";
         "  for epsilon estimation are reused for ordering at no extra cost;";
         "'density': increasing dist_star (densest regions first, O(n^2));";
-        "  when --cluster-method density is also set, the dist_star values";
-        "  computed for epsilon estimation are reused for ordering" ],
-      TA.Default (Clustering.Order.to_string Defaults.cluster_order |> Fun.const),
+        "  when --clusters-greedy-epsilon density is also set, the dist_star values";
+        "  computed for epsilon estimation are reused for ordering.";
+        "Ignored unless --clusters-method 'greedy' is in effect, or when";
+        "--clusters-greedy-epsilon 'adaptive' (which forces ascending-dist_star order)." ],
+      TA.Default (Clustering.Order.to_string Defaults.clusters_greedy_order |> Fun.const),
       (fun _ ->
-        Set_cluster_order (TA.get_parameter () |> Clustering.Order.of_string) |> List.accum Parameters.program);
-    [ "--cluster-density-sample-number" ],
+        Set_clusters_greedy_order (TA.get_parameter () |> Clustering.Order.of_string) |> List.accum Parameters.program);
+    [ "--clusters-greedy-density-sample-number" ],
       Some "<positive_integer>",
       [ "number of points randomly sampled for dist_star estimation";
-        "when --cluster-method density and --cluster-order inertia or firstNN are set.";
-        "When --cluster-order density is also set, all n points are used" ],
-      TA.Default (string_of_int Defaults.cluster_density_sample_number |> Fun.const),
+        "when --clusters-greedy-epsilon density and --clusters-greedy-order inertia or firstNN are set.";
+        "When --clusters-greedy-order density is also set, all n points are used.";
+        "Ignored unless --clusters-method 'greedy' is in effect." ],
+      TA.Default (string_of_int Defaults.clusters_greedy_density_sample_number |> Fun.const),
       (fun _ ->
-        Set_cluster_density_sample_number (TA.get_parameter_int_pos ())
+        Set_clusters_greedy_density_sample_number (TA.get_parameter_int_pos ())
         |> List.accum Parameters.program);
-    [ "--cluster-index-type" ],
+    [ "--clusters-greedy-index-type" ],
       Some "'flat'|'hnsw('<positive_integer>')'",
-      [ "FAISS index type used for 1-NN estimation and greedy leader clustering" ],
-      TA.Default (Interfaiss.Type.to_string Defaults.cluster_index_type |> Fun.const),
+      [ "FAISS index type used for 1-NN estimation and greedy-leader clustering.";
+        "Ignored unless --clusters-method 'greedy' is in effect." ],
+      TA.Default (Interfaiss.Type.to_string Defaults.clusters_greedy_index_type |> Fun.const),
       (fun _ ->
-        Set_cluster_index_type (TA.get_parameter () |> Interfaiss.Type.of_string) |> List.accum Parameters.program);
-    [ "-c"; "--cluster" ],
+        Set_clusters_greedy_index_type (TA.get_parameter () |> Interfaiss.Type.of_string) |> List.accum Parameters.program);
+    [ "--clusters-hdbscan-min-cluster-size" ],
+      Some "<positive_integer>",
+      [ "minimum cluster size for the 'hdbscan' clustering algorithm.";
+        "Same semantics as --splits-hdbscan-min-cluster-size, but settable";
+        "independently for the clusters consumer of the HDBSCAN core.";
+        "Ignored unless --clusters-method 'hdbscan' is in effect." ],
+      TA.Default (string_of_int Defaults.clusters_hdbscan_min_cluster_size |> Fun.const),
+      (fun _ ->
+        Set_clusters_hdbscan_min_cluster_size (TA.get_parameter_int_pos ())
+        |> List.accum Parameters.program);
+    [ "--clusters-hdbscan-min-samples" ],
+      Some "<positive_integer>",
+      [ "k for the core-distance neighbourhood of the 'hdbscan' clustering";
+        "algorithm.  When unset (default), k is taken equal to";
+        "--clusters-hdbscan-min-cluster-size, matching the reference HDBSCAN";
+        "one-knob ergonomic.";
+        "Ignored unless --clusters-method 'hdbscan' is in effect." ],
+      TA.Default (Fun.const "same as --clusters-hdbscan-min-cluster-size"),
+      (fun _ ->
+        Set_clusters_hdbscan_min_samples (Some (TA.get_parameter_int_pos ()))
+        |> List.accum Parameters.program);
+    [ "--clusters-hdbscan-mst-mode" ],
+      Some "'auto'|'sparse'|'dense'",
+      [ "minimum-spanning-tree construction strategy for the 'hdbscan'";
+        "clustering algorithm.  Same semantics as --splits-hdbscan-mst-mode";
+        "but settable independently.";
+        "Ignored unless --clusters-method 'hdbscan' is in effect." ],
+      TA.Default (Clustering.HdbscanMstMode.to_string Defaults.clusters_hdbscan_mst_mode |> Fun.const),
+      (fun _ ->
+        Set_clusters_hdbscan_mst_mode (TA.get_parameter () |> Clustering.HdbscanMstMode.of_string)
+        |> List.accum Parameters.program);
+    [ "--clusters-hdbscan-num-neighbors" ],
+      Some "<positive_integer>",
+      [ "number of nearest neighbours per point used to build the FAISS k-NN";
+        "candidate graph for the sparse 'hdbscan' MST.  When unset, auto-computed";
+        "as max(--clusters-hdbscan-min-samples + 1, min(n - 1, 30)).";
+        "Ignored unless --clusters-method 'hdbscan' and";
+        "--clusters-hdbscan-mst-mode 'sparse' are in effect." ],
+      TA.Default (Fun.const "auto (max(min_samples + 1, min(n - 1, 30)))"),
+      (fun _ ->
+        Set_clusters_hdbscan_num_neighbors (Some (TA.get_parameter_int_pos ()))
+        |> List.accum Parameters.program);
+    [ "--clusters-hdbscan-index-type" ],
+      Some "'flat'|'pq('PQ_PARAMETERS')'|'hnsw('<positive_integer>')'",
+      [ "FAISS index type used by the sparse 'hdbscan' MST when used as the";
+        "clustering algorithm.  Same syntax as --neighbors-index-type.";
+        "Ignored unless --clusters-method 'hdbscan' and";
+        "--clusters-hdbscan-mst-mode 'sparse' are in effect." ],
+      TA.Default (Interfaiss.Type.to_string Defaults.clusters_hdbscan_index_type |> Fun.const),
+      (fun _ ->
+        Set_clusters_hdbscan_index_type (TA.get_parameter () |> Interfaiss.Type.of_string)
+        |> List.accum Parameters.program);
+    [ "-c"; "--clusters" ],
       Some "'T' <kmer_list_file>|'t' <class_file>",
       [ "apply greedy leader clustering to the contents of the specified register";
         " ('T'=twister, clusters k-mers; 't'=twisted, clusters samples).";
@@ -450,8 +533,8 @@ let () =
       TA.Optional,
       (fun _ ->
         match TA.get_parameter () |> RegisterType.of_string with
-        | Twister -> Cluster_kmers (TA.get_parameter ()) |> List.accum Parameters.program
-        | Twisted -> Cluster_samples (TA.get_parameter ()) |> List.accum Parameters.program);
+        | Twister -> Clusters_kmers (TA.get_parameter ()) |> List.accum Parameters.program
+        | Twisted -> Clusters_samples (TA.get_parameter ()) |> List.accum Parameters.program);
     TA.make_separator_multiline [ ""; "Experimental actions - They may be removed from future versions:" ];
     [ "--precision-for-splits" ],
       Some "<positive_integer>",
@@ -459,12 +542,12 @@ let () =
         "in plain-text format" ],
       TA.Default (string_of_int Defaults.precision_splits |> Fun.const),
       (fun _ -> Set_precision_splits (TA.get_parameter_int_pos ()) |> List.accum Parameters.program);
-    [ "--splits-algorithm" ],
+    [ "--splits-method" ],
       Some "'gaps'|'centroids'",
       [ "algorithm to use when computing splits from embeddings" ],
-      TA.Default (Twisted.SplitsAlgorithm.to_string Defaults.splits_algorithm |> Fun.const),
+      TA.Default (Twisted.Splits.Method.to_string Defaults.splits_method |> Fun.const),
       (fun _ ->
-        Set_splits_algorithm (TA.get_parameter () |> Twisted.SplitsAlgorithm.of_string)
+        Set_splits_method (TA.get_parameter () |> Twisted.Splits.Method.of_string)
         |> List.accum Parameters.program);
     [ "--splits-at-most"; "--splits-keep-at-most" ],
       Some "<positive_integer>|'all'",
@@ -472,7 +555,7 @@ let () =
         "when generating them from embeddings" ],
       TA.Default (string_of_int Defaults.splits_keep_at_most |> Fun.const),
       (fun _ -> Set_splits_keep_at_most (TA.get_parameter_int_pos ()) |> List.accum Parameters.program);
-    [ "--centroids-balance-penalty" ],
+    [ "--splits-centroids-balance-penalty" ],
       Some "'penalty('ALPHA','BETA')'",
       [ "set the cardinality-imbalance penalty applied in the";
         "'centroids' splits algorithm.  The denominator of the";
@@ -487,17 +570,17 @@ let () =
         "  'penalty(2,0.5)' = sqrt(1 + (c1 - c2)^2) - soft, L2 curvature";
         "  'penalty(2,1)'   = 1 + (c1 - c2)^2       - canonical L2 imbalance";
         "  'penalty(1,0)'   = 1                     - no penalty";
-        "Ignored unless --splits-algorithm 'centroids' is in effect." ],
-      TA.Default (Twisted.BalancePenalty.to_string Defaults.centroids_balance_penalty |> Fun.const),
+        "Ignored unless --splits-method 'centroids' is in effect." ],
+      TA.Default (Twisted.BalancePenalty.to_string Defaults.splits_centroids_balance_penalty |> Fun.const),
       (fun _ ->
-        Set_centroids_balance_penalty (TA.get_parameter () |> Twisted.BalancePenalty.of_string)
+        Set_splits_centroids_balance_penalty (TA.get_parameter () |> Twisted.BalancePenalty.of_string)
         |> List.accum Parameters.program);
-    [ "--centroids-num-seeds" ],
+    [ "--splits-centroids-num-seeds" ],
       Some "<positive_integer>",
       [ "number of independent random initialisations of the 'centroids'";
         "splits algorithm to run and aggregate.  The full recursive";
         "divisive bipartition is emitted K times, each with a different";
-        "RNG state derived from the base seed (see --centroids-seed).";
+        "RNG state derived from the base seed (see --splits-centroids-seed).";
         "Splits found in multiple iterations get their weights summed";
         "by the candidate pool, so the aggregate weight of a split";
         "behaves as a bootstrap-support score: a split agreed upon by";
@@ -505,12 +588,12 @@ let () =
         "seed-specific one, and Yggdrasill's compatibility filter then";
         "selects a consensus tree.  Setting K=1 reproduces the single-";
         "recursion behaviour.";
-        "Ignored unless --splits-algorithm 'centroids' is in effect." ],
-      TA.Default (string_of_int Defaults.centroids_num_seeds |> Fun.const),
+        "Ignored unless --splits-method 'centroids' is in effect." ],
+      TA.Default (string_of_int Defaults.splits_centroids_num_seeds |> Fun.const),
       (fun _ ->
-        Set_centroids_num_seeds (TA.get_parameter_int_pos ())
+        Set_splits_centroids_num_seeds (TA.get_parameter_int_pos ())
         |> List.accum Parameters.program);
-    [ "--centroids-seed" ],
+    [ "--splits-centroids-seed" ],
       Some "<non_negative_integer>",
       [ "seed for the random initialisation of the 'centroids' splits";
         "algorithm's simulated-annealing bipartitioner.  When unset";
@@ -519,13 +602,13 @@ let () =
         "and runs on different inputs use different initialisations.";
         "When set, the explicit value is used verbatim -- useful for";
         "stress-testing across multiple seeds, or for reproducing a";
-        "specific run reported elsewhere.  When --centroids-num-seeds";
+        "specific run reported elsewhere.  When --splits-centroids-num-seeds";
         "is K>1, this seed is the base; the K iterations derive";
         "independent RNG states from it.";
-        "Ignored unless --splits-algorithm 'centroids' is in effect." ],
+        "Ignored unless --splits-method 'centroids' is in effect." ],
       TA.Default (Fun.const "auto-derived from input"),
       (fun _ ->
-        Set_centroids_seed (Some (TA.get_parameter_int_non_neg ()))
+        Set_splits_centroids_seed (Some (TA.get_parameter_int_non_neg ()))
         |> List.accum Parameters.program);
     [ "--splits-gaps-kneedle" ],
       Some "'true'|'false'",
@@ -536,12 +619,12 @@ let () =
         "tail of small noise gaps and producing a cleaner candidate pool";
         "for downstream tree assembly.  When 'false', all n-1 gaps per";
         "dimension are kept (legacy unfiltered behaviour).";
-        "Ignored unless --splits-algorithm 'gaps' is in effect." ],
-      TA.Default (string_of_bool Defaults.gaps_prefilter_kneedle |> Fun.const),
+        "Ignored unless --splits-method 'gaps' is in effect." ],
+      TA.Default (string_of_bool Defaults.splits_gaps_prefilter_kneedle |> Fun.const),
       (fun _ ->
-        Set_gaps_prefilter_kneedle (TA.get_parameter_boolean ())
+        Set_splits_gaps_prefilter_kneedle (TA.get_parameter_boolean ())
         |> List.accum Parameters.program);
-    [ "--hdbscan-min-cluster-size" ],
+    [ "--splits-hdbscan-min-cluster-size" ],
       Some "<positive_integer>",
       [ "minimum cluster size for the 'hdbscan' splits algorithm.";
         "Controls the condensation step: when the binary merge tree is";
@@ -550,26 +633,26 @@ let () =
         "the smaller side is absorbed as noise into the parent.  Smaller";
         "values produce a denser tree (more fine-grained clusters);";
         "larger values produce a flatter, more conservative tree.";
-        "Ignored unless --splits-algorithm 'hdbscan' is in effect." ],
-      TA.Default (string_of_int Defaults.hdbscan_min_cluster_size |> Fun.const),
+        "Ignored unless --splits-method 'hdbscan' is in effect." ],
+      TA.Default (string_of_int Defaults.splits_hdbscan_min_cluster_size |> Fun.const),
       (fun _ ->
-        Set_hdbscan_min_cluster_size (TA.get_parameter_int_pos ())
+        Set_splits_hdbscan_min_cluster_size (TA.get_parameter_int_pos ())
         |> List.accum Parameters.program);
-    [ "--hdbscan-min-samples" ],
+    [ "--splits-hdbscan-min-samples" ],
       Some "<positive_integer>",
       [ "k for the core-distance neighbourhood of the 'hdbscan' splits";
         "algorithm.  Each point's core distance is set to the distance";
         "to its k-th nearest neighbour; higher k yields a smoother";
         "density estimate that is more robust to outliers, at the cost";
         "of underestimating fine-grained structure.  When unset (default),";
-        "k is taken equal to --hdbscan-min-cluster-size, matching the";
+        "k is taken equal to --splits-hdbscan-min-cluster-size, matching the";
         "reference HDBSCAN one-knob ergonomic.";
-        "Ignored unless --splits-algorithm 'hdbscan' is in effect." ],
-      TA.Default (Fun.const "same as --hdbscan-min-cluster-size"),
+        "Ignored unless --splits-method 'hdbscan' is in effect." ],
+      TA.Default (Fun.const "same as --splits-hdbscan-min-cluster-size"),
       (fun _ ->
-        Set_hdbscan_min_samples (Some (TA.get_parameter_int_pos ()))
+        Set_splits_hdbscan_min_samples (Some (TA.get_parameter_int_pos ()))
         |> List.accum Parameters.program);
-    [ "--hdbscan-mst-mode" ],
+    [ "--splits-hdbscan-mst-mode" ],
       Some "'auto'|'sparse'|'dense'",
       [ "minimum-spanning-tree construction strategy for the 'hdbscan'";
         "splits algorithm.";
@@ -577,7 +660,7 @@ let () =
         "  on disconnection.  Best of both worlds for typical typing data:";
         "  fast when the k-NN graph covers all MST edges, robust otherwise.";
         "'sparse' uses only a FAISS k-NN graph (O(n log n) typical; raises";
-        "  an error if --hdbscan-num-neighbors is too small to cover all";
+        "  an error if --splits-hdbscan-num-neighbors is too small to cover all";
         "  MST edges).  Use when you need a hard guarantee that the sparse";
         "  path was used.";
         "'dense'  uses all n(n-1)/2 pairwise distances (O(n^2) always;";
@@ -585,37 +668,37 @@ let () =
         "Note: the MST is over mutual-reachability distances rather than";
         "Euclidean, so a Euclidean k-NN graph can miss MST edges even with";
         "an exact index; this is what makes 'auto' useful.";
-        "Ignored unless --splits-algorithm 'hdbscan' is in effect." ],
-      TA.Default (Clustering.HdbscanMstMode.to_string Defaults.hdbscan_mst_mode |> Fun.const),
+        "Ignored unless --splits-method 'hdbscan' is in effect." ],
+      TA.Default (Clustering.HdbscanMstMode.to_string Defaults.splits_hdbscan_mst_mode |> Fun.const),
       (fun _ ->
-        Set_hdbscan_mst_mode (TA.get_parameter () |> Clustering.HdbscanMstMode.of_string)
+        Set_splits_hdbscan_mst_mode (TA.get_parameter () |> Clustering.HdbscanMstMode.of_string)
         |> List.accum Parameters.program);
-    [ "--hdbscan-num-neighbors" ],
+    [ "--splits-hdbscan-num-neighbors" ],
       Some "<positive_integer>",
       [ "number of nearest neighbours per point used to build the FAISS";
         "k-NN candidate graph for the sparse 'hdbscan' MST.  Larger values";
         "cost more compute and memory but cover more potential MST edges;";
         "too-small values produce a disconnected MST and an explanatory";
         "error.  When unset (default), it is auto-computed at runtime as";
-        "max(--hdbscan-min-samples + 1, min(n - 1, 30)), which is usually";
+        "max(--splits-hdbscan-min-samples + 1, min(n - 1, 30)), which is usually";
         "enough on typing-scale data.";
-        "Ignored unless --splits-algorithm 'hdbscan' and";
-        "--hdbscan-mst-mode 'sparse' are in effect." ],
+        "Ignored unless --splits-method 'hdbscan' and";
+        "--splits-hdbscan-mst-mode 'sparse' are in effect." ],
       TA.Default (Fun.const "auto (max(min_samples + 1, min(n - 1, 30)))"),
       (fun _ ->
-        Set_hdbscan_num_neighbors (Some (TA.get_parameter_int_pos ()))
+        Set_splits_hdbscan_num_neighbors (Some (TA.get_parameter_int_pos ()))
         |> List.accum Parameters.program);
-    [ "--hdbscan-index-type" ],
+    [ "--splits-hdbscan-index-type" ],
       Some "'flat'|'pq('PQ_PARAMETERS')'|'hnsw('<positive_integer>')'",
       [ "FAISS index type used by the sparse 'hdbscan' MST.";
         "Same syntax as --neighbors-index-type: 'flat' is exact but O(n^2)";
         "search; 'hnsw(M)' is approximate-NN with graph parameter M;";
         "'pq(...)' is product-quantised.";
-        "Ignored unless --splits-algorithm 'hdbscan' and";
-        "--hdbscan-mst-mode 'sparse' are in effect." ],
-      TA.Default (Interfaiss.Type.to_string Defaults.hdbscan_index_type |> Fun.const),
+        "Ignored unless --splits-method 'hdbscan' and";
+        "--splits-hdbscan-mst-mode 'sparse' are in effect." ],
+      TA.Default (Interfaiss.Type.to_string Defaults.splits_hdbscan_index_type |> Fun.const),
       (fun _ ->
-        Set_hdbscan_index_type (TA.get_parameter () |> Interfaiss.Type.of_string)
+        Set_splits_hdbscan_index_type (TA.get_parameter () |> Interfaiss.Type.of_string)
         |> List.accum Parameters.program);
     [ "-S"; "--splits"; "--compute-splits"; "--twisted-to-splits" ],
       Some "<phylosplits_tabular_file_prefix>",
@@ -695,55 +778,64 @@ let () =
         | Cosine, true | Angle, true | Euclidean, _ | Minkowski _, _ ->
           ()
         end
-      | Set_splits_algorithm _ | Set_splits_keep_at_most _
-      | Set_centroids_balance_penalty _ | Set_centroids_num_seeds _ | Set_centroids_seed _
-      | Set_gaps_prefilter_kneedle _
-      | Set_hdbscan_min_cluster_size _ | Set_hdbscan_min_samples _
-      | Set_hdbscan_mst_mode _ | Set_hdbscan_num_neighbors _ | Set_hdbscan_index_type _
+      | Set_splits_method _ | Set_splits_keep_at_most _
+      | Set_splits_centroids_balance_penalty _ | Set_splits_centroids_num_seeds _ | Set_splits_centroids_seed _
+      | Set_splits_gaps_prefilter_kneedle _
+      | Set_splits_hdbscan_min_cluster_size _ | Set_splits_hdbscan_min_samples _
+      | Set_splits_hdbscan_mst_mode _ | Set_splits_hdbscan_num_neighbors _ | Set_splits_hdbscan_index_type _
       | Set_summary_keep_at_most _
       | Set_neighbors_keep_at_most _ | Set_neighbors_guard_policy _ | Set_neighbors_index_type _
-      | Set_cluster_method _ | Set_cluster_order _ | Set_cluster_density_sample_number _
-      | Set_cluster_index_type _ ->
+      | Set_clusters_method _
+      | Set_clusters_greedy_epsilon _ | Set_clusters_greedy_order _ | Set_clusters_greedy_density_sample_number _
+      | Set_clusters_greedy_index_type _
+      | Set_clusters_hdbscan_min_cluster_size _ | Set_clusters_hdbscan_min_samples _
+      | Set_clusters_hdbscan_mst_mode _ | Set_clusters_hdbscan_num_neighbors _ | Set_clusters_hdbscan_index_type _ ->
         ()
-      | Cluster_kmers _ ->
+      | Clusters_kmers _ ->
         if not !twister_loaded then
           TA.parse_error
-            "Option '--cluster T' requires a twister to have been loaded first!";
+            "Option '--clusters T' requires a twister to have been loaded first!";
         (match !distance, !distance_normalize with
         | Space.Distance.Cosine, false | Space.Distance.Angle, false ->
           TA.parse_error
             "Distances 'cosine' and 'angle' require embeddings to be normalized \
-             (add --distance-normalize true before --cluster)"
+             (add --distance-normalize true before --clusters)"
         | _ -> ())
-      | Cluster_samples _ ->
+      | Clusters_samples _ ->
         (match !distance, !distance_normalize with
         | Space.Distance.Cosine, false | Space.Distance.Angle, false ->
           TA.parse_error
             "Distances 'cosine' and 'angle' require embeddings to be normalized \
-             (add --distance-normalize true before --cluster)"
+             (add --distance-normalize true before --clusters)"
         | _ -> ()))
     program;
   (* These are the registers available to the program *)
   let twister = ref Twister.empty and twisted = ref Twisted.empty and metric = ref Defaults.metric
   and distance = ref Defaults.distance and distance_normalize = ref Defaults.distance_normalize
-  and splits_keep_at_most = ref Defaults.splits_keep_at_most and splits_algorithm = ref Defaults.splits_algorithm
-  and centroids_balance_penalty = ref Defaults.centroids_balance_penalty
-  and centroids_num_seeds = ref Defaults.centroids_num_seeds
-  and centroids_seed = ref Defaults.centroids_seed
-  and gaps_prefilter_kneedle = ref Defaults.gaps_prefilter_kneedle
-  and hdbscan_min_cluster_size = ref Defaults.hdbscan_min_cluster_size
-  and hdbscan_min_samples = ref Defaults.hdbscan_min_samples
-  and hdbscan_mst_mode = ref Defaults.hdbscan_mst_mode
-  and hdbscan_num_neighbors = ref Defaults.hdbscan_num_neighbors
-  and hdbscan_index_type = ref Defaults.hdbscan_index_type
+  and splits_keep_at_most = ref Defaults.splits_keep_at_most and splits_method = ref Defaults.splits_method
+  and splits_centroids_balance_penalty = ref Defaults.splits_centroids_balance_penalty
+  and splits_centroids_num_seeds = ref Defaults.splits_centroids_num_seeds
+  and splits_centroids_seed = ref Defaults.splits_centroids_seed
+  and splits_gaps_prefilter_kneedle = ref Defaults.splits_gaps_prefilter_kneedle
+  and splits_hdbscan_min_cluster_size = ref Defaults.splits_hdbscan_min_cluster_size
+  and splits_hdbscan_min_samples = ref Defaults.splits_hdbscan_min_samples
+  and splits_hdbscan_mst_mode = ref Defaults.splits_hdbscan_mst_mode
+  and splits_hdbscan_num_neighbors = ref Defaults.splits_hdbscan_num_neighbors
+  and splits_hdbscan_index_type = ref Defaults.splits_hdbscan_index_type
   and summary_keep_at_most = ref Defaults.summary_keep_at_most
   and neighbors_keep_at_most = ref Defaults.neighbors_keep_at_most
   and neighbors_guard_policy = ref Defaults.neighbors_guard_policy
   and neighbors_index_type = ref Defaults.neighbors_index_type
   and precision_tables = ref Defaults.precision_tables and precision_splits = ref Defaults.precision_splits
-  and cluster_method = ref Defaults.cluster_method and cluster_order = ref Defaults.cluster_order
-  and cluster_density_sample_number = ref Defaults.cluster_density_sample_number
-  and cluster_index_type = ref Defaults.cluster_index_type in
+  and clusters_method = ref Defaults.clusters_method
+  and clusters_greedy_epsilon = ref Defaults.clusters_greedy_epsilon and clusters_greedy_order = ref Defaults.clusters_greedy_order
+  and clusters_greedy_density_sample_number = ref Defaults.clusters_greedy_density_sample_number
+  and clusters_greedy_index_type = ref Defaults.clusters_greedy_index_type
+  and clusters_hdbscan_min_cluster_size = ref Defaults.clusters_hdbscan_min_cluster_size
+  and clusters_hdbscan_min_samples = ref Defaults.clusters_hdbscan_min_samples
+  and clusters_hdbscan_mst_mode = ref Defaults.clusters_hdbscan_mst_mode
+  and clusters_hdbscan_num_neighbors = ref Defaults.clusters_hdbscan_num_neighbors
+  and clusters_hdbscan_index_type = ref Defaults.clusters_hdbscan_index_type in
   let twisted_of_binary = Twisted.of_binary ~verbose:!Parameters.verbose
   and twisted_of_files = Twisted.of_files ~threads:!Parameters.threads ~verbose:!Parameters.verbose in
   try
@@ -805,42 +897,42 @@ let () =
               Matrix.to_file
                 ~precision:!precision_tables ~threads:!Parameters.threads ~verbose:!Parameters.verbose
                 res prefix)
-        | Set_splits_algorithm algo ->
-          splits_algorithm := algo
+        | Set_splits_method algo ->
+          splits_method := algo
         | Set_splits_keep_at_most kam ->
           splits_keep_at_most := kam
-        | Set_centroids_balance_penalty pen ->
-          centroids_balance_penalty := pen
-        | Set_centroids_num_seeds n ->
-          centroids_num_seeds := n
-        | Set_centroids_seed s ->
-          centroids_seed := s
-        | Set_gaps_prefilter_kneedle b ->
-          gaps_prefilter_kneedle := b
-        | Set_hdbscan_min_cluster_size n ->
-          hdbscan_min_cluster_size := n
-        | Set_hdbscan_min_samples k ->
-          hdbscan_min_samples := k
-        | Set_hdbscan_mst_mode mode ->
-          hdbscan_mst_mode := mode
-        | Set_hdbscan_num_neighbors k ->
-          hdbscan_num_neighbors := k
-        | Set_hdbscan_index_type idx ->
-          hdbscan_index_type := idx
+        | Set_splits_centroids_balance_penalty pen ->
+          splits_centroids_balance_penalty := pen
+        | Set_splits_centroids_num_seeds n ->
+          splits_centroids_num_seeds := n
+        | Set_splits_centroids_seed s ->
+          splits_centroids_seed := s
+        | Set_splits_gaps_prefilter_kneedle b ->
+          splits_gaps_prefilter_kneedle := b
+        | Set_splits_hdbscan_min_cluster_size n ->
+          splits_hdbscan_min_cluster_size := n
+        | Set_splits_hdbscan_min_samples k ->
+          splits_hdbscan_min_samples := k
+        | Set_splits_hdbscan_mst_mode mode ->
+          splits_hdbscan_mst_mode := mode
+        | Set_splits_hdbscan_num_neighbors k ->
+          splits_hdbscan_num_neighbors := k
+        | Set_splits_hdbscan_index_type idx ->
+          splits_hdbscan_index_type := idx
         | Splits_from_twisted prefix ->
           let res =
             Twisted.get_splits
               ~normalize:!distance_normalize ~threads:!Parameters.threads ~verbose:!Parameters.verbose
-              ~balance_penalty:!centroids_balance_penalty
-              ~gaps_prefilter_kneedle:!gaps_prefilter_kneedle
-              ~num_seeds:!centroids_num_seeds
-              ?seed:!centroids_seed
-              ~hdbscan_min_cluster_size:!hdbscan_min_cluster_size
-              ?hdbscan_min_samples:!hdbscan_min_samples
-              ~hdbscan_mst_mode:!hdbscan_mst_mode
-              ?hdbscan_num_neighbors:!hdbscan_num_neighbors
-              ~hdbscan_index_type:!hdbscan_index_type
-              !distance !metric !splits_algorithm !splits_keep_at_most !twisted in
+              ~balance_penalty:!splits_centroids_balance_penalty
+              ~gaps_prefilter_kneedle:!splits_gaps_prefilter_kneedle
+              ~num_seeds:!splits_centroids_num_seeds
+              ?seed:!splits_centroids_seed
+              ~hdbscan_min_cluster_size:!splits_hdbscan_min_cluster_size
+              ?hdbscan_min_samples:!splits_hdbscan_min_samples
+              ~hdbscan_mst_mode:!splits_hdbscan_mst_mode
+              ?hdbscan_num_neighbors:!splits_hdbscan_num_neighbors
+              ~hdbscan_index_type:!splits_hdbscan_index_type
+              !distance !metric !splits_method !splits_keep_at_most !twisted in
           Exception.catch_unexpected_end_of_output __FUNCTION__
             (fun () -> Trees.Splits.to_file ~precision:!precision_splits res prefix)
         | Set_summary_keep_at_most kam ->
@@ -867,16 +959,28 @@ let () =
                 ~threads:!Parameters.threads ~verbose:!Parameters.verbose
                 !metric (twisted_of_binary prefix_in) !twisted prefix_out)
         (* Clustering setters *)
-        | Set_cluster_method m ->
-          cluster_method := m
-        | Set_cluster_order o ->
-          cluster_order := o
-        | Set_cluster_density_sample_number n ->
-          cluster_density_sample_number := n
-        | Set_cluster_index_type it ->
-          cluster_index_type := it
+        | Set_clusters_method m ->
+          clusters_method := m
+        | Set_clusters_greedy_epsilon m ->
+          clusters_greedy_epsilon := m
+        | Set_clusters_greedy_order o ->
+          clusters_greedy_order := o
+        | Set_clusters_greedy_density_sample_number n ->
+          clusters_greedy_density_sample_number := n
+        | Set_clusters_greedy_index_type it ->
+          clusters_greedy_index_type := it
+        | Set_clusters_hdbscan_min_cluster_size n ->
+          clusters_hdbscan_min_cluster_size := n
+        | Set_clusters_hdbscan_min_samples k ->
+          clusters_hdbscan_min_samples := k
+        | Set_clusters_hdbscan_mst_mode mode ->
+          clusters_hdbscan_mst_mode := mode
+        | Set_clusters_hdbscan_num_neighbors k ->
+          clusters_hdbscan_num_neighbors := k
+        | Set_clusters_hdbscan_index_type idx ->
+          clusters_hdbscan_index_type := idx
         (* Clustering actions *)
-        | Cluster_kmers output_file ->
+        | Clusters_kmers output_file ->
           (* Recover standard k-mer coordinates from the Twister register:
              km_std[i][dim] = Twister[dim,i] * sqrt(inertia[dim]) *)
           let tw = !twister in
@@ -891,52 +995,68 @@ let () =
           let kc = Array.init mm (fun i ->
             Float.Array.init kk (fun dim ->
               twm.Matrix.Base.data.(dim).@!(i) *. sqrt iv.@!(dim))) in
-          let rep_orig =
-            Clustering.run
-              ~verbose:!Parameters.verbose
-              ~what_label:"k-mers"
-              ~method_:!cluster_method
-              ~order_:!cluster_order
-              ~density_sample_number:!cluster_density_sample_number
-              ~index_type:!cluster_index_type
-              ~metric:!metric
-              ~distance:!distance
-              ~distance_normalize:!distance_normalize
-              kc twm.Matrix.Base.col_names iv in
-          (* Write representative k-mer names to output file, one per line, no header *)
+          (* Write representative k-mer names to output file, one per line, no header.
+             Greedy writes the cluster representatives; HDBSCAN writes one k-mer per
+             cluster plus every noise point (each noise k-mer is unique) *)
           Exception.catch_unexpected_end_of_output __FUNCTION__
             (fun () ->
               let output = open_out output_file in
-              Array.iteri
-                (fun i ri ->
-                  if ri = i then
-                    Printf.fprintf output "%s\n" twm.Matrix.Base.col_names.(i))
-                rep_orig;
+              (match !clusters_method with
+              | Clustering.Algorithm.Greedy ->
+                let rep_orig =
+                  Clustering.run_greedy
+                    ~verbose:!Parameters.verbose
+                    ~what_label:"k-mers"
+                    ~epsilon_:!clusters_greedy_epsilon
+                    ~order_:!clusters_greedy_order
+                    ~density_sample_number:!clusters_greedy_density_sample_number
+                    ~index_type:!clusters_greedy_index_type
+                    ~metric:!metric
+                    ~distance:!distance
+                    ~distance_normalize:!distance_normalize
+                    kc twm.Matrix.Base.col_names iv in
+                Array.iteri
+                  (fun i ri ->
+                    if ri = i then
+                      Printf.fprintf output "%s\n" twm.Matrix.Base.col_names.(i))
+                  rep_orig
+              | Clustering.Algorithm.Hdbscan ->
+                let cluster_of =
+                  Clustering.run_hdbscan
+                    ~verbose:!Parameters.verbose ~threads:!Parameters.threads
+                    ~what_label:"k-mers"
+                    ~min_cluster_size:!clusters_hdbscan_min_cluster_size
+                    ?min_samples:!clusters_hdbscan_min_samples
+                    ~mst_mode:!clusters_hdbscan_mst_mode
+                    ?num_neighbors:!clusters_hdbscan_num_neighbors
+                    ~index_type:!clusters_hdbscan_index_type
+                    ~metric:!metric
+                    ~distance:!distance
+                    ~distance_normalize:!distance_normalize
+                    kc twm.Matrix.Base.col_names iv in
+                let seen_clusters = Hashtbl.create 16 in
+                Array.iteri
+                  (fun i cid ->
+                    if cid < 0 || not (Hashtbl.mem seen_clusters cid) then begin
+                      if cid >= 0 then Hashtbl.add seen_clusters cid ();
+                      Printf.fprintf output "%s\n" twm.Matrix.Base.col_names.(i)
+                    end)
+                  cluster_of);
               close_out output);
           if !Parameters.verbose then
             Printf.eprintf "%s Representative k-mer list written to '%s'.\n%!"
               prefix output_file
-        | Cluster_samples output_file ->
+        | Clusters_samples output_file ->
           let mat = (!twisted).Twisted.twisted.Matrix.matrix in
           let iv = (!twisted).Twisted.inertia.Matrix.matrix.Matrix.Base.data.(0) in
           if Array.length mat.Matrix.Base.row_names = 0 then
             Exception.raise __FUNCTION__ IO_Format
               "twisted register is empty, nothing to cluster";
-          let rep_orig =
-            Clustering.run
-              ~verbose:!Parameters.verbose
-              ~what_label:"samples"
-              ~method_:!cluster_method
-              ~order_:!cluster_order
-              ~density_sample_number:!cluster_density_sample_number
-              ~index_type:!cluster_index_type
-              ~metric:!metric
-              ~distance:!distance
-              ~distance_normalize:!distance_normalize
-              mat.Matrix.Base.data mat.Matrix.Base.row_names iv in
-          (* Write a two-line tab-separated class file readable by KPopCountDB -m/-c:
-             line 1: sample names (header); line 2: CLASS followed by representative names *)
           let n = Array.length mat.Matrix.Base.row_names in
+          (* Write a two-line tab-separated class file readable by KPopCountDB -m/-c:
+             line 1: sample names (header); line 2: CLASS followed by per-sample labels.
+             Greedy labels each sample with its representative's name; HDBSCAN labels with
+             a cluster id (C@<integer>) or 'noise' for outlier samples *)
           Exception.catch_unexpected_end_of_output __FUNCTION__
             (fun () ->
               let output = open_out output_file in
@@ -946,10 +1066,45 @@ let () =
               done;
               output_char output '\n';
               output_string output "CLASS";
-              for i = 0 to n - 1 do
-                output_char output '\t';
-                output_string output ("C@" ^ mat.Matrix.Base.row_names.(rep_orig.(i)))
-              done;
+              (match !clusters_method with
+              | Clustering.Algorithm.Greedy ->
+                let rep_orig =
+                  Clustering.run_greedy
+                    ~verbose:!Parameters.verbose
+                    ~what_label:"samples"
+                    ~epsilon_:!clusters_greedy_epsilon
+                    ~order_:!clusters_greedy_order
+                    ~density_sample_number:!clusters_greedy_density_sample_number
+                    ~index_type:!clusters_greedy_index_type
+                    ~metric:!metric
+                    ~distance:!distance
+                    ~distance_normalize:!distance_normalize
+                    mat.Matrix.Base.data mat.Matrix.Base.row_names iv in
+                for i = 0 to n - 1 do
+                  output_char output '\t';
+                  output_string output ("C@" ^ mat.Matrix.Base.row_names.(rep_orig.(i)))
+                done
+              | Clustering.Algorithm.Hdbscan ->
+                let cluster_of =
+                  Clustering.run_hdbscan
+                    ~verbose:!Parameters.verbose ~threads:!Parameters.threads
+                    ~what_label:"samples"
+                    ~min_cluster_size:!clusters_hdbscan_min_cluster_size
+                    ?min_samples:!clusters_hdbscan_min_samples
+                    ~mst_mode:!clusters_hdbscan_mst_mode
+                    ?num_neighbors:!clusters_hdbscan_num_neighbors
+                    ~index_type:!clusters_hdbscan_index_type
+                    ~metric:!metric
+                    ~distance:!distance
+                    ~distance_normalize:!distance_normalize
+                    mat.Matrix.Base.data mat.Matrix.Base.row_names iv in
+                for i = 0 to n - 1 do
+                  output_char output '\t';
+                  if cluster_of.(i) >= 0 then
+                    output_string output ("C@" ^ string_of_int cluster_of.(i))
+                  else
+                    output_string output "noise"
+                done);
               output_char output '\n';
               close_out output);
           if !Parameters.verbose then

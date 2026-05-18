@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Integration tests for the splits subsystem: full pipeline from a
-# KPopTwisted binary through KPopTwistDB --splits-algorithm and on into
+# KPopTwisted binary through KPopTwistDB --splits-method and on into
 # Yggdrasill -t for tree assembly.
 #
 # Run from the project root.  Assumes:
@@ -42,10 +42,10 @@ fail() { printf "  %-60s FAIL: %s\n" "$1" "$2"; failed=1; }
 echo "=== Part 1: each splits-algorithm produces an output file ==="
 for algo_args in \
     "gaps" \
-    "centroids --centroids-num-seeds 5 --centroids-seed 42" \
-    "hdbscan --hdbscan-min-cluster-size 2"; do
+    "centroids --splits-centroids-num-seeds 5 --splits-centroids-seed 42" \
+    "hdbscan --splits-hdbscan-min-cluster-size 2"; do
   algo="${algo_args%% *}"
-  if $BIN -i t $DATA --splits-algorithm $algo_args -S "$TMP/algo_$algo" >/dev/null 2>&1 \
+  if $BIN -i t $DATA --splits-method $algo_args -S "$TMP/algo_$algo" >/dev/null 2>&1 \
        && [[ -s "$TMP/algo_$algo.PhyloSplits.txt" ]]; then
     pass "splits-algorithm $algo emits non-empty file"
   else
@@ -58,7 +58,7 @@ done
 # ----------------------------------------------------------------------------
 echo "=== Part 2: HDBSCAN splits are jointly compatible (0 dropped weight) ==="
 for k in 1 2 3 4; do
-  $BIN -i t $DATA --splits-algorithm hdbscan --hdbscan-min-cluster-size $k \
+  $BIN -i t $DATA --splits-method hdbscan --splits-hdbscan-min-cluster-size $k \
        -S "$TMP/hdb_K$k" >/dev/null 2>&1
   out="$($YGG -I "$TMP/hdb_K$k" -t "$TMP/hdb_K$k.tree" 2>&1)"
   dropped="$(printf '%s\n' "$out" | grep -oE '[0-9]+ incompatible splits dropped' | grep -oE '^[0-9]+')"
@@ -76,7 +76,7 @@ done
 # and produce a star tree.
 # ----------------------------------------------------------------------------
 echo "=== Part 3: empty splits file parses cleanly ==="
-$BIN -i t $DATA --splits-algorithm hdbscan --hdbscan-min-cluster-size 5 \
+$BIN -i t $DATA --splits-method hdbscan --splits-hdbscan-min-cluster-size 5 \
      -S "$TMP/empty" >/dev/null 2>&1
 if grep -qE 'C1.*C2.*C10;$' "$TMP/empty.PhyloSplits.txt"; then
   pass "empty splits file emits the 'names;' shape"
@@ -94,19 +94,19 @@ fi
 # Part 4: cross-thread reproducibility for deterministic paths
 # ----------------------------------------------------------------------------
 echo "=== Part 4: cross-thread reproducibility (deterministic modes only) ==="
-$BIN -i t $DATA -T 1 --splits-algorithm centroids --centroids-num-seeds 10 \
-     --centroids-seed 42 -S "$TMP/cen_T1" >/dev/null 2>&1
-$BIN -i t $DATA -T 4 --splits-algorithm centroids --centroids-num-seeds 10 \
-     --centroids-seed 42 -S "$TMP/cen_T4" >/dev/null 2>&1
+$BIN -i t $DATA -T 1 --splits-method centroids --splits-centroids-num-seeds 10 \
+     --splits-centroids-seed 42 -S "$TMP/cen_T1" >/dev/null 2>&1
+$BIN -i t $DATA -T 4 --splits-method centroids --splits-centroids-num-seeds 10 \
+     --splits-centroids-seed 42 -S "$TMP/cen_T4" >/dev/null 2>&1
 if cmp -s "$TMP/cen_T1.PhyloSplits.txt" "$TMP/cen_T4.PhyloSplits.txt"; then
   pass "centroids: -T 1 == -T 4 (seed=42)"
 else
   fail "centroids -T 1 vs -T 4" "outputs differ"
 fi
 
-$BIN -i t $DATA -T 1 --splits-algorithm hdbscan --hdbscan-mst-mode dense \
+$BIN -i t $DATA -T 1 --splits-method hdbscan --splits-hdbscan-mst-mode dense \
      -S "$TMP/dense_T1" >/dev/null 2>&1
-$BIN -i t $DATA -T 4 --splits-algorithm hdbscan --hdbscan-mst-mode dense \
+$BIN -i t $DATA -T 4 --splits-method hdbscan --splits-hdbscan-mst-mode dense \
      -S "$TMP/dense_T4" >/dev/null 2>&1
 if cmp -s "$TMP/dense_T1.PhyloSplits.txt" "$TMP/dense_T4.PhyloSplits.txt"; then
   pass "HDBSCAN dense: -T 1 == -T 4"
@@ -114,9 +114,9 @@ else
   fail "HDBSCAN dense -T 1 vs -T 4" "outputs differ"
 fi
 
-$BIN -i t $DATA -T 1 --splits-algorithm hdbscan --hdbscan-index-type flat \
+$BIN -i t $DATA -T 1 --splits-method hdbscan --splits-hdbscan-index-type flat \
      -S "$TMP/aflat_T1" >/dev/null 2>&1
-$BIN -i t $DATA -T 4 --splits-algorithm hdbscan --hdbscan-index-type flat \
+$BIN -i t $DATA -T 4 --splits-method hdbscan --splits-hdbscan-index-type flat \
      -S "$TMP/aflat_T4" >/dev/null 2>&1
 if cmp -s "$TMP/aflat_T1.PhyloSplits.txt" "$TMP/aflat_T4.PhyloSplits.txt"; then
   pass "HDBSCAN auto(flat): -T 1 == -T 4"
@@ -129,10 +129,10 @@ fi
 # ----------------------------------------------------------------------------
 echo "=== Part 5: HDBSCAN Auto(flat) == Dense byte-for-byte (small n) ==="
 for k in 1 2 3 4; do
-  $BIN -i t $DATA --splits-algorithm hdbscan --hdbscan-min-cluster-size $k \
-       --hdbscan-mst-mode dense -S "$TMP/d_$k" >/dev/null 2>&1
-  $BIN -i t $DATA --splits-algorithm hdbscan --hdbscan-min-cluster-size $k \
-       --hdbscan-mst-mode auto --hdbscan-index-type flat \
+  $BIN -i t $DATA --splits-method hdbscan --splits-hdbscan-min-cluster-size $k \
+       --splits-hdbscan-mst-mode dense -S "$TMP/d_$k" >/dev/null 2>&1
+  $BIN -i t $DATA --splits-method hdbscan --splits-hdbscan-min-cluster-size $k \
+       --splits-hdbscan-mst-mode auto --splits-hdbscan-index-type flat \
        -S "$TMP/a_$k" >/dev/null 2>&1
   if cmp -s "$TMP/d_$k.PhyloSplits.txt" "$TMP/a_$k.PhyloSplits.txt"; then
     pass "HDBSCAN K=$k: auto(flat) == dense"
@@ -144,11 +144,11 @@ done
 # ----------------------------------------------------------------------------
 # Part 6: sparse mode rejects under-sized num_neighbors with a clear message
 # ----------------------------------------------------------------------------
-echo "=== Part 6: sparse mode validates --hdbscan-num-neighbors ==="
-out="$($BIN -i t $DATA --splits-algorithm hdbscan --hdbscan-num-neighbors 1 \
-       --hdbscan-mst-mode sparse --hdbscan-min-samples 5 \
+echo "=== Part 6: sparse mode validates --splits-hdbscan-num-neighbors ==="
+out="$($BIN -i t $DATA --splits-method hdbscan --splits-hdbscan-num-neighbors 1 \
+       --splits-hdbscan-mst-mode sparse --splits-hdbscan-min-samples 5 \
        -S "$TMP/bad" 2>&1 || true)"
-if printf '%s' "$out" | grep -q 'must be >= --hdbscan-min-samples'; then
+if printf '%s' "$out" | grep -q 'must be >= --splits-hdbscan-min-samples'; then
   pass "sparse mode rejects num_neighbors < min_samples with helpful message"
 else
   fail "sparse-mode validation" "did not raise expected error message"

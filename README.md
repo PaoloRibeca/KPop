@@ -568,7 +568,7 @@ Experimental actions &mdash; They may be removed from future versions:
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
 | `--precision-for-splits` | _positive\_integer_ |  set how many precision digits should be used when outputting splits in plain\-text format | <ins>default=<mark>_10_</mark></ins> |
-| `--splits-algorithm` | `gaps` _&#124;_ `centroids` |  algorithm to use when computing splits from embeddings | <ins>default=<mark>`gaps`</mark></ins> |
+| `--splits-method` | `gaps` _&#124;_ `centroids` |  algorithm to use when computing splits from embeddings | <ins>default=<mark>`gaps`</mark></ins> |
 | `--splits-at-most`<br>`--splits-keep-at-most` | _positive\_integer_ _&#124;_ `all` |  set the maximum number of phylogenetic splits to be kept when generating them from embeddings | <ins>default=<mark>_10000_</mark></ins> |
 | `-S`<br>`--splits`<br>`--compute-splits`<br>`--twisted-to-splits` | _phylosplits\_tabular\_file\_prefix_ |  compute phylogenetic splits from the vectors present in the twisted register using the current metric function, distance function and normalization\.<br>The result will be written to the specified tabular file\.<br>File extension is automatically assigned  (will be `.PhyloSplits` unless file is `/dev/*`) |  |
 
