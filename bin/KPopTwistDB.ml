@@ -518,18 +518,24 @@ let () =
         |> List.accum Parameters.program);
     [ "-c"; "--clusters" ],
       Some "'T' <kmer_list_file>|'t' <class_file>",
-      [ "apply greedy leader clustering to the contents of the specified register";
+      [ "apply clustering to the contents of the specified register";
         " ('T'=twister, clusters k-mers; 't'=twisted, clusters samples).";
+        "The algorithm is selected by --clusters-method (default 'greedy';";
+        "  see also 'hdbscan').";
         "Uses the current metric, distance, and normalization settings.";
         "The cluster assignment table is written to stdout.";
         "For 'T': k-mer standard coordinates are recovered from the twister";
         "  as km_std[i][d] = Twister[d,i] * sqrt(inertia[d]);";
         "  the names of representative k-mers are written to <kmer_list_file>,";
         "  one per line and with no header, ready to be passed to KPopTwist --keep.";
+        "  Greedy writes the cluster representatives; HDBSCAN writes one";
+        "  representative k-mer per cluster plus every noise k-mer.";
         "For 't': a two-line tab-separated class file is written to <class_file>";
-        "  (header line of sample names; 'CLASS' line of class labels,";
-        "   each being the representative name prefixed with 'C@'),";
-        "  ready to be passed to KPopCountDB -m <class_file> -c CLASS" ],
+        "  (header line of sample names; 'CLASS' line of class labels),";
+        "  ready to be passed to KPopCountDB -m <class_file> -c CLASS.";
+        "  Greedy labels each sample as 'C@<representative_name>';";
+        "  HDBSCAN labels assigned samples as 'C@<integer>' (cluster id) and";
+        "  outlier samples as 'noise'." ],
       TA.Optional,
       (fun _ ->
         match TA.get_parameter () |> RegisterType.of_string with
@@ -543,8 +549,14 @@ let () =
       TA.Default (string_of_int Defaults.precision_splits |> Fun.const),
       (fun _ -> Set_precision_splits (TA.get_parameter_int_pos ()) |> List.accum Parameters.program);
     [ "--splits-method" ],
-      Some "'gaps'|'centroids'",
-      [ "algorithm to use when computing splits from embeddings" ],
+      Some "'gaps'|'centroids'|'hdbscan'",
+      [ "algorithm to use when computing splits from embeddings.";
+        "'gaps': per-CA-dimension gap candidates, optionally Kneedle-pre-filtered";
+        "  (see --splits-gaps-kneedle).";
+        "'centroids': K-seed bootstrap of inter-centroid bipartitions";
+        "  (see --splits-centroids-*).";
+        "'hdbscan': condensed HDBSCAN* clusters emitted as nested splits";
+        "  with persistence-weighted branch lengths (see --splits-hdbscan-*)." ],
       TA.Default (Twisted.Splits.Method.to_string Defaults.splits_method |> Fun.const),
       (fun _ ->
         Set_splits_method (TA.get_parameter () |> Twisted.Splits.Method.of_string)
