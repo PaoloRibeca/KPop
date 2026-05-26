@@ -42,8 +42,8 @@ module Defaults =
   struct
     let kmers_keep = ""
     let kmers_sample = 1.
-    let threshold_kmers = 0.
-    let condition_number = 0.
+    let threshold_kmers = CA.Filter.Off
+    let condition_number = CA.Filter.Off
     let dimensions = 0 (* 0 means: use full SVD via twist *)
     let threads = Processes.Parallel.get_nproc ()
     let verbose = false
@@ -98,21 +98,29 @@ let () =
       TA.Default (string_of_float Defaults.kmers_sample |> Fun.const),
       (fun _ -> Parameters.kmers_sample := TA.get_parameter_float_fraction ());
     [ "--kmers-threshold" ],
-      Some "<non-negative_float>",
+      Some "'off'|'auto'|<non-negative_float>",
       [ "compute the sum of all counts for each k-mer, and eliminate k-mers";
-        "such that the corresponding sum is less than the largest sum";
-        "rescaled by this threshold.";
+        "such that the corresponding sum is less than a cutoff.";
+        "'off' (or '0') disables the filter; <float> sets the cutoff to the";
+        "largest row sum rescaled by that fraction (legacy semantics);";
+        "'auto' picks the cutoff at the Kneedle elbow of the sorted-ascending";
+        "row-sum distribution, removing the noise tail of rare and singleton";
+        "k-mers without a user-supplied magic number.";
         "This filters out k-mers having low frequencies across all spectra" ],
-      TA.Default (string_of_float Defaults.threshold_kmers |> Fun.const),
-      (fun _ -> Parameters.threshold_kmers := TA.get_parameter_float_non_neg ());
+      TA.Default (CA.Filter.to_string Defaults.threshold_kmers |> Fun.const),
+      (fun _ -> Parameters.threshold_kmers := CA.Filter.of_string (TA.get_parameter ()));
     [ "--kmers-condition-number" ],
-      Some "<non-negative_float>",
+      Some "'off'|'auto'|<positive_float>",
       [ "compute the row contribution to total inertia CTR_i = ||S[i,:]||^2 for";
-        "each k-mer, and eliminate k-mers such that CTR_i < max(CTR) / parameter.";
-        "A larger value retains more k-mers; 0 (default) disables the filter.";
+        "each k-mer, and eliminate k-mers whose CTR_i is below a cutoff.";
+        "'off' (or '0') disables the filter; <float> sets the cutoff to";
+        "max(CTR) / parameter (legacy semantics: a larger value retains more";
+        "k-mers); 'auto' picks the cutoff at the Kneedle elbow of the";
+        "sorted-ascending CTR distribution, removing nearly-uniform k-mers in";
+        "the noise tail.";
         "This filters out k-mers that are nearly uniform across all spectra" ],
-      TA.Default (string_of_float Defaults.condition_number |> Fun.const),
-      (fun _ -> Parameters.condition_number := TA.get_parameter_float_non_neg ());
+      TA.Default (CA.Filter.to_string Defaults.condition_number |> Fun.const),
+      (fun _ -> Parameters.condition_number := CA.Filter.of_string (TA.get_parameter ()));
     TA.make_separator "Input/Output";
     [ "-i"; "--input" ],
       Some "<binary_file_prefix>",

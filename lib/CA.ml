@@ -39,6 +39,30 @@ open BiOCamLib.Better
 
 include (
   struct
+    (* K-mer filter selector, used for both --kmers-threshold (low-rowsum
+       singleton removal) and --kmers-condition-number (low-CTR
+       uniform-across-samples removal).  [Off] disables the filter
+       (formerly indicated by passing 0.).  [Manual f] uses the legacy
+       fractional cutoff (rowsum >= f * max_rowsum, or CTR >= max_CTR / f).
+       [Auto] picks the cutoff at the Kneedle elbow of the sorted
+       distribution, with no user-supplied magic number. *)
+    module Filter =
+      struct
+        type t =
+          | Off
+          | Manual of float
+          | Auto
+        let of_string = function
+          | "off" | "0" | "0." | "0.0" -> Off
+          | "auto" -> Auto
+          | s ->
+            (try Manual (float_of_string s) with _ ->
+              Exception.raise_unrecognized_initializer __FUNCTION__ "k-mer filter" s)
+        let to_string = function
+          | Off -> "off"
+          | Manual f -> string_of_float f
+          | Auto -> "auto"
+      end
     (* C binding to LAPACK dgesdd_ for thin SVD via CA.c.
        The input matrix (a) is overwritten during computation.
        On successful return (info = 0):
@@ -97,8 +121,8 @@ include (
     let prepare_chi
         ?(kmers_keep = "")
         ?(kmers_sample = 1.)
-        ?(threshold_kmers = 0.)
-        ?(condition_number = 0.)
+        ?(threshold_kmers = Filter.Off)
+        ?(condition_number = Filter.Off)
         ?(verbose = false)
         db =
       let open String.TermIO in
@@ -161,13 +185,18 @@ include (
           done;
           row_sums.(new_i) <- !s)
         kmer_indices;
-      (* Step 4: Threshold - keep only k-mers with row_sum >= threshold * max_sum *)
+      (* Step 4: Threshold - keep only k-mers whose row_sum is above a cutoff.
+         For Manual f the cutoff is max_rowsum * f (legacy behaviour).
+         For Auto the cutoff is the value at the Kneedle elbow of the
+         sorted-ascending row_sum distribution: k-mers in the noise tail
+         (singletons, rare k-mers) get dropped automatically without a
+         user-supplied magic number.  For Off no filtering is performed. *)
       let kmer_indices =
-        if threshold_kmers = 0. then
-          kmer_indices
-        else begin
+        match threshold_kmers with
+        | Filter.Off -> kmer_indices
+        | Filter.Manual t ->
           let max_sum = Array.fold_left max 0. row_sums in
-          let cutoff = max_sum *. threshold_kmers in
+          let cutoff = max_sum *. t in
           let res = ref [] in
           Array.iteri
             (fun i old_i ->
@@ -176,10 +205,25 @@ include (
             kmer_indices;
           let result = Array.of_rlist !res in
           if verbose then
-            Printf.eprintf "%s K-mer threshold: retained %d/%d k-mers.\n%!"
-              prefix (Array.length result) m0;
+            Printf.eprintf "%s K-mer threshold (manual %g, cutoff %g): retained %d/%d k-mers.\n%!"
+              prefix t cutoff (Array.length result) m0;
           result
-        end in
+        | Filter.Auto ->
+          let sorted = Array.copy row_sums in
+          Array.sort compare sorted;
+          let elbow = Clustering.kneedle_elbow (fun i -> sorted.(i)) m0 in
+          let cutoff = sorted.(elbow) in
+          let res = ref [] in
+          Array.iteri
+            (fun i old_i ->
+              if row_sums.(i) >= cutoff then
+                List.accum res old_i)
+            kmer_indices;
+          let result = Array.of_rlist !res in
+          if verbose then
+            Printf.eprintf "%s K-mer threshold (auto, Kneedle elbow at row_sum %g): retained %d/%d k-mers.\n%!"
+              prefix cutoff (Array.length result) m0;
+          result in
       (* Step 5: Remove k-mers with zero total count (safety guard against
          division by zero in the row-mass computation) *)
       let kmer_indices =
@@ -244,9 +288,10 @@ include (
          col_sums and row_masses are then recomputed for the surviving set
          so that the chi-matrix (Step 9) is correctly normalised. *)
       let kmer_indices, m, col_sums, row_masses =
-        if condition_number = 0. then
+        match condition_number with
+        | Filter.Off ->
           kmer_indices, m, col_sums, row_masses
-        else begin
+        | _ ->
           let row_norms = Array.init m (fun new_i ->
             let old_i = kmer_indices.(new_i) in
             let ri = row_masses.(new_i) in
@@ -260,7 +305,19 @@ include (
           if max_norm = 0. then
             kmer_indices, m, col_sums, row_masses
           else begin
-            let cutoff = max_norm /. condition_number in
+            (* For Manual the cutoff is max_norm / parameter (legacy semantics);
+               for Auto it is the value at the Kneedle elbow of the
+               sorted-ascending CTR distribution: nearly-uniform low-CTR k-mers
+               in the noise tail get dropped automatically. *)
+            let cutoff, log_tag =
+              match condition_number with
+              | Filter.Manual t -> max_norm /. t, Printf.sprintf "manual %g, cutoff %g" t (max_norm /. t)
+              | Filter.Auto ->
+                let sorted = Array.copy row_norms in
+                Array.sort compare sorted;
+                let elbow = Clustering.kneedle_elbow (fun i -> sorted.(i)) m in
+                sorted.(elbow), Printf.sprintf "auto, Kneedle elbow at CTR %g" sorted.(elbow)
+              | Filter.Off -> assert false (* handled above *) in
             let res = ref [] in
             Array.iteri
               (fun new_i old_i ->
@@ -275,8 +332,8 @@ include (
                    "Condition-number filter too aggressive: only %d k-mer(s) survive \
                     (at least 2 required for CA)" m');
             if verbose then
-              Printf.eprintf "%s K-mer condition-number filter: retained %d/%d k-mers.\n%!"
-                prefix m' m;
+              Printf.eprintf "%s K-mer condition-number filter (%s): retained %d/%d k-mers.\n%!"
+                prefix log_tag m' m;
             (* Recompute column sums for the surviving set *)
             let col_sums' = Array.make n_samples 0. in
             Array.iter
@@ -305,8 +362,7 @@ include (
                 row_masses'.(new_i) <- !s /. n_samples_f)
               kmer_indices';
             kmer_indices', m', col_sums', row_masses'
-          end
-        end in
+          end in
       (* Step 9: Build the chi-matrix S (m x n_samples, row-major).
          With uniform column masses c[j] = 1/N = 1/n_samples:
           P[i,j] = X_norm[i,j] / n_samples
@@ -455,8 +511,8 @@ include (
     let twist
         ?(kmers_keep = "")
         ?(kmers_sample = 1.)
-        ?(threshold_kmers = 0.)
-        ?(condition_number = 0.)
+        ?(threshold_kmers = Filter.Off)
+        ?(condition_number = Filter.Off)
         ?(threads = 1)
         ?(verbose = false)
         db =
@@ -496,8 +552,8 @@ include (
     let rsvd
         ?(kmers_keep = "")
         ?(kmers_sample = 1.)
-        ?(threshold_kmers = 0.)
-        ?(condition_number = 0.)
+        ?(threshold_kmers = Filter.Off)
+        ?(condition_number = Filter.Off)
         ?(n_oversampling = 10)
         ?(n_power_iter = 2)
         ?(threads = 1)
@@ -547,6 +603,19 @@ include (
       assemble_outputs dimensions dimensions kmer_indices row_masses
         u_flat sv vt_flat n_samples m db
   end: sig
+    (* K-mer filter selector (see implementation for full semantics).
+       [Off] disables the filter; [Manual f] uses the legacy fractional
+       cutoff; [Auto] picks the cutoff at the Kneedle elbow of the
+       sorted-ascending distribution. *)
+    module Filter:
+      sig
+        type t =
+          | Off
+          | Manual of float
+          | Auto
+        val of_string: string -> t
+        val to_string: t -> string
+      end
     (* Direct C binding to LAPACK dgesdd_ (thin SVD).  Exposed for unit
        testing of the C stub from test/CA.ml; production code should call
        [twist] instead, which handles all the bookkeeping. *)
@@ -584,8 +653,8 @@ include (
     val twist:
       ?kmers_keep:string ->
       ?kmers_sample:float ->
-      ?threshold_kmers:float ->
-      ?condition_number:float ->
+      ?threshold_kmers:Filter.t ->
+      ?condition_number:Filter.t ->
       ?threads:int ->
       ?verbose:bool ->
       KMerDB.t ->
@@ -598,8 +667,8 @@ include (
     val rsvd:
       ?kmers_keep:string ->
       ?kmers_sample:float ->
-      ?threshold_kmers:float ->
-      ?condition_number:float ->
+      ?threshold_kmers:Filter.t ->
+      ?condition_number:Filter.t ->
       ?n_oversampling:int ->
       ?n_power_iter:int ->
       ?threads:int ->
