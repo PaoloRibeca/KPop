@@ -1,35 +1,28 @@
 #!/usr/bin/env bash
 
-# Integration tests for the splits subsystem: full pipeline from a
-# KPopTwisted binary through KPopTwistDB --splits-method and on into
-# Yggdrasill -t for tree assembly.
+# Integration tests for the phylogenetic-tree subsystem: full pipeline
+# from a KPopTwisted binary through KPopTwistDB --phylo-method and on
+# into a Newick (.nwk) tree.
 #
 # Run from the project root.  Assumes:
 #   - build/KPopTwistDB exists (from `bash BUILD release-static`)
-#   - _build/default/BiOCamLib/bin/Yggdrasill.exe exists
-#     (from `dune build --profile=release-static BiOCamLib/bin/Yggdrasill.exe`)
 #
 # Exits 0 on full success, 1 on any failure.
 
 set -u
 
 BIN="build/KPopTwistDB"
-YGG="_build/default/BiOCamLib/bin/Yggdrasill.exe"
 DATA="test/Primer/Classes-5"
 
 if [[ ! -x "$BIN" ]]; then
   echo "FAIL: $BIN not built; run 'bash BUILD release-static' first" >&2
   exit 1
 fi
-if [[ ! -x "$YGG" ]]; then
-  echo "FAIL: $YGG not built; run 'dune build --profile=release-static BiOCamLib/bin/Yggdrasill.exe' first" >&2
-  exit 1
-fi
 
 # Ensure the Classes-5 fixture exists (idempotent regeneration from raw FASTAs)
 bash test/integration_build.sh
 
-TMP="$(mktemp -d -t kpop-integration-splits-XXXXXX)"
+TMP="$(mktemp -d -t kpop-integration-phylo-XXXXXX)"
 trap 'rm -rf "$TMP"' EXIT
 
 failed=0
@@ -37,88 +30,78 @@ pass() { printf "  %-60s PASS\n" "$1"; }
 fail() { printf "  %-60s FAIL: %s\n" "$1" "$2"; failed=1; }
 
 # ----------------------------------------------------------------------------
-# Part 1: every splits-algorithm runs cleanly on the fixture
+# Part 1: every phylo-algorithm runs cleanly on the fixture
 # ----------------------------------------------------------------------------
-echo "=== Part 1: each splits-algorithm produces an output file ==="
+echo "=== Part 1: each phylo-algorithm produces a Newick tree ==="
 for algo_args in \
     "gaps" \
-    "centroids --splits-centroids-num-seeds 5 --splits-centroids-seed 42" \
-    "hdbscan --splits-hdbscan-min-cluster-size 2"; do
+    "centroids --phylo-centroids-num-seeds 5 --phylo-centroids-seed 42" \
+    "hdbscan --phylo-hdbscan-min-cluster-size 2" \
+    "sparse-nj"; do
   algo="${algo_args%% *}"
-  if $BIN -i t $DATA --splits-method $algo_args -S "$TMP/algo_$algo" >/dev/null 2>&1 \
-       && [[ -s "$TMP/algo_$algo.PhyloSplits.txt" ]]; then
-    pass "splits-algorithm $algo emits non-empty file"
+  if $BIN -i t $DATA --phylo-method $algo_args -P "$TMP/algo_$algo" >/dev/null 2>&1 \
+       && [[ -s "$TMP/algo_$algo.nwk" ]]; then
+    pass "phylo-algorithm $algo emits non-empty .nwk file"
   else
-    fail "splits-algorithm $algo" "non-zero exit or empty output"
+    fail "phylo-algorithm $algo" "non-zero exit or empty output"
   fi
 done
 
 # ----------------------------------------------------------------------------
-# Part 2: HDBSCAN output has 0 dropped weight in Yggdrasill
+# Part 2: HDBSCAN trees parse as Newick
 # ----------------------------------------------------------------------------
-echo "=== Part 2: HDBSCAN splits are jointly compatible (0 dropped weight) ==="
+echo "=== Part 2: HDBSCAN .nwk output is well-formed ==="
 for k in 1 2 3 4; do
-  $BIN -i t $DATA --splits-method hdbscan --splits-hdbscan-min-cluster-size $k \
-       -S "$TMP/hdb_K$k" >/dev/null 2>&1
-  out="$($YGG -I "$TMP/hdb_K$k" -t "$TMP/hdb_K$k.tree" 2>&1)"
-  dropped="$(printf '%s\n' "$out" | grep -oE '[0-9]+ incompatible splits dropped' | grep -oE '^[0-9]+')"
-  if [[ "$dropped" == "0" ]]; then
-    pass "HDBSCAN K=$k: 0 dropped splits in Yggdrasill"
+  $BIN -i t $DATA --phylo-method hdbscan --phylo-hdbscan-min-cluster-size $k \
+       -P "$TMP/hdb_K$k" >/dev/null 2>&1
+  if [[ -s "$TMP/hdb_K$k.nwk" ]] && grep -qE '\);[[:space:]]*$' "$TMP/hdb_K$k.nwk"; then
+    pass "HDBSCAN K=$k: Newick file ends with ');'"
   else
-    fail "HDBSCAN K=$k" "dropped=$dropped (expected 0)"
+    fail "HDBSCAN K=$k" "missing or malformed .nwk output"
   fi
 done
 
 # ----------------------------------------------------------------------------
-# Part 3: empty-splits round-trip through Yggdrasill
-# HDBSCAN with K=5 on the 10-sample fixture cannot emit any cluster; the
-# splits file is "names;" (no colon), and Yggdrasill must still parse it
-# and produce a star tree.
+# Part 3: HDBSCAN with K too large for fixture still emits a (degenerate) tree
 # ----------------------------------------------------------------------------
-echo "=== Part 3: empty splits file parses cleanly ==="
-$BIN -i t $DATA --splits-method hdbscan --splits-hdbscan-min-cluster-size 5 \
-     -S "$TMP/empty" >/dev/null 2>&1
-if grep -qE 'C1.*C2.*C10;$' "$TMP/empty.PhyloSplits.txt"; then
-  pass "empty splits file emits the 'names;' shape"
+echo "=== Part 3: HDBSCAN with K=5 on 10-sample fixture emits a tree ==="
+$BIN -i t $DATA --phylo-method hdbscan --phylo-hdbscan-min-cluster-size 5 \
+     -P "$TMP/empty" >/dev/null 2>&1
+if [[ -s "$TMP/empty.nwk" ]] && grep -qE '\);[[:space:]]*$' "$TMP/empty.nwk"; then
+  pass "K=5 HDBSCAN emits a valid Newick file"
 else
-  fail "empty splits file" "expected 'names;' format, got: $(cat "$TMP/empty.PhyloSplits.txt")"
-fi
-if $YGG -I "$TMP/empty" -t "$TMP/empty.tree" >/dev/null 2>&1 \
-     && [[ -s "$TMP/empty.tree.nwk" ]]; then
-  pass "Yggdrasill accepts the empty-splits file"
-else
-  fail "Yggdrasill on empty splits" "parse error or empty tree file"
+  fail "K=5 HDBSCAN" "no valid .nwk produced"
 fi
 
 # ----------------------------------------------------------------------------
 # Part 4: cross-thread reproducibility for deterministic paths
 # ----------------------------------------------------------------------------
 echo "=== Part 4: cross-thread reproducibility (deterministic modes only) ==="
-$BIN -i t $DATA -T 1 --splits-method centroids --splits-centroids-num-seeds 10 \
-     --splits-centroids-seed 42 -S "$TMP/cen_T1" >/dev/null 2>&1
-$BIN -i t $DATA -T 4 --splits-method centroids --splits-centroids-num-seeds 10 \
-     --splits-centroids-seed 42 -S "$TMP/cen_T4" >/dev/null 2>&1
-if cmp -s "$TMP/cen_T1.PhyloSplits.txt" "$TMP/cen_T4.PhyloSplits.txt"; then
+$BIN -i t $DATA -T 1 --phylo-method centroids --phylo-centroids-num-seeds 10 \
+     --phylo-centroids-seed 42 -P "$TMP/cen_T1" >/dev/null 2>&1
+$BIN -i t $DATA -T 4 --phylo-method centroids --phylo-centroids-num-seeds 10 \
+     --phylo-centroids-seed 42 -P "$TMP/cen_T4" >/dev/null 2>&1
+if cmp -s "$TMP/cen_T1.nwk" "$TMP/cen_T4.nwk"; then
   pass "centroids: -T 1 == -T 4 (seed=42)"
 else
   fail "centroids -T 1 vs -T 4" "outputs differ"
 fi
 
-$BIN -i t $DATA -T 1 --splits-method hdbscan --splits-hdbscan-mst-mode dense \
-     -S "$TMP/dense_T1" >/dev/null 2>&1
-$BIN -i t $DATA -T 4 --splits-method hdbscan --splits-hdbscan-mst-mode dense \
-     -S "$TMP/dense_T4" >/dev/null 2>&1
-if cmp -s "$TMP/dense_T1.PhyloSplits.txt" "$TMP/dense_T4.PhyloSplits.txt"; then
+$BIN -i t $DATA -T 1 --phylo-method hdbscan --phylo-hdbscan-mst-mode dense \
+     -P "$TMP/dense_T1" >/dev/null 2>&1
+$BIN -i t $DATA -T 4 --phylo-method hdbscan --phylo-hdbscan-mst-mode dense \
+     -P "$TMP/dense_T4" >/dev/null 2>&1
+if cmp -s "$TMP/dense_T1.nwk" "$TMP/dense_T4.nwk"; then
   pass "HDBSCAN dense: -T 1 == -T 4"
 else
   fail "HDBSCAN dense -T 1 vs -T 4" "outputs differ"
 fi
 
-$BIN -i t $DATA -T 1 --splits-method hdbscan --splits-hdbscan-index-type flat \
-     -S "$TMP/aflat_T1" >/dev/null 2>&1
-$BIN -i t $DATA -T 4 --splits-method hdbscan --splits-hdbscan-index-type flat \
-     -S "$TMP/aflat_T4" >/dev/null 2>&1
-if cmp -s "$TMP/aflat_T1.PhyloSplits.txt" "$TMP/aflat_T4.PhyloSplits.txt"; then
+$BIN -i t $DATA -T 1 --phylo-method hdbscan --phylo-hdbscan-index-type flat \
+     -P "$TMP/aflat_T1" >/dev/null 2>&1
+$BIN -i t $DATA -T 4 --phylo-method hdbscan --phylo-hdbscan-index-type flat \
+     -P "$TMP/aflat_T4" >/dev/null 2>&1
+if cmp -s "$TMP/aflat_T1.nwk" "$TMP/aflat_T4.nwk"; then
   pass "HDBSCAN auto(flat): -T 1 == -T 4"
 else
   fail "HDBSCAN auto(flat) -T 1 vs -T 4" "outputs differ"
@@ -126,15 +109,19 @@ fi
 
 # ----------------------------------------------------------------------------
 # Part 5: dense and auto-with-flat are byte-identical on small data
+# (Persistence-mode lengths; Mreach walks the raw merge tree and is
+#  sensitive to MST tie-breaking when leaves merge at coincident lambda.)
 # ----------------------------------------------------------------------------
 echo "=== Part 5: HDBSCAN Auto(flat) == Dense byte-for-byte (small n) ==="
 for k in 1 2 3 4; do
-  $BIN -i t $DATA --splits-method hdbscan --splits-hdbscan-min-cluster-size $k \
-       --splits-hdbscan-mst-mode dense -S "$TMP/d_$k" >/dev/null 2>&1
-  $BIN -i t $DATA --splits-method hdbscan --splits-hdbscan-min-cluster-size $k \
-       --splits-hdbscan-mst-mode auto --splits-hdbscan-index-type flat \
-       -S "$TMP/a_$k" >/dev/null 2>&1
-  if cmp -s "$TMP/d_$k.PhyloSplits.txt" "$TMP/a_$k.PhyloSplits.txt"; then
+  $BIN -i t $DATA --phylo-method hdbscan --phylo-hdbscan-min-cluster-size $k \
+       --phylo-hdbscan-lengths persistence \
+       --phylo-hdbscan-mst-mode dense -P "$TMP/d_$k" >/dev/null 2>&1
+  $BIN -i t $DATA --phylo-method hdbscan --phylo-hdbscan-min-cluster-size $k \
+       --phylo-hdbscan-lengths persistence \
+       --phylo-hdbscan-mst-mode auto --phylo-hdbscan-index-type flat \
+       -P "$TMP/a_$k" >/dev/null 2>&1
+  if cmp -s "$TMP/d_$k.nwk" "$TMP/a_$k.nwk"; then
     pass "HDBSCAN K=$k: auto(flat) == dense"
   else
     fail "HDBSCAN K=$k: auto(flat) vs dense" "outputs differ"
@@ -142,13 +129,27 @@ for k in 1 2 3 4; do
 done
 
 # ----------------------------------------------------------------------------
-# Part 6: sparse mode rejects under-sized num_neighbors with a clear message
+# Part 6: HDBSCAN persistence and mreach branch-length modes both work
 # ----------------------------------------------------------------------------
-echo "=== Part 6: sparse mode validates --splits-hdbscan-num-neighbors ==="
-out="$($BIN -i t $DATA --splits-method hdbscan --splits-hdbscan-num-neighbors 1 \
-       --splits-hdbscan-mst-mode sparse --splits-hdbscan-min-samples 5 \
-       -S "$TMP/bad" 2>&1 || true)"
-if printf '%s' "$out" | grep -q 'must be >= --splits-hdbscan-min-samples'; then
+echo "=== Part 6: HDBSCAN persistence/mreach branch-length modes ==="
+for mode in persistence mreach; do
+  $BIN -i t $DATA --phylo-method hdbscan --phylo-hdbscan-min-cluster-size 2 \
+       --phylo-hdbscan-lengths $mode -P "$TMP/lm_$mode" >/dev/null 2>&1
+  if [[ -s "$TMP/lm_$mode.nwk" ]] && grep -qE '\);[[:space:]]*$' "$TMP/lm_$mode.nwk"; then
+    pass "HDBSCAN lengths=$mode emits valid .nwk"
+  else
+    fail "HDBSCAN lengths=$mode" "missing or malformed .nwk"
+  fi
+done
+
+# ----------------------------------------------------------------------------
+# Part 7: sparse mode rejects under-sized num_neighbors with a clear message
+# ----------------------------------------------------------------------------
+echo "=== Part 7: sparse mode validates --phylo-hdbscan-num-neighbors ==="
+out="$($BIN -i t $DATA --phylo-method hdbscan --phylo-hdbscan-num-neighbors 1 \
+       --phylo-hdbscan-mst-mode sparse --phylo-hdbscan-min-samples 5 \
+       -P "$TMP/bad" 2>&1 || true)"
+if printf '%s' "$out" | grep -q 'must be >= --phylo-hdbscan-min-samples'; then
   pass "sparse mode rejects num_neighbors < min_samples with helpful message"
 else
   fail "sparse-mode validation" "did not raise expected error message"
@@ -156,9 +157,9 @@ fi
 
 echo
 if [[ $failed -eq 0 ]]; then
-  echo "All splits-integration tests passed."
+  echo "All phylo-integration tests passed."
   exit 0
 else
-  echo "Some splits-integration tests FAILED."
+  echo "Some phylo-integration tests FAILED."
   exit 1
 fi

@@ -17,10 +17,9 @@
        comparison.
 
      * HDBSCAN* (Campello et al., 2013/2015), with sparse / dense /
-       auto MST modes.  Currently consumed by the splits-algorithm
-       dispatcher in Twisted.ml (--splits-method hdbscan), but the
-       core is general enough to support flat per-point cluster
-       assignment in a future --clusters-method hdbscan.
+       auto MST modes.  Consumed by the phylo-tree dispatcher in
+       Twisted.ml (--phylo-method hdbscan) and by the flat per-point
+       cluster assignment used by --clusters-method hdbscan.
 
     This program was designed and developed by the author(s),
     with the assistance of the following AI tool(s):
@@ -737,7 +736,9 @@ include (
               xs in
           leaves
         (* Top-down condensation.  Emits one entry per condensed cluster as
-           (members_sorted_array, persistence) *)
+           (members_sorted_array, persistence).  Returns (clusters, lambda_death)
+           so callers that want per-leaf branch lengths (mreach-style trees)
+           can reuse the lambda_death information without re-walking the tree. *)
         let condense tree root min_cluster_size leaves_of n =
           let lambda_death = Array.make n 0. in
           let emitted = ref [] in
@@ -824,7 +825,7 @@ include (
               end in
             find_splits node in
           condense_cluster root 0.;
-          !emitted
+          !emitted, lambda_death
         (* Sparse k-NN graph via FAISS.  Returns (offsets, distances) of
            shape (n, k_query) where k_query = num_neighbors + 1 (the +1
            accounts for the self-match at column 0) *)
@@ -885,7 +886,7 @@ include (
           if num_neighbors < min_samples then
             Exception.raise __FUNCTION__ Initialize
               (Printf.sprintf
-                 "--splits-hdbscan-num-neighbors (%d) must be >= --splits-hdbscan-min-samples (%d) \
+                 "--phylo-hdbscan-num-neighbors (%d) must be >= --phylo-hdbscan-min-samples (%d) \
                   so the core distance can be read from the k-NN result"
                  num_neighbors min_samples);
           if verbose then
@@ -1026,34 +1027,108 @@ include (
           if verbose then
             Printf.eprintf "%s Condensing tree (min_cluster_size=%d)...\n%!"
               prefix min_cluster_size;
-          condense tree root min_cluster_size leaves_of n
-        let make_splits
+          let clusters, lambda_death =
+            condense tree root min_cluster_size leaves_of n in
+          clusters, tree, root, lambda_death
+        (* Branch-length convention selector for [make_tree].
+
+           [Mreach]: build a tree whose topology matches the full binary
+              HDBSCAN merge tree, with edge lengths set to the
+              mutual-reachability distance interval over which each
+              merge node existed.  Branch above an internal node u
+              with parent p is 1/lambda(u) - 1/lambda(p) (the mreach
+              distance grows from u's birth at 1/lambda(u) up to
+              p's birth at 1/lambda(p)); for a leaf the branch is
+              1/lambda(p).
+
+           [Persistence]: build a tree whose topology corresponds to
+              the condensed-cluster hierarchy (small noise subclusters
+              absorbed into their parents as polytomies, matching
+              HDBSCAN's standard cluster output), with each cluster's
+              edge length set to its persistence score (sum over its
+              leaves of lambda_death - lambda_birth).  This is the
+              same per-edge weight that the legacy splits emission
+              used; the produced tree is what Yggdrasill would
+              compatibility-assemble from those splits. *)
+        module LengthsMode =
+          struct
+            type t =
+              | Persistence
+              | Mreach
+            let of_string = function
+              | "persistence" -> Persistence
+              | "mreach" -> Mreach
+              | s ->
+                Exception.raise_unrecognized_initializer __FUNCTION__
+                  "HDBSCAN branch-length convention" s
+            let to_string = function
+              | Persistence -> "persistence"
+              | Mreach -> "mreach"
+          end
+        let make_tree
             ?(threads = 1) ?(verbose = false)
             ?(mst_mode = HdbscanMstMode.Auto)
             ?num_neighbors
             ?(index_type = Interfaiss.Type.of_string "hnsw(32)")
+            ?(lengths_mode = LengthsMode.Mreach)
             ~min_cluster_size ~min_samples m =
           let row_names = m.Matrix.Base.row_names in
-          let res = Trees.Splits.create row_names in
           let n = Array.length row_names in
           if n < 2 then
-            res
+            (* Degenerate: a single-leaf tree.  Make a 1-leaf Newick. *)
+            Trees.Newick.leaf (if n = 1 then row_names.(0) else "")
           else begin
             let open String.TermIO in
             let prefix = grey (Printf.sprintf "(%s):" __FUNCTION__) in
-            let clusters =
+            let clusters, tree, root, lambda_death =
               pipeline ~threads ~verbose ~mst_mode ~num_neighbors ~index_type
                 ~min_cluster_size ~min_samples ~prefix n m.data in
-            List.iter (fun (members, persistence) ->
-              let split = Trees.Splits.Split.of_array members in
-              Trees.Splits.add_split res split persistence)
-              clusters;
-            if verbose then begin
-              let num_clusters = List.length clusters in
-              Printf.eprintf "%s Emitted %d condensed %s.\n%!"
-                prefix num_clusters (String.pluralize_int "cluster" num_clusters)
-            end;
-            res
+            match lengths_mode with
+            | LengthsMode.Persistence ->
+              (* Emit one (cluster_members, persistence) pair per condensed
+                 cluster and let Trees.Splits.to_tree assemble them into a
+                 hierarchy.  The to_tree polytomy-aware reconstruction
+                 handles noise-stripped clusters cleanly. *)
+              let splits = Trees.Splits.create row_names in
+              List.iter (fun (members, persistence) ->
+                let split = Trees.Splits.Split.of_array members in
+                Trees.Splits.add_split splits split persistence)
+                clusters;
+              if verbose then begin
+                let num_clusters = List.length clusters in
+                Printf.eprintf "%s Persistence mode: %d condensed %s.\n%!"
+                  prefix num_clusters (String.pluralize_int "cluster" num_clusters)
+              end;
+              let _used, nwk, _residual = Trees.Splits.to_tree ~verbose splits in
+              nwk
+            | LengthsMode.Mreach ->
+              ignore clusters;
+              ignore lambda_death;
+              (* Walk the full binary merge tree, emit Newick.  Branch
+                 above each child of a merge node is 1/lambda(parent) -
+                 1/lambda(child); leaves get 1/lambda(parent). *)
+              let rec build_node u =
+                if u < n then
+                  Trees.Newick.leaf row_names.(u)
+                else begin
+                  let m_u = tree.(u) in
+                  let parent_birth = 1. /. m_u.lambda in
+                  let child_branch child =
+                    if child < n then
+                      max 0. parent_birth
+                    else
+                      max 0. (parent_birth -. 1. /. tree.(child).lambda) in
+                  let left_branch = child_branch m_u.left in
+                  let right_branch = child_branch m_u.right in
+                  Trees.Newick.join
+                    [| Trees.Newick.edge ~length:left_branch (), build_node m_u.left;
+                       Trees.Newick.edge ~length:right_branch (), build_node m_u.right |]
+                end in
+              let nwk = build_node root in
+              if verbose then
+                Printf.eprintf "%s Mreach mode: built binary merge tree (%d leaves).\n%!"
+                  prefix n;
+              nwk
           end
         (* Flat per-point cluster assignment.  Returns an int array indexed by
            original point index: each entry is either a cluster id (>= 0,
@@ -1073,7 +1148,7 @@ include (
           else begin
             let open String.TermIO in
             let prefix = grey (Printf.sprintf "(%s):" __FUNCTION__) in
-            let clusters =
+            let clusters, _tree, _root, _lambda_death =
               pipeline ~threads ~verbose ~mst_mode ~num_neighbors ~index_type
                 ~min_cluster_size ~min_samples ~prefix n data in
             (* condense emits clusters in reverse DFS-preorder (deepest first
@@ -1252,13 +1327,22 @@ include (
       end
     module Hdbscan:
       sig
-        val make_splits:
+        module LengthsMode:
+          sig
+            type t =
+              | Persistence
+              | Mreach
+            val of_string: string -> t
+            val to_string: t -> string
+          end
+        val make_tree:
           ?threads:int -> ?verbose:bool ->
           ?mst_mode:HdbscanMstMode.t ->
           ?num_neighbors:int ->
           ?index_type:Interfaiss.Type.t ->
+          ?lengths_mode:LengthsMode.t ->
           min_cluster_size:int -> min_samples:int ->
-          Matrix.Base.t -> Trees.Splits.t
+          Matrix.Base.t -> Trees.Newick.t
         val make_clusters:
           ?threads:int -> ?verbose:bool ->
           ?mst_mode:HdbscanMstMode.t ->

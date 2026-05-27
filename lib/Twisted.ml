@@ -93,7 +93,7 @@ module NeighborsPolicy:
         min (k + i) n
   end
 
-module Splits:
+module Phylo:
   sig
     module Method:
       sig
@@ -120,7 +120,7 @@ module Splits:
           | "hdbscan" -> Hdbscan
           | "sparse-nj" -> Sparse_nj
           | s ->
-            Exception.raise_unrecognized_initializer __FUNCTION__ "splits method" s
+            Exception.raise_unrecognized_initializer __FUNCTION__ "phylo method" s
         let to_string = function
           | Gaps -> "gaps"
           | Centroids -> "centroids"
@@ -643,8 +643,13 @@ include (
           end;
           !max_one, !max_two, !max_objective, !steps
       end
-    (* Dense HDBSCAN* against the embedded coordinates *)
-    let get_splits
+    (* Unified phylogenetic-tree builder.  Every supported method
+       eventually emits a Trees.Newick.t.  Methods that natively
+       produce a Splits.t internally (gaps, centroids) have their
+       splits passed through Trees.Splits.to_tree to obtain the
+       final Newick; methods that build a tree directly (hdbscan,
+       sparse-nj) return it without the splits round-trip. *)
+    let get_phylo_tree
         ?(normalize = true) ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false)
         ?(balance_penalty = BalancePenalty.default)
         ?(gaps_prefilter_kneedle = false)
@@ -655,14 +660,18 @@ include (
         ?(hdbscan_mst_mode = Clustering.HdbscanMstMode.Auto)
         ?hdbscan_num_neighbors
         ?hdbscan_index_type
+        ?(hdbscan_lengths_mode = Clustering.Hdbscan.LengthsMode.Mreach)
         ?(sparse_nj_num_neighbors = 10)
         ?(sparse_nj_row_sum = SparseNJ.RowSum.Knn)
         ?(sparse_nj_symmetry = SparseNJ.Symmetry.One)
         distance metric algorithm_type max_splits t =
       (* We compute embeddings *)
       let m = to_embeddings ~normalize ~elements_per_step ~threads ~verbose distance metric t in
+      let splits_to_tree splits =
+        let _used, nwk, _residual = Trees.Splits.to_tree ~verbose splits in
+        nwk in
       match algorithm_type with
-      | Splits.Method.Gaps ->
+      | Phylo.Method.Gaps ->
         (* Embeddings are stored rowwise.
           We begin by sorting coordinates along each dimension (i.e., by sorting columns) *)
         let n = Array.length m.matrix.row_names in
@@ -763,7 +772,7 @@ include (
           let split = Array.sub row_permutations.(dim) 0 (idx + 1) |> Trees.Splits.Split.of_array in
           Trees.Splits.add_split res split gap
         done;
-        res
+        splits_to_tree res
       | Centroids ->
         (* Recursive divisive bipartition of the sample set, run for
            [num_seeds] independent RNG initialisations.  At each level
@@ -834,41 +843,27 @@ include (
         if verbose then
           Printf.eprintf "%s\r(%s): Done %d/%d seeds.\n%!"
             String.TermIO.clear __FUNCTION__ !done_seeds num_seeds;
-        res
+        splits_to_tree res
       | Hdbscan ->
         let min_samples =
           match hdbscan_min_samples with
           | Some k -> k
           | None -> hdbscan_min_cluster_size in
-        Clustering.Hdbscan.make_splits ~threads ~verbose ~mst_mode:hdbscan_mst_mode
+        ignore max_splits;
+        Clustering.Hdbscan.make_tree ~threads ~verbose ~mst_mode:hdbscan_mst_mode
           ?num_neighbors:hdbscan_num_neighbors
           ?index_type:hdbscan_index_type
+          ~lengths_mode:hdbscan_lengths_mode
           ~min_cluster_size:hdbscan_min_cluster_size ~min_samples m.matrix
       | Sparse_nj ->
-        (* The [max_splits] cap is ignored: sparse-NJ emits at most
-           n - 3 internal splits anyway, which is always below the
-           default cap of 10000. *)
+        (* The [max_splits] cap is irrelevant for sparse-NJ (it builds
+           a single tree, not a candidate split pool). *)
         ignore max_splits;
-        SparseNJ.make_splits ~verbose
+        SparseNJ.compute ~verbose
           ~k_nn:sparse_nj_num_neighbors
           ~row_sum:sparse_nj_row_sum
           ~symmetry:sparse_nj_symmetry
           m.matrix.row_names m.matrix.data
-    (* Sparse-NJ entry point that returns a Trees.Newick.t directly,
-       without going through the bipartition / Yggdrasill compatibility
-       filter round-trip.  The embedding pipeline is identical to
-       get_splits's (same to_embeddings call, same metric / normalization
-       semantics); only the output type differs. *)
-    let get_sparse_nj_tree
-        ?(normalize = true) ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false)
-        ?(num_neighbors = 10)
-        ?(row_sum = SparseNJ.RowSum.Knn)
-        ?(symmetry = SparseNJ.Symmetry.One)
-        distance metric t =
-      let m = to_embeddings ~normalize ~elements_per_step ~threads ~verbose distance metric t in
-      SparseNJ.compute ~verbose
-        ~k_nn:num_neighbors ~row_sum ~symmetry
-        m.matrix.row_names m.matrix.data
     (* *)
     let to_files ?(precision = 15) ?(threads = 1) ?(elements_per_step = 40000) ?(verbose = false) v prefix =
       Matrix.to_file ~precision ~threads ~elements_per_step ~verbose v.inertia prefix;
@@ -948,8 +943,12 @@ include (
                              ?policy:NeighborsPolicy.t -> ?index_type:Interfaiss.Type.t ->
                              ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
                              Space.Distance.Metric.t -> t -> t -> string -> unit
-    (* Output splits for the vectors computed with the specified distance and metric functions *)
-    val get_splits: ?normalize:bool -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
+    (* Unified phylogenetic-tree builder.  Every supported method
+       eventually emits a Trees.Newick.t.  The [max_splits] argument
+       is honoured by the 'gaps' method (cap on the candidate split
+       pool before assembly) and ignored by the tree-native methods
+       ('hdbscan' and 'sparse-nj'). *)
+    val get_phylo_tree: ?normalize:bool -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
                     ?balance_penalty:BalancePenalty.t ->
                     ?gaps_prefilter_kneedle:bool ->
                     ?num_seeds:int ->
@@ -959,21 +958,12 @@ include (
                     ?hdbscan_mst_mode:Clustering.HdbscanMstMode.t ->
                     ?hdbscan_num_neighbors:int ->
                     ?hdbscan_index_type:Interfaiss.Type.t ->
+                    ?hdbscan_lengths_mode:Clustering.Hdbscan.LengthsMode.t ->
                     ?sparse_nj_num_neighbors:int ->
                     ?sparse_nj_row_sum:SparseNJ.RowSum.t ->
                     ?sparse_nj_symmetry:SparseNJ.Symmetry.t ->
                     Space.Distance.t -> Space.Distance.Metric.t ->
-                    Splits.Method.t -> int -> t -> Trees.Splits.t
-    (* Direct sparse-NJ entry point that returns a Newick tree (no
-       Splits.t round-trip).  Embedding pipeline is identical to
-       [get_splits]; only the output type differs. *)
-    val get_sparse_nj_tree:
-                    ?normalize:bool -> ?threads:int -> ?elements_per_step:int ->
-                    ?verbose:bool ->
-                    ?num_neighbors:int ->
-                    ?row_sum:SparseNJ.RowSum.t ->
-                    ?symmetry:SparseNJ.Symmetry.t ->
-                    Space.Distance.t -> Space.Distance.Metric.t -> t -> Trees.Newick.t
+                    Phylo.Method.t -> int -> t -> Trees.Newick.t
     (* Input/Output *)
     val to_files: ?precision:int -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> string -> unit
     val of_files: ?threads:int -> ?bytes_per_step:int -> ?verbose:bool -> string -> t

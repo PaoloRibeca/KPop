@@ -13,8 +13,8 @@ set -e
 #                         selection.  Catches regressions in the
 #                         KPopCount -> KPopCountDB -> KPopTwist -> KPopTwistDB
 #                         core pipeline.
-#   test-splits           Builds binaries + Yggdrasill + test/Splits.exe, then
-#                         runs the OCaml splits-invariants exe and the
+#   test-phylo            Builds binaries + test/Phylo.exe, then runs the
+#                         OCaml phylo-invariants exe and the
 #                         test/integration_splits.sh shell suite.
 case "$1" in
   "" | "dev" | "dev-static" | "release" | "release-static")
@@ -29,12 +29,12 @@ case "$1" in
     PROFILE="release-static"
     DO_TESTS="core"
     ;;
-  "test-splits")
+  "test-phylo")
     PROFILE="release-static"
-    DO_TESTS="splits"
+    DO_TESTS="phylo"
     ;;
   *)
-    echo "Usage: $0 [dev|dev-static|release|release-static|test|test-core|test-splits]" >&2
+    echo "Usage: $0 [dev|dev-static|release|release-static|test|test-core|test-phylo]" >&2
     exit 2
     ;;
 esac
@@ -101,11 +101,10 @@ if [[ -n "$DO_TESTS" ]]; then
       dune build --profile="$PROFILE" BiOCamLib/bin/Yggdrasill.exe $FLAGS
       dune build --profile="$PROFILE" \
         test/CA.exe test/RSVD.exe test/Epsilon.exe \
-        test/Cluster.exe test/Splits.exe $FLAGS
+        test/Cluster.exe test/Phylo.exe $FLAGS
       ;;
-    "splits")
-      dune build --profile="$PROFILE" BiOCamLib/bin/Yggdrasill.exe $FLAGS
-      dune build --profile="$PROFILE" test/Splits.exe $FLAGS
+    "phylo")
+      dune build --profile="$PROFILE" test/Phylo.exe $FLAGS
       ;;
     "core")
       # No Yggdrasill or test exes needed; the four KPop binaries suffice
@@ -128,9 +127,9 @@ if [[ -n "$DO_TESTS" ]]; then
   echo "  Running tests (target '$1')"
   echo "=========================================================="
   case "$DO_TESTS" in
-    "splits")
+    "phylo")
       bash test/integration_build.sh
-      _build/default/test/Splits.exe
+      _build/default/test/Phylo.exe
       echo
       bash test/integration_splits.sh
       ;;
@@ -149,7 +148,7 @@ if [[ -n "$DO_TESTS" ]]; then
       _build/default/test/RSVD.exe -d 10 test/Primer/Train-5 >/dev/null
       _build/default/test/Epsilon.exe -o 1 test/Primer/Classes-5 >/dev/null
       _build/default/test/Cluster.exe -1 test/Primer/Classes-5 >/dev/null
-      _build/default/test/Splits.exe
+      _build/default/test/Phylo.exe
       echo
       bash test/integration_core.sh
       echo

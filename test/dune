@@ -14,8 +14,8 @@
  (libraries str unix BiOCamLib KPop))
 
 (executables
- (public_names CA RSVD Epsilon Cluster Splits)
- (names CA RSVD Epsilon Cluster Splits)
+ (public_names CA RSVD Epsilon Cluster Phylo)
+ (names CA RSVD Epsilon Cluster Phylo)
  (libraries str unix BiOCamLib KPop)
  (link_flags (-cclib -lgfortran -cclib -lquadmath -cclib -lstdc++)))
 
