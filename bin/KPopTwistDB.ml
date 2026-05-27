@@ -101,6 +101,7 @@ type to_do_t =
   | Set_phylo_hdbscan_num_neighbors of int option
   | Set_phylo_hdbscan_index_type of Interfaiss.Type.t
   | Set_phylo_hdbscan_lengths_mode of Clustering.Hdbscan.LengthsMode.t
+  | Set_phylo_snj_index_type of Interfaiss.Type.t
   | Set_phylo_snj_num_neighbors of int
   | Set_phylo_snj_row_sum of SparseNJ.RowSum.t
   | Set_phylo_snj_symmetry of SparseNJ.Symmetry.t
@@ -146,6 +147,7 @@ module Defaults =
     let phylo_hdbscan_num_neighbors = (None : int option)
     let phylo_hdbscan_index_type = Interfaiss.Type.of_string "hnsw(32)"
     let phylo_hdbscan_lengths_mode = Clustering.Hdbscan.LengthsMode.of_string "mreach"
+    let phylo_snj_index_type = Interfaiss.Type.of_string "hnsw(32)"
     let phylo_snj_num_neighbors = 10
     let phylo_snj_row_sum = SparseNJ.RowSum.of_string "knn"
     let phylo_snj_symmetry = SparseNJ.Symmetry.of_string "one"
@@ -731,6 +733,20 @@ let () =
       (fun _ ->
         Set_phylo_hdbscan_lengths_mode (TA.get_parameter () |> Clustering.Hdbscan.LengthsMode.of_string)
         |> List.accum Parameters.program);
+    [ "--phylo-snj-index-type" ],
+      Some "'flat'|'hnsw(<int>)'|'pq(<int>,<int>)'",
+      [ "FAISS index used to bootstrap the initial K-NN graph for sparse-NJ.";
+        "'flat' (exact, O(n^2 * d) at bootstrap; safe for small / medium n).";
+        "'hnsw(M)' (approximate, O(n log n) at bootstrap; recommended for large n).";
+        "'pq(M, bits)' (memory-frugal product quantisation).";
+        "Note that subsequent K-NN updates after merges use Saitou-Nei over the";
+        "cached neighbour lists with weighted-centroid fallback -- the choice";
+        "of index here affects only the initial bootstrap.";
+        "Ignored unless --phylo-method 'sparse-nj' is in effect." ],
+      TA.Default (Interfaiss.Type.to_string Defaults.phylo_snj_index_type |> Fun.const),
+      (fun _ ->
+        Set_phylo_snj_index_type (TA.get_parameter () |> Interfaiss.Type.of_string)
+        |> List.accum Parameters.program);
     [ "--phylo-snj-num-neighbors" ],
       Some "<positive_integer>",
       [ "number of nearest active neighbours K retained per cluster at";
@@ -854,7 +870,8 @@ let () =
       | Set_phylo_hdbscan_min_cluster_size _ | Set_phylo_hdbscan_min_samples _
       | Set_phylo_hdbscan_mst_mode _ | Set_phylo_hdbscan_num_neighbors _ | Set_phylo_hdbscan_index_type _
       | Set_phylo_hdbscan_lengths_mode _
-      | Set_phylo_snj_num_neighbors _ | Set_phylo_snj_row_sum _ | Set_phylo_snj_symmetry _
+      | Set_phylo_snj_index_type _ | Set_phylo_snj_num_neighbors _
+      | Set_phylo_snj_row_sum _ | Set_phylo_snj_symmetry _
       | Set_summary_keep_at_most _
       | Set_neighbors_keep_at_most _ | Set_neighbors_guard_policy _ | Set_neighbors_index_type _
       | Set_clusters_method _
@@ -895,6 +912,7 @@ let () =
   and phylo_hdbscan_num_neighbors = ref Defaults.phylo_hdbscan_num_neighbors
   and phylo_hdbscan_index_type = ref Defaults.phylo_hdbscan_index_type
   and phylo_hdbscan_lengths_mode = ref Defaults.phylo_hdbscan_lengths_mode
+  and phylo_snj_index_type = ref Defaults.phylo_snj_index_type
   and phylo_snj_num_neighbors = ref Defaults.phylo_snj_num_neighbors
   and phylo_snj_row_sum = ref Defaults.phylo_snj_row_sum
   and phylo_snj_symmetry = ref Defaults.phylo_snj_symmetry
@@ -995,6 +1013,8 @@ let () =
           phylo_hdbscan_index_type := idx
         | Set_phylo_hdbscan_lengths_mode m ->
           phylo_hdbscan_lengths_mode := m
+        | Set_phylo_snj_index_type idx ->
+          phylo_snj_index_type := idx
         | Set_phylo_snj_num_neighbors k ->
           phylo_snj_num_neighbors := k
         | Set_phylo_snj_row_sum rs ->
@@ -1020,6 +1040,7 @@ let () =
               ?hdbscan_num_neighbors:!phylo_hdbscan_num_neighbors
               ~hdbscan_index_type:!phylo_hdbscan_index_type
               ~hdbscan_lengths_mode:!phylo_hdbscan_lengths_mode
+              ~sparse_nj_index_type:!phylo_snj_index_type
               ~sparse_nj_num_neighbors:!phylo_snj_num_neighbors
               ~sparse_nj_row_sum:!phylo_snj_row_sum
               ~sparse_nj_symmetry:!phylo_snj_symmetry

@@ -209,19 +209,29 @@ include (
               prefix t cutoff (Array.length result) m0;
           result
         | Filter.Auto ->
+          (* Locate the noise/signal boundary in the heavy-tailed row-sum
+             distribution.  Run Kneedle on the log-transformed sorted
+             values: the raw-scale curve has its dominant geometric knee
+             in the upper tail (where the few high-row-sum k-mers
+             plateau), but the cutoff we want is at the LOWER knee where
+             the rare-singleton noise plateau ends.  log(1 + row_sum)
+             flattens the upper tail so the lower knee becomes the
+             dominant deviation point.  Filter is `> cutoff' (strictly):
+             the elbow value is the last noise level, so we drop it and
+             keep everything above. *)
           let sorted = Array.copy row_sums in
           Array.sort compare sorted;
-          let elbow = Clustering.kneedle_elbow (fun i -> sorted.(i)) m0 in
+          let elbow = Clustering.kneedle_elbow (fun i -> log1p sorted.(i)) m0 in
           let cutoff = sorted.(elbow) in
           let res = ref [] in
           Array.iteri
             (fun i old_i ->
-              if row_sums.(i) >= cutoff then
+              if row_sums.(i) > cutoff then
                 List.accum res old_i)
             kmer_indices;
           let result = Array.of_rlist !res in
           if verbose then
-            Printf.eprintf "%s K-mer threshold (auto, Kneedle elbow at row_sum %g): retained %d/%d k-mers.\n%!"
+            Printf.eprintf "%s K-mer threshold (auto, Kneedle elbow at row_sum %g, retain > elbow): retained %d/%d k-mers.\n%!"
               prefix cutoff (Array.length result) m0;
           result in
       (* Step 5: Remove k-mers with zero total count (safety guard against
@@ -313,15 +323,21 @@ include (
               match condition_number with
               | Filter.Manual t -> max_norm /. t, Printf.sprintf "manual %g, cutoff %g" t (max_norm /. t)
               | Filter.Auto ->
+                (* Same fix as the row-sum auto branch: log-transform
+                   to make the lower (noise) knee dominant over the
+                   upper (signal-tail) one, and filter `> cutoff'
+                   strictly so the elbow value -- the last noise-tier
+                   contribution -- is dropped. *)
                 let sorted = Array.copy row_norms in
                 Array.sort compare sorted;
-                let elbow = Clustering.kneedle_elbow (fun i -> sorted.(i)) m in
-                sorted.(elbow), Printf.sprintf "auto, Kneedle elbow at CTR %g" sorted.(elbow)
+                let elbow = Clustering.kneedle_elbow (fun i -> log1p sorted.(i)) m in
+                sorted.(elbow),
+                  Printf.sprintf "auto, Kneedle elbow at CTR %g, retain > elbow" sorted.(elbow)
               | Filter.Off -> assert false (* handled above *) in
             let res = ref [] in
             Array.iteri
               (fun new_i old_i ->
-                if row_norms.(new_i) >= cutoff then
+                if row_norms.(new_i) > cutoff then
                   List.accum res old_i)
               kmer_indices;
             let kmer_indices' = Array.of_rlist !res in

@@ -155,6 +155,21 @@ else
   fail "sparse-mode validation" "did not raise expected error message"
 fi
 
+# ----------------------------------------------------------------------------
+# Part 8: sparse-NJ produces matching trees under flat and hnsw indices
+# on the small fixture (HNSW is exact at n=10, so they should agree).
+# ----------------------------------------------------------------------------
+echo "=== Part 8: sparse-NJ flat == hnsw(32) on small fixture ==="
+$BIN -i t $DATA --phylo-method sparse-nj --phylo-snj-index-type flat \
+     -P "$TMP/snj_flat" >/dev/null 2>&1
+$BIN -i t $DATA --phylo-method sparse-nj --phylo-snj-index-type "hnsw(32)" \
+     -P "$TMP/snj_hnsw" >/dev/null 2>&1
+if cmp -s "$TMP/snj_flat.nwk" "$TMP/snj_hnsw.nwk"; then
+  pass "sparse-NJ: flat == hnsw(32) byte-for-byte (small n)"
+else
+  fail "sparse-NJ flat vs hnsw(32)" "outputs differ"
+fi
+
 echo
 if [[ $failed -eq 0 ]]; then
   echo "All phylo-integration tests passed."

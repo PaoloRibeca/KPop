@@ -661,6 +661,7 @@ include (
         ?hdbscan_num_neighbors
         ?hdbscan_index_type
         ?(hdbscan_lengths_mode = Clustering.Hdbscan.LengthsMode.Mreach)
+        ?sparse_nj_index_type
         ?(sparse_nj_num_neighbors = 10)
         ?(sparse_nj_row_sum = SparseNJ.RowSum.Knn)
         ?(sparse_nj_symmetry = SparseNJ.Symmetry.One)
@@ -860,6 +861,7 @@ include (
            a single tree, not a candidate split pool). *)
         ignore max_splits;
         SparseNJ.compute ~verbose
+          ?index_type:sparse_nj_index_type
           ~k_nn:sparse_nj_num_neighbors
           ~row_sum:sparse_nj_row_sum
           ~symmetry:sparse_nj_symmetry
@@ -959,6 +961,7 @@ include (
                     ?hdbscan_num_neighbors:int ->
                     ?hdbscan_index_type:Interfaiss.Type.t ->
                     ?hdbscan_lengths_mode:Clustering.Hdbscan.LengthsMode.t ->
+                    ?sparse_nj_index_type:Interfaiss.Type.t ->
                     ?sparse_nj_num_neighbors:int ->
                     ?sparse_nj_row_sum:SparseNJ.RowSum.t ->
                     ?sparse_nj_symmetry:SparseNJ.Symmetry.t ->

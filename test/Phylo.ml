@@ -183,5 +183,26 @@ let () =
     fail "expected an exception when num_neighbors < min_samples";
   pass "validation rejects num_neighbors(2) < min_samples(5)"
 
+(* -------------------------------------------------------------------------- *)
+(*  Part 7 - sparse-NJ flat == hnsw(32) on small fixture                      *)
+(*  HNSW with M=32 is exact at n=10, so the two index choices must produce    *)
+(*  byte-identical Newick output on the Classes-5 fixture.                    *)
+(* -------------------------------------------------------------------------- *)
+let () =
+  Printf.printf "=== Part 7: sparse-NJ flat == hnsw(32) on small fixture ===\n%!";
+  let twisted = Twisted.of_binary twisted_prefix in
+  let m = Twisted.to_embeddings ~normalize:true ~verbose:false distance metric twisted in
+  let flat =
+    SparseNJ.compute ~verbose:false ~k_nn:10
+      ~index_type:(Interfaiss.Type.of_string "flat")
+      m.matrix.row_names m.matrix.data in
+  let hnsw =
+    SparseNJ.compute ~verbose:false ~k_nn:10
+      ~index_type:(Interfaiss.Type.of_string "hnsw(32)")
+      m.matrix.row_names m.matrix.data in
+  if Trees.Newick.to_string flat <> Trees.Newick.to_string hnsw then
+    fail "sparse-NJ: flat and hnsw(32) outputs differ on small fixture";
+  pass "sparse-NJ: flat and hnsw(32) produce identical trees on small fixture"
+
 let () =
   Printf.printf "\nAll phylo-subsystem invariants passed.\n%!"

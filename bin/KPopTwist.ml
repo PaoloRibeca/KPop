@@ -42,7 +42,7 @@ module Defaults =
   struct
     let kmers_keep = ""
     let kmers_sample = 1.
-    let threshold_kmers = CA.Filter.Off
+    let threshold_kmers = CA.Filter.Auto
     let condition_number = CA.Filter.Off
     let dimensions = 0 (* 0 means: use full SVD via twist *)
     let threads = Processes.Parallel.get_nproc ()
