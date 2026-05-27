@@ -105,6 +105,7 @@ type to_do_t =
   | Set_phylo_snj_mode of SparseNJ.Mode.t
   | Set_phylo_snj_num_neighbors of int
   | Set_phylo_snj_k_query_factor of int
+  | Set_phylo_snj_hyp_scale of float
   | Set_phylo_snj_row_sum of SparseNJ.RowSum.t
   | Set_phylo_snj_symmetry of SparseNJ.Symmetry.t
   | Phylo_tree_from_twisted of string (* Output prefix *)
@@ -153,6 +154,7 @@ module Defaults =
     let phylo_snj_mode = SparseNJ.Mode.of_string "dense"
     let phylo_snj_num_neighbors = 10
     let phylo_snj_k_query_factor = 3
+    let phylo_snj_hyp_scale = 1.0
     let phylo_snj_row_sum = SparseNJ.RowSum.of_string "knn"
     let phylo_snj_symmetry = SparseNJ.Symmetry.of_string "one"
     let summary_keep_at_most = Some 2
@@ -797,6 +799,22 @@ let () =
       (fun _ ->
         Set_phylo_snj_k_query_factor (TA.get_parameter_int_pos ())
         |> List.accum Parameters.program);
+    [ "--phylo-snj-hyp-scale" ],
+      Some "<positive_float>",
+      [ "radial scale s for the initial hyperboloid lift of leaf";
+        "positions in --phylo-snj-mode 'hyperbolic'.  Each leaf's";
+        "principal-coord vector p is lifted to (cosh(s|p|),";
+        "sinh(s|p|)*p/|p|) on the upper hyperboloid; subsequent merges";
+        "place new clusters on hyperbolic geodesics between their";
+        "parents.  Empirically s in [0.5, 1.0] gives Spearman >= 0.9";
+        "between hyperbolic and Saitou-Nei distances across the whole";
+        "NJ run on prot_k5_kt0.035.  s << 0.5 degenerates toward";
+        "Euclidean; s >> 1 over-curves the embedding.";
+        "Ignored unless --phylo-snj-mode 'hyperbolic' is in effect." ],
+      TA.Default (string_of_float Defaults.phylo_snj_hyp_scale |> Fun.const),
+      (fun _ ->
+        Set_phylo_snj_hyp_scale (TA.get_parameter_float_pos ())
+        |> List.accum Parameters.program);
     [ "--phylo-snj-rowsum" ],
       Some "'knn'|'topk'|'full'",
       [ "row-sum estimator used in the sparse-NJ Q-formula.";
@@ -909,6 +927,7 @@ let () =
       | Set_phylo_hdbscan_lengths_mode _
       | Set_phylo_snj_index_type _ | Set_phylo_snj_mode _
       | Set_phylo_snj_num_neighbors _ | Set_phylo_snj_k_query_factor _
+      | Set_phylo_snj_hyp_scale _
       | Set_phylo_snj_row_sum _ | Set_phylo_snj_symmetry _
       | Set_summary_keep_at_most _
       | Set_neighbors_keep_at_most _ | Set_neighbors_guard_policy _ | Set_neighbors_index_type _
@@ -954,6 +973,7 @@ let () =
   and phylo_snj_mode = ref Defaults.phylo_snj_mode
   and phylo_snj_num_neighbors = ref Defaults.phylo_snj_num_neighbors
   and phylo_snj_k_query_factor = ref Defaults.phylo_snj_k_query_factor
+  and phylo_snj_hyp_scale = ref Defaults.phylo_snj_hyp_scale
   and phylo_snj_row_sum = ref Defaults.phylo_snj_row_sum
   and phylo_snj_symmetry = ref Defaults.phylo_snj_symmetry
   and summary_keep_at_most = ref Defaults.summary_keep_at_most
@@ -1061,6 +1081,8 @@ let () =
           phylo_snj_num_neighbors := k
         | Set_phylo_snj_k_query_factor k ->
           phylo_snj_k_query_factor := k
+        | Set_phylo_snj_hyp_scale s ->
+          phylo_snj_hyp_scale := s
         | Set_phylo_snj_row_sum rs ->
           phylo_snj_row_sum := rs
         | Set_phylo_snj_symmetry sym ->
@@ -1088,6 +1110,7 @@ let () =
               ~sparse_nj_mode:!phylo_snj_mode
               ~sparse_nj_num_neighbors:!phylo_snj_num_neighbors
               ~sparse_nj_k_query_factor:!phylo_snj_k_query_factor
+              ~sparse_nj_hyp_scale:!phylo_snj_hyp_scale
               ~sparse_nj_row_sum:!phylo_snj_row_sum
               ~sparse_nj_symmetry:!phylo_snj_symmetry
               !distance !metric !phylo_method !phylo_splits_keep_at_most !twisted in

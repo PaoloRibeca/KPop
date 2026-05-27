@@ -114,20 +114,28 @@ include (
       end
     (* Implementation mode.  [Dense] is the validated reference; see
        compute_dense.  [Subquadratic] is the experimental
-       O(n K^2 + n K log n) path; see compute_subquadratic. *)
+       O(n K^2 + n K log n) centroid-based path; see compute_subquadratic.
+       [Hyperbolic] is the geodesic-tracked hyperbolic-embedding path
+       motivated by the Phase 0 result showing hyperbolic geodesic
+       placement tracks Saitou-Nei distances across the whole NJ run
+       (whereas size-weighted centroids drift catastrophically in
+       middle iterations); see compute_hyperbolic. *)
     module Mode =
       struct
         type t =
           | Dense
           | Subquadratic
+          | Hyperbolic
         let of_string = function
           | "dense" -> Dense
           | "subquadratic" -> Subquadratic
+          | "hyperbolic" -> Hyperbolic
           | s ->
             Exception.raise_unrecognized_initializer __FUNCTION__ "sparse-NJ mode" s
         let to_string = function
           | Dense -> "dense"
           | Subquadratic -> "subquadratic"
+          | Hyperbolic -> "hyperbolic"
       end
     (* Squared L2 distance between two Float.Array vectors, accumulated
        in float64. *)
@@ -757,11 +765,321 @@ include (
         Printf.eprintf "%s Sparse-NJ (subquadratic): built unrooted tree on %d leaves.\n%!"
           prefix n;
       root
+    (* ====================================================================
+       Hyperbolic-embedding implementation.
+
+       Hyperboloid model conventions:  a point p in H^d is stored as a
+       (d + 1)-vector with p.(0) the time-like coord (positive) and
+       p.(1..d) the spatial coords, satisfying the Lorentz constraint
+       -p.(0)^2 + p.(1)^2 + ... + p.(d)^2 = -1.  The Lorentz inner
+       product is then  <p, q>_L = -p.(0) q.(0) + p.(1) q.(1) + ... ;
+       hyperbolic distance is  acosh(-<p, q>_L).
+
+       Initial leaf positions are lifted from the principal-coord
+       Euclidean embedding via
+           p_i -> (cosh(s |p_i|), sinh(s |p_i|) * p_i / |p_i|)
+       with [scale] = s a tunable radial scale.  Empirically s in
+       [0.5, 1.0] gives Spearman >= 0.9 against true Saitou-Nei
+       distances across the whole NJ run (Phase 0 diagnostic on
+       prot_k5_kt0_035; see PhyloSplits-Subquadratic.tex Path 3).
+
+       Per-merge update places the new cluster at the geodesic point
+       at hyperbolic distance b_i from p_i (toward p_j) using the
+       closed-form expression
+           p_u = cosh(b_i) p_i + sinh(b_i) v_{ij}
+           v_{ij} = (p_j - cosh(d_H(p_i, p_j)) p_i) / sinh(d_H(p_i, p_j))
+       which keeps p_u on the hyperboloid by construction.  Under
+       perfect tree-metric additivity p_u then satisfies
+       d_H(p_u, p_x) = d_NJ(u, x) for every other active x; under
+       near-additivity (real data) the equality is approximate, and
+       Phase 0 confirms the approximation tracks Saitou-Nei
+       distances closely enough for K-NN selection. *)
+    let lorentz_inner p q =
+      let acc = ref (~-. (Float.Array.unsafe_get p 0 *. Float.Array.unsafe_get q 0)) in
+      let dim = Float.Array.length p in
+      for k = 1 to dim - 1 do
+        acc := !acc +. Float.Array.unsafe_get p k *. Float.Array.unsafe_get q k
+      done;
+      !acc
+    let hyp_dist p q =
+      let inner = ~-. (lorentz_inner p q) in
+      let inner = max inner 1. in
+      acosh inner
+    let hyp_lift ~scale x =
+      let d = Float.Array.length x in
+      let norm =
+        let acc = ref 0. in
+        for k = 0 to d - 1 do
+          let v = Float.Array.unsafe_get x k in
+          acc := !acc +. v *. v
+        done;
+        sqrt !acc in
+      let safe_norm = if norm < 1e-12 then 1e-12 else norm in
+      let s = scale *. safe_norm in
+      let cosh_s = cosh s and sinh_s = sinh s in
+      let coeff = sinh_s /. safe_norm in
+      let out = Float.Array.create (d + 1) in
+      Float.Array.unsafe_set out 0 cosh_s;
+      for k = 0 to d - 1 do
+        Float.Array.unsafe_set out (k + 1) (coeff *. Float.Array.unsafe_get x k)
+      done;
+      out
+    (* Geodesic point at hyperbolic distance [t] from [p] toward [q] on
+       the hyperboloid.  Both p and q must satisfy the Lorentz
+       constraint -<x, x>_L = 1.  Output also satisfies it. *)
+    let hyp_geodesic p q t =
+      let d = hyp_dist p q in
+      let dim = Float.Array.length p in
+      if d < 1e-12 then Float.Array.copy p
+      else begin
+        let cosh_d = cosh d and sinh_d = sinh d in
+        let cosh_t = cosh t and sinh_t = sinh t in
+        let inv_sinh_d = 1. /. sinh_d in
+        let out = Float.Array.create dim in
+        for k = 0 to dim - 1 do
+          let pk = Float.Array.unsafe_get p k and qk = Float.Array.unsafe_get q k in
+          let v_k = (qk -. cosh_d *. pk) *. inv_sinh_d in
+          Float.Array.unsafe_set out k (cosh_t *. pk +. sinh_t *. v_k)
+        done;
+        out
+      end
+    let compute_hyperbolic ?(verbose = false)
+        ?(k_nn = 10) ?(k_query_factor = 1) ?(hyp_scale = 1.0)
+        ?(row_sum = RowSum.Knn) ?(symmetry = Symmetry.One)
+        names data =
+      let open String.TermIO in
+      let prefix = grey (Printf.sprintf "(%s):" __FUNCTION__) in
+      let n = Array.length names in
+      if Array.length data <> n then
+        Exception.raise __FUNCTION__ IO_Format
+          (Printf.sprintf "Sample count mismatch: %d names vs %d data rows"
+             n (Array.length data));
+      if n < 3 then
+        Exception.raise __FUNCTION__ IO_Format
+          (Printf.sprintf "Sparse-NJ requires at least 3 leaves (got %d)" n);
+      let max_slots = 2 * n - 3 in
+      (* Per-slot state.  Slots [0, n) are leaves; [n, max_slots) are
+         merged clusters created in order. *)
+      let trees = Array.make max_slots (Trees.Newick.leaf "") in
+      let active = Array.make max_slots false in
+      let size = Array.make max_slots 0 in
+      let hyp_pos = Array.make max_slots (Float.Array.make 0 0.) in
+      let merge_left = Array.make max_slots (-1) in
+      let merge_right = Array.make max_slots (-1) in
+      let merge_dist = Array.make max_slots 0. in
+      let nbrs : (int * float) array array = Array.make max_slots [||] in
+      let dist_cache : (int * int, float) Hashtbl.t = Hashtbl.create (n * k_nn * 8) in
+      let rec dist_of i j =
+        if i = j then 0.
+        else
+          let key = cache_key i j in
+          match Hashtbl.find_opt dist_cache key with
+          | Some d -> d
+          | None ->
+            let d =
+              if i < n && j < n then
+                eucl_dist data.(i) data.(j)
+              else
+                let younger = max i j and older = min i j in
+                let yl = merge_left.(younger)
+                and yr = merge_right.(younger)
+                and dlr = merge_dist.(younger) in
+                0.5 *. (dist_of older yl +. dist_of older yr -. dlr) in
+            Hashtbl.add dist_cache key d;
+            d in
+      (* Brute-force [k_nn * k_query_factor] nearest by hyperbolic
+         distance over the active set, then rerank by Saitou-Nei
+         (via [dist_of]) and keep the top [k_nn].  The k_query_factor
+         tunes how many hyperbolic candidates we consider; factor = 1
+         uses hyperbolic ranking directly (the cheapest variant), but
+         empirically the hyperbolic Spearman against Saitou-Nei isn't
+         quite tight enough at top-K for sparse-NJ to land on the
+         best Q-pair, so a small constant factor (2-3) is needed to
+         widen the candidate pool.  O(n_active * k_query_factor) per
+         query; Phase 2 will replace this with a cover-tree query for
+         O(k_nn * k_query_factor * log n). *)
+      let k_query = k_nn * k_query_factor in
+      let hyp_knn v =
+        let p_v = hyp_pos.(v) in
+        let acc = ref [] in
+        for s = 0 to max_slots - 1 do
+          if s <> v && active.(s) then
+            acc := (hyp_dist p_v hyp_pos.(s), s) :: !acc
+        done;
+        let arr = Array.of_list !acc in
+        Array.sort (fun (a, _) (b, _) -> compare a b) arr;
+        let m = min k_query (Array.length arr) in
+        if k_query_factor <= 1 then
+          Array.sub arr 0 (min k_nn m)
+        else begin
+          (* Rerank the top k_query hyperbolic candidates by Saitou-Nei *)
+          let cand =
+            Array.init m (fun p ->
+              let (_d_hyp, x) = arr.(p) in
+              (dist_of v x, x)) in
+          Array.sort (fun (a, _) (b, _) -> compare a b) cand;
+          let kk = min k_nn (Array.length cand) in
+          Array.sub cand 0 kk
+        end in
+      (* Lift the n leaf principal-coord vectors into the hyperboloid. *)
+      for i = 0 to n - 1 do
+        trees.(i) <- Trees.Newick.leaf names.(i);
+        active.(i) <- true;
+        size.(i) <- 1;
+        hyp_pos.(i) <- hyp_lift ~scale:hyp_scale data.(i)
+      done;
+      let n_active = ref n in
+      let next_slot = ref n in
+      if verbose then
+        Printf.eprintf "%s Sparse-NJ (hyperbolic): K=%d, scale=%g, rowsum=%s, sym=%s.\n%!"
+          prefix k_nn hyp_scale (RowSum.to_string row_sum)
+          (Symmetry.to_string symmetry);
+      (* Bootstrap K-NN lists for the leaves *)
+      for i = 0 to n - 1 do
+        let knn = hyp_knn i in
+        nbrs.(i) <- Array.map (fun (d, j) ->
+          (* Replace hyp distance with the true Saitou-Nei (= Euclidean
+             at leaves) so dists.(i) is consistent with what the
+             Q-formula expects.  Hyperbolic was only used for ranking. *)
+          let _ = d in
+          (j, dist_of i j)) knn
+      done;
+      let nbrs_idx () =
+        Array.init max_slots (fun v ->
+          let a = nbrs.(v) in
+          Array.init (Array.length a) (fun k -> fst a.(k))) in
+      let row_sums () =
+        let s = Float.Array.create max_slots in
+        Float.Array.fill s 0 max_slots 0.;
+        let n_active_minus_1 = float_of_int (!n_active - 1) in
+        (match row_sum with
+         | RowSum.Full ->
+           for i = 0 to max_slots - 1 do
+             if active.(i) then begin
+               let acc = ref 0. in
+               for j = 0 to max_slots - 1 do
+                 if j <> i && active.(j) then
+                   acc := !acc +. dist_of i j
+               done;
+               Float.Array.unsafe_set s i !acc
+             end
+           done
+         | RowSum.Knn | RowSum.Topk ->
+           for i = 0 to max_slots - 1 do
+             if active.(i) then begin
+               let arr = nbrs.(i) in
+               let kk = Array.length arr in
+               if kk > 0 then begin
+                 let acc = ref 0. in
+                 for p = 0 to kk - 1 do
+                   acc := !acc +. snd arr.(p)
+                 done;
+                 Float.Array.unsafe_set s i
+                   (!acc *. n_active_minus_1 /. float_of_int kk)
+               end
+             end
+           done);
+        s in
+      while !n_active > 3 do
+        let s = row_sums () in
+        let cand = candidate_pairs symmetry (nbrs_idx ()) active in
+        let cand =
+          if cand = [] then begin
+            let acc = ref [] in
+            for i = 0 to max_slots - 1 do
+              if active.(i) then
+                for j = i + 1 to max_slots - 1 do
+                  if active.(j) then
+                    List.accum acc (i, j)
+                done
+            done;
+            !acc
+          end else
+            cand in
+        let n_act_minus_2 = float_of_int (!n_active - 2) in
+        let best_q = ref infinity and best_pair = ref (-1, -1) in
+        List.iter
+          (fun (i, j) ->
+            let q =
+              n_act_minus_2 *. dist_of i j
+              -. Float.Array.unsafe_get s i -. Float.Array.unsafe_get s j in
+            if q < !best_q then begin
+              best_q := q;
+              best_pair := (i, j)
+            end)
+          cand;
+        let i, j = !best_pair in
+        let d_ij = dist_of i j in
+        let s_i = Float.Array.unsafe_get s i and s_j = Float.Array.unsafe_get s j in
+        let n_act_minus_2_max = max n_act_minus_2 1. in
+        let b_i = 0.5 *. d_ij +. (s_i -. s_j) /. (2. *. n_act_minus_2_max) in
+        let b_j = d_ij -. b_i in
+        let b_i = max 0. b_i and b_j = max 0. b_j in
+        let u = !next_slot in
+        incr next_slot;
+        trees.(u) <- Trees.Newick.join
+          [| Trees.Newick.edge ~length:b_i (), trees.(i);
+             Trees.Newick.edge ~length:b_j (), trees.(j) |];
+        active.(u) <- true;
+        size.(u) <- size.(i) + size.(j);
+        merge_left.(u) <- i;
+        merge_right.(u) <- j;
+        merge_dist.(u) <- d_ij;
+        (* Hyperbolic geodesic placement: p_u at distance b_i from p_i
+           toward p_j on the geodesic.  Under additivity this gives
+           d_H(p_u, p_x) = d_NJ(u, x) for every other active x. *)
+        hyp_pos.(u) <- hyp_geodesic hyp_pos.(i) hyp_pos.(j) b_i;
+        (* Deactivate i and j BEFORE the K-NN recomputation so the
+           brute-force scan filters them out automatically. *)
+        nbrs.(i) <- [||];
+        nbrs.(j) <- [||];
+        active.(i) <- false;
+        active.(j) <- false;
+        decr n_active;
+        (* Rebuild K-NN of u and of every active cluster whose K-NN
+           might have changed.  For the brute-force Phase 1 we
+           recompute the K-NN of every active cluster on every merge
+           via [hyp_knn]: O(n_active^2) per iteration, O(n^3) total --
+           same as the dense reference but tests the algorithmic
+           idea cleanly before the cover-tree work.  Phase 2 swaps
+           [hyp_knn] for a cover-tree query (O(log n)) and refreshes
+           only the clusters whose K-NN actually changed. *)
+        for v = 0 to max_slots - 1 do
+          if active.(v) then begin
+            let knn = hyp_knn v in
+            nbrs.(v) <- Array.map (fun (_d_hyp, x) ->
+              (x, dist_of v x)) knn
+          end
+        done
+      done;
+      let active_three =
+        let acc = ref [] in
+        for s = max_slots - 1 downto 0 do
+          if active.(s) then List.accum acc s
+        done;
+        Array.of_rlist !acc in
+      assert (Array.length active_three = 3);
+      let i1, i2, i3 = active_three.(0), active_three.(1), active_three.(2) in
+      let d12 = dist_of i1 i2
+      and d13 = dist_of i1 i3
+      and d23 = dist_of i2 i3 in
+      let b1 = max 0. (0.5 *. (d12 +. d13 -. d23))
+      and b2 = max 0. (0.5 *. (d12 +. d23 -. d13))
+      and b3 = max 0. (0.5 *. (d13 +. d23 -. d12)) in
+      let root =
+        Trees.Newick.join
+          [| Trees.Newick.edge ~length:b1 (), trees.(i1);
+             Trees.Newick.edge ~length:b2 (), trees.(i2);
+             Trees.Newick.edge ~length:b3 (), trees.(i3) |] in
+      if verbose then
+        Printf.eprintf "%s Sparse-NJ (hyperbolic): built unrooted tree on %d leaves.\n%!"
+          prefix n;
+      root
     (* Dispatcher *)
     let compute ?(verbose = false)
         ?(mode = Mode.Dense)
         ?(index_type = Interfaiss.Type.of_string "hnsw(32)")
-        ?(k_nn = 10) ?(k_query_factor = 3)
+        ?(k_nn = 10) ?(k_query_factor = 3) ?(hyp_scale = 1.0)
         ?(row_sum = RowSum.Knn) ?(symmetry = Symmetry.One)
         names data =
       match mode with
@@ -769,6 +1087,9 @@ include (
         compute_dense ~verbose ~index_type ~k_nn ~row_sum ~symmetry names data
       | Mode.Subquadratic ->
         compute_subquadratic ~verbose ~index_type ~k_nn ~k_query_factor
+          ~row_sum ~symmetry names data
+      | Mode.Hyperbolic ->
+        compute_hyperbolic ~verbose ~k_nn ~k_query_factor ~hyp_scale
           ~row_sum ~symmetry names data
   end: sig
     module RowSum:
@@ -793,6 +1114,7 @@ include (
         type t =
           | Dense
           | Subquadratic
+          | Hyperbolic
         val of_string: string -> t
         val to_string: t -> string
       end
@@ -802,17 +1124,22 @@ include (
        carrying the NJ-computed branch lengths above its children; the
        final three-way merge produces a trifurcating unrooted root.
        [mode] selects between the validated O(n^3)/O(n^2) dense
-       reference and the experimental O(n K^2 + n K log n) /
-       O(n K) subquadratic prototype.  [index_type] picks the FAISS
-       index; [k_query_factor] sets the FAISS expansion factor in
-       Subquadratic mode (queries k_nn * k_query_factor candidates
-       per centroid lookup, then reranks by Saitou-Nei). *)
+       reference, the experimental centroid-based subquadratic
+       prototype, and the hyperbolic-embedding mode (Phase 1: with
+       brute-force K-NN scan, same O(n^3) asymptotic as the dense
+       reference; Phase 2 will swap in a cover-tree query for
+       O(n K log n)).  [index_type] picks the FAISS index;
+       [k_query_factor] sets the FAISS expansion factor in
+       Subquadratic mode; [hyp_scale] sets the radial scale s for the
+       initial hyperboloid lift in Hyperbolic mode (empirically
+       s in [0.5, 1.0] works; default 1.0). *)
     val compute:
       ?verbose:bool ->
       ?mode:Mode.t ->
       ?index_type:Interfaiss.Type.t ->
       ?k_nn:int ->
       ?k_query_factor:int ->
+      ?hyp_scale:float ->
       ?row_sum:RowSum.t ->
       ?symmetry:Symmetry.t ->
       string array ->
