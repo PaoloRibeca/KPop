@@ -101,6 +101,9 @@ type to_do_t =
   | Set_splits_hdbscan_mst_mode of Clustering.HdbscanMstMode.t
   | Set_splits_hdbscan_num_neighbors of int option
   | Set_splits_hdbscan_index_type of Interfaiss.Type.t
+  | Set_splits_sparse_nj_num_neighbors of int
+  | Set_splits_sparse_nj_row_sum of SparseNJ.RowSum.t
+  | Set_splits_sparse_nj_symmetry of SparseNJ.Symmetry.t
   | Splits_from_twisted of string (* Output prefix *)
   | Set_summary_keep_at_most of KeepAtMost.t
   (* Parameters are input probes, output prefix for summary/distance matrix,
@@ -143,6 +146,9 @@ module Defaults =
     let splits_hdbscan_mst_mode = Clustering.HdbscanMstMode.of_string "auto"
     let splits_hdbscan_num_neighbors = (None : int option)
     let splits_hdbscan_index_type = Interfaiss.Type.of_string "hnsw(32)"
+    let splits_sparse_nj_num_neighbors = 10
+    let splits_sparse_nj_row_sum = SparseNJ.RowSum.of_string "knn"
+    let splits_sparse_nj_symmetry = SparseNJ.Symmetry.of_string "one"
     let summary_keep_at_most = Some 2
     let neighbors_keep_at_most = Some 6
     let neighbors_guard_policy = Twisted.NeighborsPolicy.of_string "times(2)"
@@ -549,14 +555,17 @@ let () =
       TA.Default (string_of_int Defaults.precision_splits |> Fun.const),
       (fun _ -> Set_precision_splits (TA.get_parameter_int_pos ()) |> List.accum Parameters.program);
     [ "--splits-method" ],
-      Some "'gaps'|'centroids'|'hdbscan'",
+      Some "'gaps'|'centroids'|'hdbscan'|'sparse-nj'",
       [ "algorithm to use when computing splits from embeddings.";
         "'gaps': per-CA-dimension gap candidates, optionally Kneedle-pre-filtered";
         "  (see --splits-gaps-kneedle).";
         "'centroids': K-seed bootstrap of inter-centroid bipartitions";
         "  (see --splits-centroids-*).";
         "'hdbscan': condensed HDBSCAN* clusters emitted as nested splits";
-        "  with persistence-weighted branch lengths (see --splits-hdbscan-*)." ],
+        "  with persistence-weighted branch lengths (see --splits-hdbscan-*).";
+        "'sparse-nj': locally-regularised neighbour-joining over a K-NN";
+        "  candidate set; emits one bipartition per internal merge, weighted";
+        "  by NJ-computed branch length (see --splits-sparse-nj-*)." ],
       TA.Default (Twisted.Splits.Method.to_string Defaults.splits_method |> Fun.const),
       (fun _ ->
         Set_splits_method (TA.get_parameter () |> Twisted.Splits.Method.of_string)
@@ -712,14 +721,57 @@ let () =
       (fun _ ->
         Set_splits_hdbscan_index_type (TA.get_parameter () |> Interfaiss.Type.of_string)
         |> List.accum Parameters.program);
+    [ "--splits-sparse-nj-num-neighbors" ],
+      Some "<positive_integer>",
+      [ "number of nearest active neighbours K retained per cluster at";
+        "each sparse-NJ merge iteration.  Smaller K is faster (and";
+        "asymptotically sub-quadratic at fixed K) but loses topological";
+        "resolution below K ~ 7; larger K approaches classical NJ at";
+        "K = n - 1.  The empirical sweet spot on the protein-k=5";
+        "evaluation dataset is K ~ n / 5.";
+        "Ignored unless --splits-method 'sparse-nj' is in effect." ],
+      TA.Default (string_of_int Defaults.splits_sparse_nj_num_neighbors |> Fun.const),
+      (fun _ ->
+        Set_splits_sparse_nj_num_neighbors (TA.get_parameter_int_pos ())
+        |> List.accum Parameters.program);
+    [ "--splits-sparse-nj-rowsum" ],
+      Some "'knn'|'topk'|'full'",
+      [ "row-sum estimator used in the sparse-NJ Q-formula.";
+        "'knn' (default) approximates r(i) = (n_act - 1) / K times the";
+        "  sum of i's K nearest-active-neighbour distances; this is the";
+        "  estimator that produces the regularisation lift over classical NJ.";
+        "'topk' is equivalent up to a constant ((n_act - 1) times the mean of";
+        "  the same K distances).  'full' uses the exact global row sum, which";
+        "  reproduces classical NJ behaviour on a restricted candidate set and";
+        "  loses the regularisation lift.";
+        "Ignored unless --splits-method 'sparse-nj' is in effect." ],
+      TA.Default (SparseNJ.RowSum.to_string Defaults.splits_sparse_nj_row_sum |> Fun.const),
+      (fun _ ->
+        Set_splits_sparse_nj_row_sum (TA.get_parameter () |> SparseNJ.RowSum.of_string)
+        |> List.accum Parameters.program);
+    [ "--splits-sparse-nj-symmetry" ],
+      Some "'one'|'both'",
+      [ "K-NN membership policy for the sparse-NJ candidate set.";
+        "'one' (default) includes pair (i, j) if either j is in i's K-NN list";
+        "  or i is in j's; one-sided is more permissive and consistently better.";
+        "'both' requires both directions; stricter but more conservative.";
+        "Ignored unless --splits-method 'sparse-nj' is in effect." ],
+      TA.Default (SparseNJ.Symmetry.to_string Defaults.splits_sparse_nj_symmetry |> Fun.const),
+      (fun _ ->
+        Set_splits_sparse_nj_symmetry (TA.get_parameter () |> SparseNJ.Symmetry.of_string)
+        |> List.accum Parameters.program);
     [ "-S"; "--splits"; "--compute-splits"; "--twisted-to-splits" ],
-      Some "<phylosplits_tabular_file_prefix>",
+      Some "<output_file_prefix>",
       [ "compute phylogenetic splits";
         "from the vectors present in the twisted register";
         "using the current metric function, distance function and normalization.";
-        "The result will be written to the specified tabular file.";
+        "The result will be written to the specified file.";
         "File extension is automatically assigned";
-        " (will be '.PhyloSplits' unless file is '/dev/*')" ],
+        " (will be '.PhyloSplits' for the splits-based methods 'gaps' /";
+        "  'centroids' / 'hdbscan', or '.nwk' for the tree-based method";
+        "  'sparse-nj' which emits a resolved Newick topology directly";
+        "  with no Yggdrasill round-trip;";
+        "  unless file is '/dev/*')" ],
       TA.Optional,
       (fun _ -> Splits_from_twisted (TA.get_parameter ()) |> List.accum Parameters.program);
     TA.make_separator_multiline [ "Miscellaneous options."; "They are set immediately" ];
@@ -795,6 +847,7 @@ let () =
       | Set_splits_gaps_prefilter_kneedle _
       | Set_splits_hdbscan_min_cluster_size _ | Set_splits_hdbscan_min_samples _
       | Set_splits_hdbscan_mst_mode _ | Set_splits_hdbscan_num_neighbors _ | Set_splits_hdbscan_index_type _
+      | Set_splits_sparse_nj_num_neighbors _ | Set_splits_sparse_nj_row_sum _ | Set_splits_sparse_nj_symmetry _
       | Set_summary_keep_at_most _
       | Set_neighbors_keep_at_most _ | Set_neighbors_guard_policy _ | Set_neighbors_index_type _
       | Set_clusters_method _
@@ -834,6 +887,9 @@ let () =
   and splits_hdbscan_mst_mode = ref Defaults.splits_hdbscan_mst_mode
   and splits_hdbscan_num_neighbors = ref Defaults.splits_hdbscan_num_neighbors
   and splits_hdbscan_index_type = ref Defaults.splits_hdbscan_index_type
+  and splits_sparse_nj_num_neighbors = ref Defaults.splits_sparse_nj_num_neighbors
+  and splits_sparse_nj_row_sum = ref Defaults.splits_sparse_nj_row_sum
+  and splits_sparse_nj_symmetry = ref Defaults.splits_sparse_nj_symmetry
   and summary_keep_at_most = ref Defaults.summary_keep_at_most
   and neighbors_keep_at_most = ref Defaults.neighbors_keep_at_most
   and neighbors_guard_policy = ref Defaults.neighbors_guard_policy
@@ -931,22 +987,48 @@ let () =
           splits_hdbscan_num_neighbors := k
         | Set_splits_hdbscan_index_type idx ->
           splits_hdbscan_index_type := idx
+        | Set_splits_sparse_nj_num_neighbors k ->
+          splits_sparse_nj_num_neighbors := k
+        | Set_splits_sparse_nj_row_sum rs ->
+          splits_sparse_nj_row_sum := rs
+        | Set_splits_sparse_nj_symmetry sym ->
+          splits_sparse_nj_symmetry := sym
         | Splits_from_twisted prefix ->
-          let res =
-            Twisted.get_splits
-              ~normalize:!distance_normalize ~threads:!Parameters.threads ~verbose:!Parameters.verbose
-              ~balance_penalty:!splits_centroids_balance_penalty
-              ~gaps_prefilter_kneedle:!splits_gaps_prefilter_kneedle
-              ~num_seeds:!splits_centroids_num_seeds
-              ?seed:!splits_centroids_seed
-              ~hdbscan_min_cluster_size:!splits_hdbscan_min_cluster_size
-              ?hdbscan_min_samples:!splits_hdbscan_min_samples
-              ~hdbscan_mst_mode:!splits_hdbscan_mst_mode
-              ?hdbscan_num_neighbors:!splits_hdbscan_num_neighbors
-              ~hdbscan_index_type:!splits_hdbscan_index_type
-              !distance !metric !splits_method !splits_keep_at_most !twisted in
-          Exception.catch_unexpected_end_of_output __FUNCTION__
-            (fun () -> Trees.Splits.to_file ~precision:!precision_splits res prefix)
+          (* Sparse-NJ emits a resolved topology directly, so we
+             write a Newick file rather than going through the
+             splits / Yggdrasill compatibility-filter round-trip
+             that the other methods need. *)
+          (match !splits_method with
+           | Twisted.Splits.Method.Sparse_nj ->
+             let tree =
+               Twisted.get_sparse_nj_tree
+                 ~normalize:!distance_normalize
+                 ~threads:!Parameters.threads ~verbose:!Parameters.verbose
+                 ~num_neighbors:!splits_sparse_nj_num_neighbors
+                 ~row_sum:!splits_sparse_nj_row_sum
+                 ~symmetry:!splits_sparse_nj_symmetry
+                 !distance !metric !twisted in
+             Exception.catch_unexpected_end_of_output __FUNCTION__
+               (fun () -> Trees.Newick.to_file tree (prefix ^ ".nwk"))
+           | _ ->
+             let res =
+               Twisted.get_splits
+                 ~normalize:!distance_normalize ~threads:!Parameters.threads ~verbose:!Parameters.verbose
+                 ~balance_penalty:!splits_centroids_balance_penalty
+                 ~gaps_prefilter_kneedle:!splits_gaps_prefilter_kneedle
+                 ~num_seeds:!splits_centroids_num_seeds
+                 ?seed:!splits_centroids_seed
+                 ~hdbscan_min_cluster_size:!splits_hdbscan_min_cluster_size
+                 ?hdbscan_min_samples:!splits_hdbscan_min_samples
+                 ~hdbscan_mst_mode:!splits_hdbscan_mst_mode
+                 ?hdbscan_num_neighbors:!splits_hdbscan_num_neighbors
+                 ~hdbscan_index_type:!splits_hdbscan_index_type
+                 ~sparse_nj_num_neighbors:!splits_sparse_nj_num_neighbors
+                 ~sparse_nj_row_sum:!splits_sparse_nj_row_sum
+                 ~sparse_nj_symmetry:!splits_sparse_nj_symmetry
+                 !distance !metric !splits_method !splits_keep_at_most !twisted in
+             Exception.catch_unexpected_end_of_output __FUNCTION__
+               (fun () -> Trees.Splits.to_file ~precision:!precision_splits res prefix))
         | Set_summary_keep_at_most kam ->
           summary_keep_at_most := kam
         | Summary_from_twisted_binary (prefix_in, prefix_out, output_distance_matrix) ->

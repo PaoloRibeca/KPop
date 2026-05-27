@@ -101,6 +101,7 @@ module Splits:
           | Gaps
           | Centroids
           | Hdbscan
+          | Sparse_nj
         val of_string: string -> t
         val to_string: t -> string
       end
@@ -112,16 +113,19 @@ module Splits:
           | Gaps
           | Centroids
           | Hdbscan
+          | Sparse_nj
         let of_string = function
           | "gaps" -> Gaps
           | "centroids" -> Centroids
           | "hdbscan" -> Hdbscan
+          | "sparse-nj" -> Sparse_nj
           | s ->
             Exception.raise_unrecognized_initializer __FUNCTION__ "splits method" s
         let to_string = function
           | Gaps -> "gaps"
           | Centroids -> "centroids"
           | Hdbscan -> "hdbscan"
+          | Sparse_nj -> "sparse-nj"
       end
   end
 
@@ -651,6 +655,9 @@ include (
         ?(hdbscan_mst_mode = Clustering.HdbscanMstMode.Auto)
         ?hdbscan_num_neighbors
         ?hdbscan_index_type
+        ?(sparse_nj_num_neighbors = 10)
+        ?(sparse_nj_row_sum = SparseNJ.RowSum.Knn)
+        ?(sparse_nj_symmetry = SparseNJ.Symmetry.One)
         distance metric algorithm_type max_splits t =
       (* We compute embeddings *)
       let m = to_embeddings ~normalize ~elements_per_step ~threads ~verbose distance metric t in
@@ -837,6 +844,31 @@ include (
           ?num_neighbors:hdbscan_num_neighbors
           ?index_type:hdbscan_index_type
           ~min_cluster_size:hdbscan_min_cluster_size ~min_samples m.matrix
+      | Sparse_nj ->
+        (* The [max_splits] cap is ignored: sparse-NJ emits at most
+           n - 3 internal splits anyway, which is always below the
+           default cap of 10000. *)
+        ignore max_splits;
+        SparseNJ.make_splits ~verbose
+          ~k_nn:sparse_nj_num_neighbors
+          ~row_sum:sparse_nj_row_sum
+          ~symmetry:sparse_nj_symmetry
+          m.matrix.row_names m.matrix.data
+    (* Sparse-NJ entry point that returns a Trees.Newick.t directly,
+       without going through the bipartition / Yggdrasill compatibility
+       filter round-trip.  The embedding pipeline is identical to
+       get_splits's (same to_embeddings call, same metric / normalization
+       semantics); only the output type differs. *)
+    let get_sparse_nj_tree
+        ?(normalize = true) ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false)
+        ?(num_neighbors = 10)
+        ?(row_sum = SparseNJ.RowSum.Knn)
+        ?(symmetry = SparseNJ.Symmetry.One)
+        distance metric t =
+      let m = to_embeddings ~normalize ~elements_per_step ~threads ~verbose distance metric t in
+      SparseNJ.compute ~verbose
+        ~k_nn:num_neighbors ~row_sum ~symmetry
+        m.matrix.row_names m.matrix.data
     (* *)
     let to_files ?(precision = 15) ?(threads = 1) ?(elements_per_step = 40000) ?(verbose = false) v prefix =
       Matrix.to_file ~precision ~threads ~elements_per_step ~verbose v.inertia prefix;
@@ -927,8 +959,21 @@ include (
                     ?hdbscan_mst_mode:Clustering.HdbscanMstMode.t ->
                     ?hdbscan_num_neighbors:int ->
                     ?hdbscan_index_type:Interfaiss.Type.t ->
+                    ?sparse_nj_num_neighbors:int ->
+                    ?sparse_nj_row_sum:SparseNJ.RowSum.t ->
+                    ?sparse_nj_symmetry:SparseNJ.Symmetry.t ->
                     Space.Distance.t -> Space.Distance.Metric.t ->
                     Splits.Method.t -> int -> t -> Trees.Splits.t
+    (* Direct sparse-NJ entry point that returns a Newick tree (no
+       Splits.t round-trip).  Embedding pipeline is identical to
+       [get_splits]; only the output type differs. *)
+    val get_sparse_nj_tree:
+                    ?normalize:bool -> ?threads:int -> ?elements_per_step:int ->
+                    ?verbose:bool ->
+                    ?num_neighbors:int ->
+                    ?row_sum:SparseNJ.RowSum.t ->
+                    ?symmetry:SparseNJ.Symmetry.t ->
+                    Space.Distance.t -> Space.Distance.Metric.t -> t -> Trees.Newick.t
     (* Input/Output *)
     val to_files: ?precision:int -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool -> t -> string -> unit
     val of_files: ?threads:int -> ?bytes_per_step:int -> ?verbose:bool -> string -> t
