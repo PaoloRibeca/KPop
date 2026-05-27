@@ -662,7 +662,9 @@ include (
         ?hdbscan_index_type
         ?(hdbscan_lengths_mode = Clustering.Hdbscan.LengthsMode.Mreach)
         ?sparse_nj_index_type
+        ?(sparse_nj_mode = SparseNJ.Mode.Dense)
         ?(sparse_nj_num_neighbors = 10)
+        ?(sparse_nj_k_query_factor = 3)
         ?(sparse_nj_row_sum = SparseNJ.RowSum.Knn)
         ?(sparse_nj_symmetry = SparseNJ.Symmetry.One)
         distance metric algorithm_type max_splits t =
@@ -861,8 +863,10 @@ include (
            a single tree, not a candidate split pool). *)
         ignore max_splits;
         SparseNJ.compute ~verbose
+          ~mode:sparse_nj_mode
           ?index_type:sparse_nj_index_type
           ~k_nn:sparse_nj_num_neighbors
+          ~k_query_factor:sparse_nj_k_query_factor
           ~row_sum:sparse_nj_row_sum
           ~symmetry:sparse_nj_symmetry
           m.matrix.row_names m.matrix.data
@@ -962,7 +966,9 @@ include (
                     ?hdbscan_index_type:Interfaiss.Type.t ->
                     ?hdbscan_lengths_mode:Clustering.Hdbscan.LengthsMode.t ->
                     ?sparse_nj_index_type:Interfaiss.Type.t ->
+                    ?sparse_nj_mode:SparseNJ.Mode.t ->
                     ?sparse_nj_num_neighbors:int ->
+                    ?sparse_nj_k_query_factor:int ->
                     ?sparse_nj_row_sum:SparseNJ.RowSum.t ->
                     ?sparse_nj_symmetry:SparseNJ.Symmetry.t ->
                     Space.Distance.t -> Space.Distance.Metric.t ->

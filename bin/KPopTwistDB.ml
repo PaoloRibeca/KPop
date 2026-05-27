@@ -102,7 +102,9 @@ type to_do_t =
   | Set_phylo_hdbscan_index_type of Interfaiss.Type.t
   | Set_phylo_hdbscan_lengths_mode of Clustering.Hdbscan.LengthsMode.t
   | Set_phylo_snj_index_type of Interfaiss.Type.t
+  | Set_phylo_snj_mode of SparseNJ.Mode.t
   | Set_phylo_snj_num_neighbors of int
+  | Set_phylo_snj_k_query_factor of int
   | Set_phylo_snj_row_sum of SparseNJ.RowSum.t
   | Set_phylo_snj_symmetry of SparseNJ.Symmetry.t
   | Phylo_tree_from_twisted of string (* Output prefix *)
@@ -148,7 +150,9 @@ module Defaults =
     let phylo_hdbscan_index_type = Interfaiss.Type.of_string "hnsw(32)"
     let phylo_hdbscan_lengths_mode = Clustering.Hdbscan.LengthsMode.of_string "mreach"
     let phylo_snj_index_type = Interfaiss.Type.of_string "hnsw(32)"
+    let phylo_snj_mode = SparseNJ.Mode.of_string "dense"
     let phylo_snj_num_neighbors = 10
+    let phylo_snj_k_query_factor = 3
     let phylo_snj_row_sum = SparseNJ.RowSum.of_string "knn"
     let phylo_snj_symmetry = SparseNJ.Symmetry.of_string "one"
     let summary_keep_at_most = Some 2
@@ -747,6 +751,25 @@ let () =
       (fun _ ->
         Set_phylo_snj_index_type (TA.get_parameter () |> Interfaiss.Type.of_string)
         |> List.accum Parameters.program);
+    [ "--phylo-snj-mode" ],
+      Some "'dense'|'subquadratic'",
+      [ "implementation mode for sparse-NJ.";
+        "'dense' (default, validated): O(n^3) time / O(n^2) memory;";
+        "  K-NN selection at every iteration brute-scans active pairs";
+        "  ranked by the current Saitou-Nei distance.";
+        "'subquadratic' (experimental): O(n K^2 + n K log n) time /";
+        "  O(n K) memory; per-cluster K-NN list with a reverse index";
+        "  and FAISS-driven candidate expansion when a list shrinks";
+        "  below K.  Empirically matches the dense result when";
+        "  K_QUERY = K * --phylo-snj-k-query-factor is large enough";
+        "  for the FAISS centroid query to cover the true Saitou-Nei";
+        "  K-NN of the merged cluster.  Validate before flipping to";
+        "  default on new datasets.";
+        "Ignored unless --phylo-method 'sparse-nj' is in effect." ],
+      TA.Default (SparseNJ.Mode.to_string Defaults.phylo_snj_mode |> Fun.const),
+      (fun _ ->
+        Set_phylo_snj_mode (TA.get_parameter () |> SparseNJ.Mode.of_string)
+        |> List.accum Parameters.program);
     [ "--phylo-snj-num-neighbors" ],
       Some "<positive_integer>",
       [ "number of nearest active neighbours K retained per cluster at";
@@ -759,6 +782,20 @@ let () =
       TA.Default (string_of_int Defaults.phylo_snj_num_neighbors |> Fun.const),
       (fun _ ->
         Set_phylo_snj_num_neighbors (TA.get_parameter_int_pos ())
+        |> List.accum Parameters.program);
+    [ "--phylo-snj-k-query-factor" ],
+      Some "<positive_integer>",
+      [ "FAISS expansion factor for the subquadratic sparse-NJ mode:";
+        "queries the K * <factor> nearest centroids when a K-NN list";
+        "needs refilling, then reranks the candidates by Saitou-Nei";
+        "distance and keeps the top K.  Larger factor = wider candidate";
+        "pool = more likely to recover the true Saitou-Nei K-NN at the";
+        "cost of more FAISS work per merge.  Empirically 2-3 is enough";
+        "on the test dataset; defaults to 3.";
+        "Ignored unless --phylo-snj-mode 'subquadratic' is in effect." ],
+      TA.Default (string_of_int Defaults.phylo_snj_k_query_factor |> Fun.const),
+      (fun _ ->
+        Set_phylo_snj_k_query_factor (TA.get_parameter_int_pos ())
         |> List.accum Parameters.program);
     [ "--phylo-snj-rowsum" ],
       Some "'knn'|'topk'|'full'",
@@ -870,7 +907,8 @@ let () =
       | Set_phylo_hdbscan_min_cluster_size _ | Set_phylo_hdbscan_min_samples _
       | Set_phylo_hdbscan_mst_mode _ | Set_phylo_hdbscan_num_neighbors _ | Set_phylo_hdbscan_index_type _
       | Set_phylo_hdbscan_lengths_mode _
-      | Set_phylo_snj_index_type _ | Set_phylo_snj_num_neighbors _
+      | Set_phylo_snj_index_type _ | Set_phylo_snj_mode _
+      | Set_phylo_snj_num_neighbors _ | Set_phylo_snj_k_query_factor _
       | Set_phylo_snj_row_sum _ | Set_phylo_snj_symmetry _
       | Set_summary_keep_at_most _
       | Set_neighbors_keep_at_most _ | Set_neighbors_guard_policy _ | Set_neighbors_index_type _
@@ -913,7 +951,9 @@ let () =
   and phylo_hdbscan_index_type = ref Defaults.phylo_hdbscan_index_type
   and phylo_hdbscan_lengths_mode = ref Defaults.phylo_hdbscan_lengths_mode
   and phylo_snj_index_type = ref Defaults.phylo_snj_index_type
+  and phylo_snj_mode = ref Defaults.phylo_snj_mode
   and phylo_snj_num_neighbors = ref Defaults.phylo_snj_num_neighbors
+  and phylo_snj_k_query_factor = ref Defaults.phylo_snj_k_query_factor
   and phylo_snj_row_sum = ref Defaults.phylo_snj_row_sum
   and phylo_snj_symmetry = ref Defaults.phylo_snj_symmetry
   and summary_keep_at_most = ref Defaults.summary_keep_at_most
@@ -1015,8 +1055,12 @@ let () =
           phylo_hdbscan_lengths_mode := m
         | Set_phylo_snj_index_type idx ->
           phylo_snj_index_type := idx
+        | Set_phylo_snj_mode m ->
+          phylo_snj_mode := m
         | Set_phylo_snj_num_neighbors k ->
           phylo_snj_num_neighbors := k
+        | Set_phylo_snj_k_query_factor k ->
+          phylo_snj_k_query_factor := k
         | Set_phylo_snj_row_sum rs ->
           phylo_snj_row_sum := rs
         | Set_phylo_snj_symmetry sym ->
@@ -1041,7 +1085,9 @@ let () =
               ~hdbscan_index_type:!phylo_hdbscan_index_type
               ~hdbscan_lengths_mode:!phylo_hdbscan_lengths_mode
               ~sparse_nj_index_type:!phylo_snj_index_type
+              ~sparse_nj_mode:!phylo_snj_mode
               ~sparse_nj_num_neighbors:!phylo_snj_num_neighbors
+              ~sparse_nj_k_query_factor:!phylo_snj_k_query_factor
               ~sparse_nj_row_sum:!phylo_snj_row_sum
               ~sparse_nj_symmetry:!phylo_snj_symmetry
               !distance !metric !phylo_method !phylo_splits_keep_at_most !twisted in

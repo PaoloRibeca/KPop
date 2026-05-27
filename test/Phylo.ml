@@ -204,5 +204,36 @@ let () =
     fail "sparse-NJ: flat and hnsw(32) outputs differ on small fixture";
   pass "sparse-NJ: flat and hnsw(32) produce identical trees on small fixture"
 
+(* -------------------------------------------------------------------------- *)
+(*  Part 8 - subquadratic mode matches dense mode at sufficient K_QUERY       *)
+(*  On the Classes-5 fixture (n=10) the candidate pool quickly becomes the    *)
+(*  full active set, so a moderate factor (= 5) is enough for subquadratic    *)
+(*  to reproduce the dense tree.  Validates that the algorithmic skeleton --  *)
+(*  reverse-insertion + FAISS expansion + Saitou-Nei reranking -- is wired    *)
+(*  correctly; the asymptotic O(n K^2 + n K log n) claim depends on the       *)
+(*  empirical question of how K_QUERY scales with n on real data, which       *)
+(*  this small fixture cannot answer.                                         *)
+(* -------------------------------------------------------------------------- *)
+let () =
+  Printf.printf "=== Part 8: subquadratic matches dense at K_QUERY=5K on small fixture ===\n%!";
+  let twisted = Twisted.of_binary twisted_prefix in
+  let m = Twisted.to_embeddings ~normalize:true ~verbose:false distance metric twisted in
+  let dense =
+    SparseNJ.compute ~verbose:false ~k_nn:5
+      ~mode:SparseNJ.Mode.Dense
+      ~index_type:(Interfaiss.Type.of_string "flat")
+      m.matrix.row_names m.matrix.data in
+  let sq =
+    SparseNJ.compute ~verbose:false ~k_nn:5 ~k_query_factor:5
+      ~mode:SparseNJ.Mode.Subquadratic
+      ~index_type:(Interfaiss.Type.of_string "flat")
+      m.matrix.row_names m.matrix.data in
+  let dense_splits = Trees_Base.Splits.of_newick dense in
+  let sq_splits = Trees_Base.Splits.of_newick sq in
+  if Trees.Splits.to_string ~precision:15 dense_splits
+     <> Trees.Splits.to_string ~precision:15 sq_splits then
+    fail "subquadratic: split set differs from dense at K=5 K_QUERY=25";
+  pass "subquadratic K=5 K_QUERY=25: split set matches dense byte-for-byte"
+
 let () =
   Printf.printf "\nAll phylo-subsystem invariants passed.\n%!"
