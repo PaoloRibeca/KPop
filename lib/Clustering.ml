@@ -286,13 +286,28 @@ include (
         Interfaiss.delete index;
         rep_orig, !n_reps in
       (* Helper: run a FAISS batch 1-NN query over all n embedded points and
-         return an array of exact generalized 1-NN distances indexed by original index *)
+         return an array of exact generalized 1-NN distances indexed by
+         original index.  Defensively queries [min n 4] columns and scans
+         each row for the first non-self entry: approximate indices like
+         HNSW are not guaranteed to return self at column 0 (it can land
+         later, or be missed altogether), so a naive `col 0 if non-self
+         else col 1' lookup is vulnerable -- in the worst case self lands
+         at col 1 and we'd silently use a wrong candidate, or at both col
+         0 and col 1 (duplicate-vector quirk) and we'd report distance 0
+         as the 1-NN distance. *)
       let faiss_nn1_distances () =
-        let offsets, _ = faiss_self_query ~index_type ~k:2 embeds in
+        let k_safe = min n 4 in
+        let offsets, _ = faiss_self_query ~index_type ~k:k_safe embeds in
         Array.init n (fun i ->
-          let r0 = Int64.to_int offsets.{i, 0} in
-          let nn_i = if r0 = i then Int64.to_int offsets.{i, 1} else r0 in
-          embed_dist embeds.(i) embeds.(nn_i)) in
+          let nn_i = ref (-1) in
+          let k = ref 0 in
+          while !nn_i < 0 && !k < k_safe do
+            let j = Int64.to_int offsets.{i, !k} in
+            if j >= 0 && j <> i then nn_i := j;
+            incr k
+          done;
+          if !nn_i < 0 then 0.
+          else embed_dist embeds.(i) embeds.(!nn_i)) in
       (* Stdout section separator *)
       let parts_done = ref 0 in
       let section_sep () =
