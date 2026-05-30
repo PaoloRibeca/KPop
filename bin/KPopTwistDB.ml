@@ -7,11 +7,12 @@
 
     KPopTwistDB is the binary for projecting new samples through an
     existing Twister and computing downstream artefacts: pairwise
-    distances, summaries, nearest neighbours, embeddings, phylogenetic
-    splits (`gaps`, `centroids`, `hdbscan`) and greedy leader
-    clustering.  It implements the CLI surface (`Tools.Argv`-based
-    options, `to_do_t` two-pass dry-run / execution model) for every
-    operation on the Twister and Twisted database registers.
+    distances, summaries, nearest neighbours, embeddings and greedy
+    leader clustering.  (Phylogenetic-tree construction now lives in
+    the separate KPopPhylo binary.)  It implements the CLI surface
+    (`Tools.Argv`-based options, `to_do_t` two-pass dry-run /
+    execution model) for every operation on the Twister and Twisted
+    database registers.
 
     This program was designed and developed by the author(s),
     with the assistance of the following AI tool(s):
@@ -89,27 +90,6 @@ type to_do_t =
   (* Computes embeddings from twisted vectors using the current metric/distance.
      Parameter is output prefix *)
   | Embeddings_from_twisted of string
-  | Set_phylo_method of Twisted.Phylo.Method.t
-  | Set_phylo_splits_keep_at_most of int
-  | Set_phylo_centroids_balance_penalty of Twisted.BalancePenalty.t
-  | Set_phylo_centroids_num_seeds of int
-  | Set_phylo_centroids_seed of int option
-  | Set_phylo_gaps_prefilter_kneedle of bool
-  | Set_phylo_hdbscan_min_cluster_size of int
-  | Set_phylo_hdbscan_min_samples of int option
-  | Set_phylo_hdbscan_mst_mode of Clustering.HdbscanMstMode.t
-  | Set_phylo_hdbscan_num_neighbors of int option
-  | Set_phylo_hdbscan_index_type of Interfaiss.Type.t
-  | Set_phylo_hdbscan_lengths_mode of Clustering.Hdbscan.LengthsMode.t
-  | Set_phylo_snj_index_type of Interfaiss.Type.t
-  | Set_phylo_snj_mode of SparseNJ.Mode.t
-  | Set_phylo_snj_num_neighbors of int
-  | Set_phylo_snj_k_query_factor of int
-  | Set_phylo_snj_hyp_scale of float
-  | Set_phylo_snj_distance of SparseNJ.Distance.t
-  | Set_phylo_snj_row_sum of SparseNJ.RowSum.t
-  | Set_phylo_snj_symmetry of SparseNJ.Symmetry.t
-  | Phylo_tree_from_twisted of string (* Output prefix *)
   | Set_summary_keep_at_most of KeepAtMost.t
   (* Parameters are input probes, output prefix for summary/distance matrix,
       and a boolean specifying whether the distance matrix should be output *)
@@ -139,26 +119,6 @@ module Defaults =
     let distance_normalize = false
     let metric = Space.Distance.Metric.of_string "powers(1,1,1)"
     let precision_tables = 15
-    let phylo_method = Twisted.Phylo.Method.of_string "centroids"
-    let phylo_splits_keep_at_most = 10000
-    let phylo_centroids_balance_penalty = Twisted.BalancePenalty.default
-    let phylo_centroids_num_seeds = 10
-    let phylo_centroids_seed = (None : int option)
-    let phylo_gaps_prefilter_kneedle = true
-    let phylo_hdbscan_min_cluster_size = 1
-    let phylo_hdbscan_min_samples = (None : int option)
-    let phylo_hdbscan_mst_mode = Clustering.HdbscanMstMode.of_string "auto"
-    let phylo_hdbscan_num_neighbors = (None : int option)
-    let phylo_hdbscan_index_type = Interfaiss.Type.of_string "hnsw(32)"
-    let phylo_hdbscan_lengths_mode = Clustering.Hdbscan.LengthsMode.of_string "mreach"
-    let phylo_snj_index_type = Interfaiss.Type.of_string "hnsw(32)"
-    let phylo_snj_mode = SparseNJ.Mode.of_string "dense"
-    let phylo_snj_num_neighbors = 10
-    let phylo_snj_k_query_factor = 3
-    let phylo_snj_hyp_scale = 1.0
-    let phylo_snj_distance = SparseNJ.Distance.of_string "saitou-nei"
-    let phylo_snj_row_sum = SparseNJ.RowSum.of_string "knn"
-    let phylo_snj_symmetry = SparseNJ.Symmetry.of_string "one"
     let summary_keep_at_most = Some 2
     let neighbors_keep_at_most = Some 6
     let neighbors_guard_policy = Twisted.NeighborsPolicy.of_string "times(2)"
@@ -483,7 +443,7 @@ let () =
     [ "--clusters-hdbscan-min-cluster-size" ],
       Some "<positive_integer>",
       [ "minimum cluster size for the 'hdbscan' clustering algorithm.";
-        "Same semantics as --phylo-hdbscan-min-cluster-size, but settable";
+        "Same semantics as KPopPhylo's --hdbscan-min-cluster-size, but settable";
         "independently for the clusters consumer of the HDBSCAN core.";
         "Ignored unless --clusters-method 'hdbscan' is in effect." ],
       TA.Default (string_of_int Defaults.clusters_hdbscan_min_cluster_size |> Fun.const),
@@ -504,7 +464,7 @@ let () =
     [ "--clusters-hdbscan-mst-mode" ],
       Some "'auto'|'sparse'|'dense'",
       [ "minimum-spanning-tree construction strategy for the 'hdbscan'";
-        "clustering algorithm.  Same semantics as --phylo-hdbscan-mst-mode";
+        "clustering algorithm.  Same semantics as KPopPhylo's --hdbscan-mst-mode";
         "but settable independently.";
         "Ignored unless --clusters-method 'hdbscan' is in effect." ],
       TA.Default (Clustering.HdbscanMstMode.to_string Defaults.clusters_hdbscan_mst_mode |> Fun.const),
@@ -557,331 +517,6 @@ let () =
         match TA.get_parameter () |> RegisterType.of_string with
         | Twister -> Clusters_kmers (TA.get_parameter ()) |> List.accum Parameters.program
         | Twisted -> Clusters_samples (TA.get_parameter ()) |> List.accum Parameters.program);
-    TA.make_separator_multiline [ ""; "Phylogenetic tree construction:" ];
-    [ "--phylo-method" ],
-      Some "'gaps'|'centroids'|'hdbscan'|'sparse-nj'",
-      [ "algorithm to use when computing a phylogenetic tree from embeddings.";
-        "'gaps': per-CA-dimension gap candidates, optionally Kneedle-pre-filtered";
-        "  (see --phylo-gaps-kneedle).";
-        "'centroids': K-seed bootstrap of inter-centroid bipartitions";
-        "  (see --phylo-centroids-*).";
-        "'hdbscan': condensed HDBSCAN* clusters emitted as nested splits";
-        "  with persistence-weighted branch lengths (see --phylo-hdbscan-*).";
-        "'sparse-nj': locally-regularised neighbour-joining over a K-NN";
-        "  candidate set; emits one bipartition per internal merge, weighted";
-        "  by NJ-computed branch length (see --phylo-snj-*)." ],
-      TA.Default (Twisted.Phylo.Method.to_string Defaults.phylo_method |> Fun.const),
-      (fun _ ->
-        Set_phylo_method (TA.get_parameter () |> Twisted.Phylo.Method.of_string)
-        |> List.accum Parameters.program);
-    [ "--phylo-at-most"; "--phylo-splits-keep-at-most" ],
-      Some "<positive_integer>|'all'",
-      [ "set the maximum number of phylogenetic splits to be kept";
-        "when generating them from embeddings" ],
-      TA.Default (string_of_int Defaults.phylo_splits_keep_at_most |> Fun.const),
-      (fun _ -> Set_phylo_splits_keep_at_most (TA.get_parameter_int_pos ()) |> List.accum Parameters.program);
-    [ "--phylo-centroids-balance-penalty" ],
-      Some "'penalty('ALPHA','BETA')'",
-      [ "set the cardinality-imbalance penalty applied in the";
-        "'centroids' splits algorithm.  The denominator of the";
-        "centroids objective is computed as";
-        "  (1 + |c1 - c2|^ALPHA)^BETA";
-        "where c1, c2 are the cardinalities of the two sides of a";
-        "bipartition.  Both ALPHA and BETA must be non-negative.";
-        "Useful settings include:";
-        "  'penalty(1,0.5)' = sqrt(1 + |c1 - c2|)   - soft (default)";
-        "  'penalty(1,1)'   = 1 + |c1 - c2|         - linear";
-        "  'penalty(1,2)'   = (1 + |c1 - c2|)^2     - hard, linear curvature";
-        "  'penalty(2,0.5)' = sqrt(1 + (c1 - c2)^2) - soft, L2 curvature";
-        "  'penalty(2,1)'   = 1 + (c1 - c2)^2       - canonical L2 imbalance";
-        "  'penalty(1,0)'   = 1                     - no penalty";
-        "Ignored unless --phylo-method 'centroids' is in effect." ],
-      TA.Default (Twisted.BalancePenalty.to_string Defaults.phylo_centroids_balance_penalty |> Fun.const),
-      (fun _ ->
-        Set_phylo_centroids_balance_penalty (TA.get_parameter () |> Twisted.BalancePenalty.of_string)
-        |> List.accum Parameters.program);
-    [ "--phylo-centroids-num-seeds" ],
-      Some "<positive_integer>",
-      [ "number of independent random initialisations of the 'centroids'";
-        "splits algorithm to run and aggregate.  The full recursive";
-        "divisive bipartition is emitted K times, each with a different";
-        "RNG state derived from the base seed (see --phylo-centroids-seed).";
-        "Splits found in multiple iterations get their weights summed";
-        "by the candidate pool, so the aggregate weight of a split";
-        "behaves as a bootstrap-support score: a split agreed upon by";
-        "every iteration carries roughly K times the weight of a";
-        "seed-specific one, and Yggdrasill's compatibility filter then";
-        "selects a consensus tree.  Setting K=1 reproduces the single-";
-        "recursion behaviour.";
-        "Ignored unless --phylo-method 'centroids' is in effect." ],
-      TA.Default (string_of_int Defaults.phylo_centroids_num_seeds |> Fun.const),
-      (fun _ ->
-        Set_phylo_centroids_num_seeds (TA.get_parameter_int_pos ())
-        |> List.accum Parameters.program);
-    [ "--phylo-centroids-seed" ],
-      Some "<non_negative_integer>",
-      [ "seed for the random initialisation of the 'centroids' splits";
-        "algorithm's simulated-annealing bipartitioner.  When unset";
-        "(default), the seed is derived deterministically from the input";
-        "matrix's row names, so runs on the same input are reproducible";
-        "and runs on different inputs use different initialisations.";
-        "When set, the explicit value is used verbatim -- useful for";
-        "stress-testing across multiple seeds, or for reproducing a";
-        "specific run reported elsewhere.  When --phylo-centroids-num-seeds";
-        "is K>1, this seed is the base; the K iterations derive";
-        "independent RNG states from it.";
-        "Ignored unless --phylo-method 'centroids' is in effect." ],
-      TA.Default (Fun.const "auto-derived from input"),
-      (fun _ ->
-        Set_phylo_centroids_seed (Some (TA.get_parameter_int_non_neg ()))
-        |> List.accum Parameters.program);
-    [ "--phylo-gaps-kneedle" ],
-      Some "'true'|'false'",
-      [ "whether to apply a per-dimension Kneedle elbow filter to the";
-        "sorted-ascending gap array before pooling candidates globally.";
-        "When 'true' (default), each CA dimension's gap series is";
-        "truncated at the elbow of the sorted curve, dropping the long";
-        "tail of small noise gaps and producing a cleaner candidate pool";
-        "for downstream tree assembly.  When 'false', all n-1 gaps per";
-        "dimension are kept (legacy unfiltered behaviour).";
-        "Ignored unless --phylo-method 'gaps' is in effect." ],
-      TA.Default (string_of_bool Defaults.phylo_gaps_prefilter_kneedle |> Fun.const),
-      (fun _ ->
-        Set_phylo_gaps_prefilter_kneedle (TA.get_parameter_boolean ())
-        |> List.accum Parameters.program);
-    [ "--phylo-hdbscan-min-cluster-size" ],
-      Some "<positive_integer>",
-      [ "minimum cluster size for the 'hdbscan' splits algorithm.";
-        "Controls the condensation step: when the binary merge tree is";
-        "walked top-down, a split is treated as a real cluster split";
-        "only if BOTH sides contain at least this many points; otherwise";
-        "the smaller side is absorbed as noise into the parent.  Smaller";
-        "values produce a denser tree (more fine-grained clusters);";
-        "larger values produce a flatter, more conservative tree.";
-        "Ignored unless --phylo-method 'hdbscan' is in effect." ],
-      TA.Default (string_of_int Defaults.phylo_hdbscan_min_cluster_size |> Fun.const),
-      (fun _ ->
-        Set_phylo_hdbscan_min_cluster_size (TA.get_parameter_int_pos ())
-        |> List.accum Parameters.program);
-    [ "--phylo-hdbscan-min-samples" ],
-      Some "<positive_integer>",
-      [ "k for the core-distance neighbourhood of the 'hdbscan' splits";
-        "algorithm.  Each point's core distance is set to the distance";
-        "to its k-th nearest neighbour; higher k yields a smoother";
-        "density estimate that is more robust to outliers, at the cost";
-        "of underestimating fine-grained structure.  When unset (default),";
-        "k is taken equal to --phylo-hdbscan-min-cluster-size, matching the";
-        "reference HDBSCAN one-knob ergonomic.";
-        "Ignored unless --phylo-method 'hdbscan' is in effect." ],
-      TA.Default (Fun.const "same as --phylo-hdbscan-min-cluster-size"),
-      (fun _ ->
-        Set_phylo_hdbscan_min_samples (Some (TA.get_parameter_int_pos ()))
-        |> List.accum Parameters.program);
-    [ "--phylo-hdbscan-mst-mode" ],
-      Some "'auto'|'sparse'|'dense'",
-      [ "minimum-spanning-tree construction strategy for the 'hdbscan'";
-        "splits algorithm.";
-        "'auto'   (default) tries 'sparse' first and falls back to 'dense'";
-        "  on disconnection.  Best of both worlds for typical typing data:";
-        "  fast when the k-NN graph covers all MST edges, robust otherwise.";
-        "'sparse' uses only a FAISS k-NN graph (O(n log n) typical; raises";
-        "  an error if --phylo-hdbscan-num-neighbors is too small to cover all";
-        "  MST edges).  Use when you need a hard guarantee that the sparse";
-        "  path was used.";
-        "'dense'  uses all n(n-1)/2 pairwise distances (O(n^2) always;";
-        "  guaranteed completion but slow on large n).";
-        "Note: the MST is over mutual-reachability distances rather than";
-        "Euclidean, so a Euclidean k-NN graph can miss MST edges even with";
-        "an exact index; this is what makes 'auto' useful.";
-        "Ignored unless --phylo-method 'hdbscan' is in effect." ],
-      TA.Default (Clustering.HdbscanMstMode.to_string Defaults.phylo_hdbscan_mst_mode |> Fun.const),
-      (fun _ ->
-        Set_phylo_hdbscan_mst_mode (TA.get_parameter () |> Clustering.HdbscanMstMode.of_string)
-        |> List.accum Parameters.program);
-    [ "--phylo-hdbscan-num-neighbors" ],
-      Some "<positive_integer>",
-      [ "number of nearest neighbours per point used to build the FAISS";
-        "k-NN candidate graph for the sparse 'hdbscan' MST.  Larger values";
-        "cost more compute and memory but cover more potential MST edges;";
-        "too-small values produce a disconnected MST and an explanatory";
-        "error.  When unset (default), it is auto-computed at runtime as";
-        "max(--phylo-hdbscan-min-samples + 1, min(n - 1, 30)), which is usually";
-        "enough on typing-scale data.";
-        "Ignored unless --phylo-method 'hdbscan' and";
-        "--phylo-hdbscan-mst-mode 'sparse' are in effect." ],
-      TA.Default (Fun.const "auto (max(min_samples + 1, min(n - 1, 30)))"),
-      (fun _ ->
-        Set_phylo_hdbscan_num_neighbors (Some (TA.get_parameter_int_pos ()))
-        |> List.accum Parameters.program);
-    [ "--phylo-hdbscan-index-type" ],
-      Some "'flat'|'pq('PQ_PARAMETERS')'|'hnsw('<positive_integer>')'",
-      [ "FAISS index type used by the sparse 'hdbscan' MST.";
-        "Same syntax as --neighbors-index-type: 'flat' is exact but O(n^2)";
-        "search; 'hnsw(M)' is approximate-NN with graph parameter M;";
-        "'pq(...)' is product-quantised.";
-        "Ignored unless --phylo-method 'hdbscan' and";
-        "--phylo-hdbscan-mst-mode 'sparse' are in effect." ],
-      TA.Default (Interfaiss.Type.to_string Defaults.phylo_hdbscan_index_type |> Fun.const),
-      (fun _ ->
-        Set_phylo_hdbscan_index_type (TA.get_parameter () |> Interfaiss.Type.of_string)
-        |> List.accum Parameters.program);
-    [ "--phylo-hdbscan-lengths" ],
-      Some "'persistence'|'mreach'",
-      [ "branch-length convention for the 'hdbscan' phylo method.";
-        "'persistence' (default) emits one Newick edge per condensed cluster";
-        "  with branch length equal to its persistence score (the same per-";
-        "  cluster weight that the legacy splits emission used).  This is the";
-        "  standard HDBSCAN cluster-stability view.";
-        "'mreach' emits the full binary HDBSCAN merge tree with branch";
-        "  lengths derived from mutual-reachability distances.  Closer to";
-        "  a distance-based tree; richer topology but less interpretable";
-        "  as a clustering output.";
-        "Ignored unless --phylo-method 'hdbscan' is in effect." ],
-      TA.Default (Clustering.Hdbscan.LengthsMode.to_string Defaults.phylo_hdbscan_lengths_mode |> Fun.const),
-      (fun _ ->
-        Set_phylo_hdbscan_lengths_mode (TA.get_parameter () |> Clustering.Hdbscan.LengthsMode.of_string)
-        |> List.accum Parameters.program);
-    [ "--phylo-snj-index-type" ],
-      Some "'flat'|'hnsw(<int>)'|'pq(<int>,<int>)'",
-      [ "FAISS index used to bootstrap the initial K-NN graph for sparse-NJ.";
-        "'flat' (exact, O(n^2 * d) at bootstrap; safe for small / medium n).";
-        "'hnsw(M)' (approximate, O(n log n) at bootstrap; recommended for large n).";
-        "'pq(M, bits)' (memory-frugal product quantisation).";
-        "Note that subsequent K-NN updates after merges use Saitou-Nei over the";
-        "cached neighbour lists with weighted-centroid fallback -- the choice";
-        "of index here affects only the initial bootstrap.";
-        "Ignored unless --phylo-method 'sparse-nj' is in effect." ],
-      TA.Default (Interfaiss.Type.to_string Defaults.phylo_snj_index_type |> Fun.const),
-      (fun _ ->
-        Set_phylo_snj_index_type (TA.get_parameter () |> Interfaiss.Type.of_string)
-        |> List.accum Parameters.program);
-    [ "--phylo-snj-mode" ],
-      Some "'dense'|'subquadratic'|'hyperbolic'|'cover-tree'|'periodic-rebuild'|'rp-forest'",
-      [ "implementation mode for sparse-NJ.";
-        "'dense' (default, validated): O(n^3) time / O(n^2) memory;";
-        "  K-NN selection at every iteration brute-scans active pairs";
-        "  ranked by the current Saitou-Nei distance.";
-        "'subquadratic' (experimental): O(n K^2 + n K log n) time /";
-        "  O(n K) memory; per-cluster K-NN list with a reverse index";
-        "  and FAISS-driven candidate expansion when a list shrinks";
-        "  below K.  Empirically matches the dense result when";
-        "  K_QUERY = K * --phylo-snj-k-query-factor is large enough";
-        "  for the FAISS centroid query to cover the true Saitou-Nei";
-        "  K-NN of the merged cluster.  Validate before flipping to";
-        "  default on new datasets.";
-        "Ignored unless --phylo-method 'sparse-nj' is in effect." ],
-      TA.Default (SparseNJ.Mode.to_string Defaults.phylo_snj_mode |> Fun.const),
-      (fun _ ->
-        Set_phylo_snj_mode (TA.get_parameter () |> SparseNJ.Mode.of_string)
-        |> List.accum Parameters.program);
-    [ "--phylo-snj-num-neighbors" ],
-      Some "<positive_integer>",
-      [ "number of nearest active neighbours K retained per cluster at";
-        "each sparse-NJ merge iteration.  Smaller K is faster (and";
-        "asymptotically sub-quadratic at fixed K) but loses topological";
-        "resolution below K ~ 7; larger K approaches classical NJ at";
-        "K = n - 1.  The empirical sweet spot on the protein-k=5";
-        "evaluation dataset is K ~ n / 5.";
-        "Ignored unless --phylo-method 'sparse-nj' is in effect." ],
-      TA.Default (string_of_int Defaults.phylo_snj_num_neighbors |> Fun.const),
-      (fun _ ->
-        Set_phylo_snj_num_neighbors (TA.get_parameter_int_pos ())
-        |> List.accum Parameters.program);
-    [ "--phylo-snj-k-query-factor" ],
-      Some "<positive_integer>",
-      [ "FAISS expansion factor for the subquadratic sparse-NJ mode:";
-        "queries the K * <factor> nearest centroids when a K-NN list";
-        "needs refilling, then reranks the candidates by Saitou-Nei";
-        "distance and keeps the top K.  Larger factor = wider candidate";
-        "pool = more likely to recover the true Saitou-Nei K-NN at the";
-        "cost of more FAISS work per merge.  Empirically 2-3 is enough";
-        "on the test dataset; defaults to 3.";
-        "Ignored unless --phylo-snj-mode 'subquadratic' is in effect." ],
-      TA.Default (string_of_int Defaults.phylo_snj_k_query_factor |> Fun.const),
-      (fun _ ->
-        Set_phylo_snj_k_query_factor (TA.get_parameter_int_pos ())
-        |> List.accum Parameters.program);
-    [ "--phylo-snj-hyp-scale" ],
-      Some "<positive_float>",
-      [ "radial scale s for the initial hyperboloid lift of leaf";
-        "positions in --phylo-snj-mode 'hyperbolic'.  Each leaf's";
-        "principal-coord vector p is lifted to (cosh(s|p|),";
-        "sinh(s|p|)*p/|p|) on the upper hyperboloid; subsequent merges";
-        "place new clusters on hyperbolic geodesics between their";
-        "parents.  Empirically s in [0.5, 1.0] gives Spearman >= 0.9";
-        "between hyperbolic and Saitou-Nei distances across the whole";
-        "NJ run on prot_k5_kt0.035.  s << 0.5 degenerates toward";
-        "Euclidean; s >> 1 over-curves the embedding.";
-        "Honoured by --phylo-snj-mode 'hyperbolic', and by 'rp-forest'";
-        "with --phylo-snj-distance 'hyperbolic'." ],
-      TA.Default (string_of_float Defaults.phylo_snj_hyp_scale |> Fun.const),
-      (fun _ ->
-        Set_phylo_snj_hyp_scale (TA.get_parameter_float_pos ())
-        |> List.accum Parameters.program);
-    [ "--phylo-snj-distance" ],
-      Some "'saitou-nei'|'centroid'|'hyperbolic'|'hyperbolic-frechet'|'hybrid'",
-      [ "distance model fed to the sparse-NJ Q-formula and row sums.";
-        "'saitou-nei' (default): exact NJ update d(u, x) = 1/2 (d(i, x)";
-        "  + d(j, x) - d(i, j)), by memoised recursion over the merge";
-        "  history.  Validated, but the recursion tiles the full O(n^2)";
-        "  distance-pair space.";
-        "'centroid' (experimental): O(d) Euclidean distance between";
-        "  size-weighted cluster centroids, no recursion (no n^2 cache).";
-        "  Aligns the retrieval and ranking metrics, but drifts from the";
-        "  exact NJ update in mid-run iterations.";
-        "'hyperbolic' (experimental): O(d) hyperboloid distance between";
-        "  geodesically-placed cluster positions; no recursion, and";
-        "  tracks the exact NJ update far better than the centroid.";
-        "  Radial lift scale set by --phylo-snj-hyp-scale.";
-        "'hyperbolic-frechet' (experimental): as 'hyperbolic' but the";
-        "  merged cluster is placed at the size-weighted hyperbolic";
-        "  barycenter rather than at the (noisy) NJ branch length, so";
-        "  larger, more faithful curvatures remain stable.";
-        "'hybrid' (experimental): centroid proxy for the bulk work, but";
-        "  the winning merge is confirmed by exact Saitou-Nei over the";
-        "  popped shortlist only -- bounded exact recursion per merge,";
-        "  aiming to recover the proxy's quality gap sub-quadratically.";
-        "Only honoured by --phylo-snj-mode 'rp-forest'." ],
-      TA.Default (SparseNJ.Distance.to_string Defaults.phylo_snj_distance |> Fun.const),
-      (fun _ ->
-        Set_phylo_snj_distance (TA.get_parameter () |> SparseNJ.Distance.of_string)
-        |> List.accum Parameters.program);
-    [ "--phylo-snj-rowsum" ],
-      Some "'knn'|'topk'|'full'",
-      [ "row-sum estimator used in the sparse-NJ Q-formula.";
-        "'knn' (default) approximates r(i) = (n_act - 1) / K times the";
-        "  sum of i's K nearest-active-neighbour distances; this is the";
-        "  estimator that produces the regularisation lift over classical NJ.";
-        "'topk' is equivalent up to a constant ((n_act - 1) times the mean of";
-        "  the same K distances).  'full' uses the exact global row sum, which";
-        "  reproduces classical NJ behaviour on a restricted candidate set and";
-        "  loses the regularisation lift.";
-        "Ignored unless --phylo-method 'sparse-nj' is in effect." ],
-      TA.Default (SparseNJ.RowSum.to_string Defaults.phylo_snj_row_sum |> Fun.const),
-      (fun _ ->
-        Set_phylo_snj_row_sum (TA.get_parameter () |> SparseNJ.RowSum.of_string)
-        |> List.accum Parameters.program);
-    [ "--phylo-snj-symmetry" ],
-      Some "'one'|'both'",
-      [ "K-NN membership policy for the sparse-NJ candidate set.";
-        "'one' (default) includes pair (i, j) if either j is in i's K-NN list";
-        "  or i is in j's; one-sided is more permissive and consistently better.";
-        "'both' requires both directions; stricter but more conservative.";
-        "Ignored unless --phylo-method 'sparse-nj' is in effect." ],
-      TA.Default (SparseNJ.Symmetry.to_string Defaults.phylo_snj_symmetry |> Fun.const),
-      (fun _ ->
-        Set_phylo_snj_symmetry (TA.get_parameter () |> SparseNJ.Symmetry.of_string)
-        |> List.accum Parameters.program);
-    [ "-P"; "--phylo"; "--compute-phylo-tree"; "--twisted-to-phylo-tree" ],
-      Some "<output_file_prefix>",
-      [ "compute a phylogenetic tree";
-        "from the vectors present in the twisted register";
-        "using the current metric function, distance function and normalization.";
-        "The result will be written as a Newick file at the specified prefix.";
-        "File extension is automatically assigned";
-        " (will be '.nwk' unless file is '/dev/*')" ],
-      TA.Optional,
-      (fun _ -> Phylo_tree_from_twisted (TA.get_parameter ()) |> List.accum Parameters.program);
     TA.make_separator_multiline [ "Miscellaneous options."; "They are set immediately" ];
     [ "-T"; "--threads" ],
       Some "<computing_threads>",
@@ -942,7 +577,7 @@ let () =
         distance := dist
       | Set_distance_normalize norm ->
         distance_normalize := norm
-      | Embeddings_from_twisted _ | Phylo_tree_from_twisted _
+      | Embeddings_from_twisted _
       | Summary_from_twisted_binary _ | Summary_from_twisted_neighbors _ ->
         begin match !distance, !distance_normalize with
         | Space.Distance.Cosine, false | Angle, false ->
@@ -950,16 +585,6 @@ let () =
         | Cosine, true | Angle, true | Euclidean, _ | Minkowski _, _ ->
           ()
         end
-      | Set_phylo_method _ | Set_phylo_splits_keep_at_most _
-      | Set_phylo_centroids_balance_penalty _ | Set_phylo_centroids_num_seeds _ | Set_phylo_centroids_seed _
-      | Set_phylo_gaps_prefilter_kneedle _
-      | Set_phylo_hdbscan_min_cluster_size _ | Set_phylo_hdbscan_min_samples _
-      | Set_phylo_hdbscan_mst_mode _ | Set_phylo_hdbscan_num_neighbors _ | Set_phylo_hdbscan_index_type _
-      | Set_phylo_hdbscan_lengths_mode _
-      | Set_phylo_snj_index_type _ | Set_phylo_snj_mode _
-      | Set_phylo_snj_num_neighbors _ | Set_phylo_snj_k_query_factor _
-      | Set_phylo_snj_hyp_scale _ | Set_phylo_snj_distance _
-      | Set_phylo_snj_row_sum _ | Set_phylo_snj_symmetry _
       | Set_summary_keep_at_most _
       | Set_neighbors_keep_at_most _ | Set_neighbors_guard_policy _ | Set_neighbors_index_type _
       | Set_clusters_method _
@@ -989,25 +614,6 @@ let () =
   (* These are the registers available to the program *)
   let twister = ref Twister.empty and twisted = ref Twisted.empty and metric = ref Defaults.metric
   and distance = ref Defaults.distance and distance_normalize = ref Defaults.distance_normalize
-  and phylo_splits_keep_at_most = ref Defaults.phylo_splits_keep_at_most and phylo_method = ref Defaults.phylo_method
-  and phylo_centroids_balance_penalty = ref Defaults.phylo_centroids_balance_penalty
-  and phylo_centroids_num_seeds = ref Defaults.phylo_centroids_num_seeds
-  and phylo_centroids_seed = ref Defaults.phylo_centroids_seed
-  and phylo_gaps_prefilter_kneedle = ref Defaults.phylo_gaps_prefilter_kneedle
-  and phylo_hdbscan_min_cluster_size = ref Defaults.phylo_hdbscan_min_cluster_size
-  and phylo_hdbscan_min_samples = ref Defaults.phylo_hdbscan_min_samples
-  and phylo_hdbscan_mst_mode = ref Defaults.phylo_hdbscan_mst_mode
-  and phylo_hdbscan_num_neighbors = ref Defaults.phylo_hdbscan_num_neighbors
-  and phylo_hdbscan_index_type = ref Defaults.phylo_hdbscan_index_type
-  and phylo_hdbscan_lengths_mode = ref Defaults.phylo_hdbscan_lengths_mode
-  and phylo_snj_index_type = ref Defaults.phylo_snj_index_type
-  and phylo_snj_mode = ref Defaults.phylo_snj_mode
-  and phylo_snj_num_neighbors = ref Defaults.phylo_snj_num_neighbors
-  and phylo_snj_k_query_factor = ref Defaults.phylo_snj_k_query_factor
-  and phylo_snj_hyp_scale = ref Defaults.phylo_snj_hyp_scale
-  and phylo_snj_distance = ref Defaults.phylo_snj_distance
-  and phylo_snj_row_sum = ref Defaults.phylo_snj_row_sum
-  and phylo_snj_symmetry = ref Defaults.phylo_snj_symmetry
   and summary_keep_at_most = ref Defaults.summary_keep_at_most
   and neighbors_keep_at_most = ref Defaults.neighbors_keep_at_most
   and neighbors_guard_policy = ref Defaults.neighbors_guard_policy
@@ -1081,76 +687,6 @@ let () =
               Matrix.to_file
                 ~precision:!precision_tables ~threads:!Parameters.threads ~verbose:!Parameters.verbose
                 res prefix)
-        | Set_phylo_method algo ->
-          phylo_method := algo
-        | Set_phylo_splits_keep_at_most kam ->
-          phylo_splits_keep_at_most := kam
-        | Set_phylo_centroids_balance_penalty pen ->
-          phylo_centroids_balance_penalty := pen
-        | Set_phylo_centroids_num_seeds n ->
-          phylo_centroids_num_seeds := n
-        | Set_phylo_centroids_seed s ->
-          phylo_centroids_seed := s
-        | Set_phylo_gaps_prefilter_kneedle b ->
-          phylo_gaps_prefilter_kneedle := b
-        | Set_phylo_hdbscan_min_cluster_size n ->
-          phylo_hdbscan_min_cluster_size := n
-        | Set_phylo_hdbscan_min_samples k ->
-          phylo_hdbscan_min_samples := k
-        | Set_phylo_hdbscan_mst_mode mode ->
-          phylo_hdbscan_mst_mode := mode
-        | Set_phylo_hdbscan_num_neighbors k ->
-          phylo_hdbscan_num_neighbors := k
-        | Set_phylo_hdbscan_index_type idx ->
-          phylo_hdbscan_index_type := idx
-        | Set_phylo_hdbscan_lengths_mode m ->
-          phylo_hdbscan_lengths_mode := m
-        | Set_phylo_snj_index_type idx ->
-          phylo_snj_index_type := idx
-        | Set_phylo_snj_mode m ->
-          phylo_snj_mode := m
-        | Set_phylo_snj_num_neighbors k ->
-          phylo_snj_num_neighbors := k
-        | Set_phylo_snj_k_query_factor k ->
-          phylo_snj_k_query_factor := k
-        | Set_phylo_snj_hyp_scale s ->
-          phylo_snj_hyp_scale := s
-        | Set_phylo_snj_distance d ->
-          phylo_snj_distance := d
-        | Set_phylo_snj_row_sum rs ->
-          phylo_snj_row_sum := rs
-        | Set_phylo_snj_symmetry sym ->
-          phylo_snj_symmetry := sym
-        | Phylo_tree_from_twisted prefix ->
-          (* All phylo methods emit a Newick tree directly: methods
-             that natively produce splits (gaps, centroids) have their
-             splits passed through Trees.Splits.to_tree inside
-             get_phylo_tree, while hdbscan and sparse-nj build their
-             trees in one pass. *)
-          let tree =
-            Twisted.get_phylo_tree
-              ~normalize:!distance_normalize ~threads:!Parameters.threads ~verbose:!Parameters.verbose
-              ~balance_penalty:!phylo_centroids_balance_penalty
-              ~gaps_prefilter_kneedle:!phylo_gaps_prefilter_kneedle
-              ~num_seeds:!phylo_centroids_num_seeds
-              ?seed:!phylo_centroids_seed
-              ~hdbscan_min_cluster_size:!phylo_hdbscan_min_cluster_size
-              ?hdbscan_min_samples:!phylo_hdbscan_min_samples
-              ~hdbscan_mst_mode:!phylo_hdbscan_mst_mode
-              ?hdbscan_num_neighbors:!phylo_hdbscan_num_neighbors
-              ~hdbscan_index_type:!phylo_hdbscan_index_type
-              ~hdbscan_lengths_mode:!phylo_hdbscan_lengths_mode
-              ~sparse_nj_index_type:!phylo_snj_index_type
-              ~sparse_nj_mode:!phylo_snj_mode
-              ~sparse_nj_num_neighbors:!phylo_snj_num_neighbors
-              ~sparse_nj_k_query_factor:!phylo_snj_k_query_factor
-              ~sparse_nj_hyp_scale:!phylo_snj_hyp_scale
-              ~sparse_nj_distance:!phylo_snj_distance
-              ~sparse_nj_row_sum:!phylo_snj_row_sum
-              ~sparse_nj_symmetry:!phylo_snj_symmetry
-              !distance !metric !phylo_method !phylo_splits_keep_at_most !twisted in
-          Exception.catch_unexpected_end_of_output __FUNCTION__
-            (fun () -> Trees.Newick.to_file tree (prefix ^ ".nwk"))
         | Set_summary_keep_at_most kam ->
           summary_keep_at_most := kam
         | Summary_from_twisted_binary (prefix_in, prefix_out, output_distance_matrix) ->
