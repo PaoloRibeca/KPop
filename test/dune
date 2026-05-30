@@ -14,8 +14,8 @@
  (libraries str unix BiOCamLib KPop))
 
 (executables
- (public_names CA RSVD Epsilon Cluster Phylo HypBench)
- (names CA RSVD Epsilon Cluster Phylo HypBench)
+ (public_names CA RSVD Epsilon Cluster Phylo HypBench CoverTreeTest RPForestTest RefitTest)
+ (names CA RSVD Epsilon Cluster Phylo HypBench CoverTreeTest RPForestTest RefitTest)
  (libraries str unix BiOCamLib KPop)
  (link_flags (-cclib -lgfortran -cclib -lquadmath -cclib -lstdc++)))
 

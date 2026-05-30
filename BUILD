@@ -91,6 +91,7 @@ dune build --profile="$PROFILE" bin/KPopCount.exe $FLAGS
 dune build --profile="$PROFILE" bin/KPopCountDB.exe $FLAGS
 dune build --profile="$PROFILE" bin/KPopTwist.exe $FLAGS
 dune build --profile="$PROFILE" bin/KPopTwistDB.exe $FLAGS
+dune build --profile="$PROFILE" bin/KPopPhylo.exe $FLAGS
 
 # When a test target is in effect we also need Yggdrasill (for the
 # integration scripts) and the relevant test executables.  Those stay
@@ -117,6 +118,7 @@ mv _build/default/bin/KPopCount.exe build/KPopCount
 mv _build/default/bin/KPopCountDB.exe build/KPopCountDB
 mv _build/default/bin/KPopTwist.exe build/KPopTwist
 mv _build/default/bin/KPopTwistDB.exe build/KPopTwistDB
+mv _build/default/bin/KPopPhylo.exe build/KPopPhylo
 
 chmod 755 build/*
 
