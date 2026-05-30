@@ -106,6 +106,7 @@ type to_do_t =
   | Set_phylo_snj_num_neighbors of int
   | Set_phylo_snj_k_query_factor of int
   | Set_phylo_snj_hyp_scale of float
+  | Set_phylo_snj_distance of SparseNJ.Distance.t
   | Set_phylo_snj_row_sum of SparseNJ.RowSum.t
   | Set_phylo_snj_symmetry of SparseNJ.Symmetry.t
   | Phylo_tree_from_twisted of string (* Output prefix *)
@@ -155,6 +156,7 @@ module Defaults =
     let phylo_snj_num_neighbors = 10
     let phylo_snj_k_query_factor = 3
     let phylo_snj_hyp_scale = 1.0
+    let phylo_snj_distance = SparseNJ.Distance.of_string "saitou-nei"
     let phylo_snj_row_sum = SparseNJ.RowSum.of_string "knn"
     let phylo_snj_symmetry = SparseNJ.Symmetry.of_string "one"
     let summary_keep_at_most = Some 2
@@ -754,7 +756,7 @@ let () =
         Set_phylo_snj_index_type (TA.get_parameter () |> Interfaiss.Type.of_string)
         |> List.accum Parameters.program);
     [ "--phylo-snj-mode" ],
-      Some "'dense'|'subquadratic'",
+      Some "'dense'|'subquadratic'|'hyperbolic'|'cover-tree'|'periodic-rebuild'|'rp-forest'",
       [ "implementation mode for sparse-NJ.";
         "'dense' (default, validated): O(n^3) time / O(n^2) memory;";
         "  K-NN selection at every iteration brute-scans active pairs";
@@ -810,10 +812,39 @@ let () =
         "between hyperbolic and Saitou-Nei distances across the whole";
         "NJ run on prot_k5_kt0.035.  s << 0.5 degenerates toward";
         "Euclidean; s >> 1 over-curves the embedding.";
-        "Ignored unless --phylo-snj-mode 'hyperbolic' is in effect." ],
+        "Honoured by --phylo-snj-mode 'hyperbolic', and by 'rp-forest'";
+        "with --phylo-snj-distance 'hyperbolic'." ],
       TA.Default (string_of_float Defaults.phylo_snj_hyp_scale |> Fun.const),
       (fun _ ->
         Set_phylo_snj_hyp_scale (TA.get_parameter_float_pos ())
+        |> List.accum Parameters.program);
+    [ "--phylo-snj-distance" ],
+      Some "'saitou-nei'|'centroid'|'hyperbolic'|'hyperbolic-frechet'|'hybrid'",
+      [ "distance model fed to the sparse-NJ Q-formula and row sums.";
+        "'saitou-nei' (default): exact NJ update d(u, x) = 1/2 (d(i, x)";
+        "  + d(j, x) - d(i, j)), by memoised recursion over the merge";
+        "  history.  Validated, but the recursion tiles the full O(n^2)";
+        "  distance-pair space.";
+        "'centroid' (experimental): O(d) Euclidean distance between";
+        "  size-weighted cluster centroids, no recursion (no n^2 cache).";
+        "  Aligns the retrieval and ranking metrics, but drifts from the";
+        "  exact NJ update in mid-run iterations.";
+        "'hyperbolic' (experimental): O(d) hyperboloid distance between";
+        "  geodesically-placed cluster positions; no recursion, and";
+        "  tracks the exact NJ update far better than the centroid.";
+        "  Radial lift scale set by --phylo-snj-hyp-scale.";
+        "'hyperbolic-frechet' (experimental): as 'hyperbolic' but the";
+        "  merged cluster is placed at the size-weighted hyperbolic";
+        "  barycenter rather than at the (noisy) NJ branch length, so";
+        "  larger, more faithful curvatures remain stable.";
+        "'hybrid' (experimental): centroid proxy for the bulk work, but";
+        "  the winning merge is confirmed by exact Saitou-Nei over the";
+        "  popped shortlist only -- bounded exact recursion per merge,";
+        "  aiming to recover the proxy's quality gap sub-quadratically.";
+        "Only honoured by --phylo-snj-mode 'rp-forest'." ],
+      TA.Default (SparseNJ.Distance.to_string Defaults.phylo_snj_distance |> Fun.const),
+      (fun _ ->
+        Set_phylo_snj_distance (TA.get_parameter () |> SparseNJ.Distance.of_string)
         |> List.accum Parameters.program);
     [ "--phylo-snj-rowsum" ],
       Some "'knn'|'topk'|'full'",
@@ -927,7 +958,7 @@ let () =
       | Set_phylo_hdbscan_lengths_mode _
       | Set_phylo_snj_index_type _ | Set_phylo_snj_mode _
       | Set_phylo_snj_num_neighbors _ | Set_phylo_snj_k_query_factor _
-      | Set_phylo_snj_hyp_scale _
+      | Set_phylo_snj_hyp_scale _ | Set_phylo_snj_distance _
       | Set_phylo_snj_row_sum _ | Set_phylo_snj_symmetry _
       | Set_summary_keep_at_most _
       | Set_neighbors_keep_at_most _ | Set_neighbors_guard_policy _ | Set_neighbors_index_type _
@@ -974,6 +1005,7 @@ let () =
   and phylo_snj_num_neighbors = ref Defaults.phylo_snj_num_neighbors
   and phylo_snj_k_query_factor = ref Defaults.phylo_snj_k_query_factor
   and phylo_snj_hyp_scale = ref Defaults.phylo_snj_hyp_scale
+  and phylo_snj_distance = ref Defaults.phylo_snj_distance
   and phylo_snj_row_sum = ref Defaults.phylo_snj_row_sum
   and phylo_snj_symmetry = ref Defaults.phylo_snj_symmetry
   and summary_keep_at_most = ref Defaults.summary_keep_at_most
@@ -1083,6 +1115,8 @@ let () =
           phylo_snj_k_query_factor := k
         | Set_phylo_snj_hyp_scale s ->
           phylo_snj_hyp_scale := s
+        | Set_phylo_snj_distance d ->
+          phylo_snj_distance := d
         | Set_phylo_snj_row_sum rs ->
           phylo_snj_row_sum := rs
         | Set_phylo_snj_symmetry sym ->
@@ -1111,6 +1145,7 @@ let () =
               ~sparse_nj_num_neighbors:!phylo_snj_num_neighbors
               ~sparse_nj_k_query_factor:!phylo_snj_k_query_factor
               ~sparse_nj_hyp_scale:!phylo_snj_hyp_scale
+              ~sparse_nj_distance:!phylo_snj_distance
               ~sparse_nj_row_sum:!phylo_snj_row_sum
               ~sparse_nj_symmetry:!phylo_snj_symmetry
               !distance !metric !phylo_method !phylo_splits_keep_at_most !twisted in

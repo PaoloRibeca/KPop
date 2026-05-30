@@ -666,6 +666,7 @@ include (
         ?(sparse_nj_num_neighbors = 10)
         ?(sparse_nj_k_query_factor = 3)
         ?(sparse_nj_hyp_scale = 1.0)
+        ?(sparse_nj_distance = SparseNJ.Distance.SaitouNei)
         ?(sparse_nj_row_sum = SparseNJ.RowSum.Knn)
         ?(sparse_nj_symmetry = SparseNJ.Symmetry.One)
         distance metric algorithm_type max_splits t =
@@ -869,6 +870,7 @@ include (
           ~k_nn:sparse_nj_num_neighbors
           ~k_query_factor:sparse_nj_k_query_factor
           ~hyp_scale:sparse_nj_hyp_scale
+          ~distance:sparse_nj_distance
           ~row_sum:sparse_nj_row_sum
           ~symmetry:sparse_nj_symmetry
           m.matrix.row_names m.matrix.data
@@ -972,6 +974,7 @@ include (
                     ?sparse_nj_num_neighbors:int ->
                     ?sparse_nj_k_query_factor:int ->
                     ?sparse_nj_hyp_scale:float ->
+                    ?sparse_nj_distance:SparseNJ.Distance.t ->
                     ?sparse_nj_row_sum:SparseNJ.RowSum.t ->
                     ?sparse_nj_symmetry:SparseNJ.Symmetry.t ->
                     Space.Distance.t -> Space.Distance.Metric.t ->
