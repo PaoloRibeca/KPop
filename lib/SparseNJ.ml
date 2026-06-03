@@ -327,7 +327,9 @@ include (
        O(n_act * K) scan over candidate pairs.  Stored q' is an
        approximation (Q' = d(i,j) - r̂(i) - r̂(j), no n_act-dependent
        coefficient); freshness is validated on pop by comparing
-       stored versions against the per-cluster version array. *)
+       stored versions against the per-cluster version array.  The
+       backing store is BiOCamLib's growable [Tools.ArrayStack]; [push]
+       and [pop] sift up / down over its random-access slots. *)
     module QHeap =
       struct
         type entry = {
@@ -337,58 +339,52 @@ include (
           i: int;
           j: int
         }
-        let dummy = { q_prime = 0.; vi = 0; vj = 0; i = 0; j = 0 }
-        type t = {
-          mutable arr: entry array;
-          mutable n: int
-        }
-        let create ?(cap = 64) () = { arr = Array.make cap dummy; n = 0 }
-        let length h = h.n
-        let ensure h cap =
-          if cap > Array.length h.arr then begin
-            let new_cap = max cap (2 * Array.length h.arr) in
-            let new_arr = Array.make new_cap dummy in
-            Array.blit h.arr 0 new_arr 0 h.n;
-            h.arr <- new_arr
-          end
+        module Store = BiOCamLib.Tools.ArrayStack
+        type t = entry Store.t
+        let create () = Store.empty ()
+        let length = Store.length
+        (* The sift arithmetic only ever indexes slots known to be in
+           [0, length), so the random-access reads/writes use the
+           no-bounds-check [.@!()] accessors. *)
+        let ( .@!() ) = Store.unsafe_get
+        let ( .@!()<- ) = Store.unsafe_set
         let push h e =
-          ensure h (h.n + 1);
-          h.arr.(h.n) <- e;
-          h.n <- h.n + 1;
-          let i = ref (h.n - 1) in
+          Store.push h e;
+          let i = ref (Store.length h - 1) in
           let going = ref true in
           while !going && !i > 0 do
             let p = (!i - 1) / 2 in
-            if h.arr.(!i).q_prime < h.arr.(p).q_prime then begin
-              let t = h.arr.(!i) in
-              h.arr.(!i) <- h.arr.(p);
-              h.arr.(p) <- t;
+            if h.@!(!i).q_prime < h.@!(p).q_prime then begin
+              let t = h.@!(!i) in
+              h.@!(!i) <- h.@!(p);
+              h.@!(p) <- t;
               i := p
             end else going := false
           done
         let pop h =
-          if h.n = 0 then None
+          if Store.is_empty h then None
           else begin
-            let top = h.arr.(0) in
-            h.n <- h.n - 1;
-            if h.n > 0 then begin
-              h.arr.(0) <- h.arr.(h.n);
+            let top = h.@!(0) in
+            let last = Store.pop h in
+            if not (Store.is_empty h) then begin
+              h.@!(0) <- last;
+              let n = Store.length h in
               let i = ref 0 in
               let going = ref true in
               while !going do
                 let l = 2 * !i + 1 and r = 2 * !i + 2 in
                 let smallest = ref !i in
-                if l < h.n
-                   && h.arr.(l).q_prime < h.arr.(!smallest).q_prime then
+                if l < n
+                   && h.@!(l).q_prime < h.@!(!smallest).q_prime then
                   smallest := l;
-                if r < h.n
-                   && h.arr.(r).q_prime < h.arr.(!smallest).q_prime then
+                if r < n
+                   && h.@!(r).q_prime < h.@!(!smallest).q_prime then
                   smallest := r;
                 if !smallest = !i then going := false
                 else begin
-                  let t = h.arr.(!i) in
-                  h.arr.(!i) <- h.arr.(!smallest);
-                  h.arr.(!smallest) <- t;
+                  let t = h.@!(!i) in
+                  h.@!(!i) <- h.@!(!smallest);
+                  h.@!(!smallest) <- t;
                   i := !smallest
                 end
               done
@@ -1641,7 +1637,7 @@ include (
          time and are treated as stale (and recomputed) on pop if
          versions no longer match. *)
       let version = Array.make max_slots 0 in
-      let heap = QHeap.create ~cap:(8 * n * k_nn) () in
+      let heap = QHeap.create () in
       let q_prime i j =
         dist_of i j
         -. Float.Array.unsafe_get r_hat i
