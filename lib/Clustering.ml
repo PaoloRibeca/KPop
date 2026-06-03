@@ -1101,8 +1101,8 @@ include (
             match lengths_mode with
             | LengthsMode.Persistence ->
               (* Emit one (cluster_members, persistence) pair per condensed
-                 cluster and let Trees.Splits.to_tree assemble them into a
-                 hierarchy.  The to_tree polytomy-aware reconstruction
+                 cluster and let Trees.of_splits assemble them into a
+                 hierarchy.  The of_splits polytomy-aware reconstruction
                  handles noise-stripped clusters cleanly. *)
               let splits = Trees.Splits.create row_names in
               List.iter (fun (members, persistence) ->
@@ -1114,7 +1114,7 @@ include (
                 Printf.eprintf "%s Persistence mode: %d condensed %s.\n%!"
                   prefix num_clusters (String.pluralize_int "cluster" num_clusters)
               end;
-              let _used, nwk, _residual = Trees.Splits.to_tree ~verbose splits in
+              let _used, nwk, _residual = Trees.of_splits ~verbose splits in
               nwk
             | LengthsMode.Mreach ->
               ignore clusters;

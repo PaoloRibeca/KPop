@@ -14,12 +14,3 @@
  (libraries str unix zarith BiOCamLib KPop)
 ; (link_flags (-verbose -cclib -lgfortran -cclib -lquadmath -cclib -lstdc++))
  (link_flags (-cclib -lgfortran -cclib -lquadmath -cclib -lstdc++)))
-
-(install
- (section bin)
- (files
-  (KPopCount.exe as KPopCount)
-  (KPopCountDB.exe as KPopCountDB)
-  (KPopTwist.exe as KPopTwist)
-  (KPopTwistDB.exe as KPopTwistDB)
-  (KPopPhylo.exe as KPopPhylo)))

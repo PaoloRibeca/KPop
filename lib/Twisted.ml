@@ -646,7 +646,7 @@ include (
     (* Unified phylogenetic-tree builder.  Every supported method
        eventually emits a Trees.Newick.t.  Methods that natively
        produce a Splits.t internally (gaps, centroids) have their
-       splits passed through Trees.Splits.to_tree to obtain the
+       splits passed through Trees.of_splits to obtain the
        final Newick; methods that build a tree directly (hdbscan,
        sparse-nj) return it without the splits round-trip. *)
     let get_phylo_tree
@@ -673,7 +673,7 @@ include (
       (* We compute embeddings *)
       let m = to_embeddings ~normalize ~elements_per_step ~threads ~verbose distance metric t in
       let splits_to_tree splits =
-        let _used, nwk, _residual = Trees.Splits.to_tree ~verbose splits in
+        let _used, nwk, _residual = Trees.of_splits ~verbose splits in
         nwk in
       match algorithm_type with
       | Phylo.Method.Gaps ->
