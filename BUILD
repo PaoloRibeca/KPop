@@ -20,7 +20,7 @@ if [[ "${1:-}" == "README.pdf" ]]; then
   HTML="$(mktemp --suffix=.html)"
   trap 'rm -f "$HTML"' EXIT
   pandoc README.md -f gfm -t html5 --standalone --embed-resources --mathml \
-         --css docs/README.css --metadata title="KPop" -o "$HTML"
+         --css README.css --metadata title="KPop" -o "$HTML"
   "$CHROME" --headless=new --no-sandbox --disable-gpu --no-pdf-header-footer \
             --print-to-pdf=README.pdf "$HTML" 2>/dev/null
   echo "BUILD: wrote README.pdf"
