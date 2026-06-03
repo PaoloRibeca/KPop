@@ -18,10 +18,14 @@ if [[ "${1:-}" == "README.pdf" ]]; then
   done
   [[ -n "$CHROME" ]] || { echo "BUILD: no google-chrome/chromium found" >&2; exit 1; }
   HTML="$(mktemp --suffix=.html)"
-  trap 'rm -f "$HTML"' EXIT
+  # Private profile dir so this Chrome never blocks on the default-profile
+  # singleton lock held by an unrelated Chrome already running on the host.
+  UDD="$(mktemp -d)"
+  trap 'rm -rf "$HTML" "$UDD"' EXIT
   pandoc README.md -f gfm -t html5 --standalone --embed-resources --mathml \
          --css README.css --metadata title="KPop" -o "$HTML"
   "$CHROME" --headless=new --no-sandbox --disable-gpu --no-pdf-header-footer \
+            --user-data-dir="$UDD" \
             --print-to-pdf=README.pdf "$HTML" 2>/dev/null
   echo "BUILD: wrote README.pdf"
   exit 0
