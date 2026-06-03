@@ -22,7 +22,11 @@ if [[ "${1:-}" == "README.pdf" ]]; then
   # singleton lock held by an unrelated Chrome already running on the host.
   UDD="$(mktemp -d)"
   trap 'rm -rf "$HTML" "$UDD"' EXIT
-  pandoc README.md -f gfm -t html5 --standalone --embed-resources --mathml \
+  # --embed-resources (pandoc >= 2.19) supersedes the older --self-contained;
+  # use whichever this pandoc advertises so the build also works on older installs.
+  EMBED=--embed-resources
+  pandoc --help 2>/dev/null | grep -q -- --embed-resources || EMBED=--self-contained
+  pandoc README.md -f gfm -t html5 --standalone "$EMBED" --mathml \
          --css README.css --metadata title="KPop" -o "$HTML"
   "$CHROME" --headless=new --no-sandbox --disable-gpu --no-pdf-header-footer \
             --user-data-dir="$UDD" \
