@@ -10,10 +10,10 @@
     twisted register -- and selects what to do from which of them are
     populated:
 
-      * counts only            : twist (CA) -> topology -> refit
-      * counts + twisted        : (no twist) topology from twisted -> refit
-      * twisted only            : topology only
-      * counts + input tree     : refit the given tree only
+      * counts only: twist (CA) -> topology -> refit
+      * counts + twisted: (no twist) topology from twisted -> refit
+      * twisted only: topology only
+      * counts + input tree: refit the given tree only
 
     Topology is built by sparse-NJ (or the other splits methods); when a
     counts register is present the branch lengths are, by default,
@@ -170,15 +170,24 @@ let () =
   TA.set_header (info, authors, [ BiOCamLib.Info.info; KPop.Info.info ]);
   TA.set_synopsis "[-i|--input s|T|t <binary_prefix>]* [--input-tree <newick>] [OPTIONS] -o|--output <output_prefix>";
   TA.parse [
-    TA.make_separator_multiline [ "Registers."; "";
-      "KPopPhylo holds a counts register ('s', k-mer spectra), a twister";
-      "register ('T') and a twisted register ('t').  The workflow run is";
-      "decided from which registers are populated:";
-      "  counts only          -> twist, build topology, refit";
-      "  counts + twisted     -> build topology from twisted, refit";
-      "  twisted only         -> build topology only";
-      "  counts + input tree  -> refit the given tree only";
-      "(refit happens whenever counts are present, unless --refit-with none)." ];
+    TA.make_separator_multiline [ "Registers.";
+      "KPopPhylo holds:";
+      " a k-mer counts/spectra register (option '-i s')";
+      " a twister register (option '-i T')";
+      " a twisted register (option '-i t')."
+    ];
+    TA.make_separator_multiline [ "Workflow.";
+      "The workflow run is decided from which registers are populated:";
+      " counts only         -> twist, build topology, refit";
+      " counts + twisted    -> build topology from twisted, refit";
+      " twisted only        -> build topology only";
+      " counts + input tree -> refit the given tree only";
+      "(refit happens whenever counts are present, unless --refit-with none)."
+    ];
+    TA.make_separator_multiline [ "Actions.";
+      "They are executed delayed and in order of specification.";
+      "Input/Output:"
+    ];
     [ "-i"; "--input" ],
       Some "s|T|t <binary_file_prefix>",
       [ "load into the specified register the binary KPop database with";
@@ -194,6 +203,12 @@ let () =
         "refitted (refit-only workflow; requires a counts register)" ],
       TA.Optional,
       (fun _ -> Tree_to_register (TA.get_parameter ()) |> List.accum Parameters.program);
+    [ "-o"; "--output" ],
+      Some "<output_file_prefix>",
+      [ "run the workflow selected by the loaded registers and write the";
+        "resulting tree to '<prefix>.nwk'" ],
+      TA.Mandatory,
+      (fun _ -> Compute_tree (TA.get_parameter ()) |> List.accum Parameters.program);
     TA.make_separator_multiline [ ""; "Embedding distance (used to build the topology):" ];
     [ "-m"; "--metric" ],
       Some "'flat'|'powers('<p_int>','<p_med>','<p_ext>')'|...",
@@ -318,13 +333,7 @@ let () =
       TA.Default (string_of_int Defaults.refit_k |> Fun.const),
       (fun _ -> Set_refit_k (TA.get_parameter_int_pos ())
         |> List.accum Parameters.program);
-    TA.make_separator_multiline [ ""; "Output and miscellaneous:" ];
-    [ "-o"; "--output" ],
-      Some "<output_file_prefix>",
-      [ "run the workflow selected by the loaded registers and write the";
-        "resulting tree to '<prefix>.nwk'" ],
-      TA.Mandatory,
-      (fun _ -> Compute_tree (TA.get_parameter ()) |> List.accum Parameters.program);
+    TA.make_separator_multiline [ "Miscellaneous options."; "They are set immediately" ];
     [ "-T"; "--threads" ],
       Some "<computing_threads>",
       [ "number of concurrent computing threads to be spawned";
