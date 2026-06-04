@@ -1404,8 +1404,6 @@ include (
       let rev_remove v u =
         if v >= 0 && v < max_slots then Hashtbl.remove rev_nbrs.(v) u in
       let dist_cache : (int * int, float) Hashtbl.t = Hashtbl.create (n * k_nn * 8) in
-      let n_dist_of_internal = ref 0 in
-      let n_unique_dist_pairs = ref 0 in
       (* [Centroid] proxy: O(d) Euclidean distance between the
          size-weighted cluster centroids in [embedding], no recursion
          and no memoisation (the embedding is the authoritative state).
@@ -1417,14 +1415,12 @@ include (
       let dist_of_hyp i j =
         if i = j then 0. else hyp_dist hyp_pos.(i) hyp_pos.(j) in
       let rec dist_of_saitou_nei i j =
-        incr n_dist_of_internal;
         if i = j then 0.
         else
           let key = cache_key i j in
           match Hashtbl.find_opt dist_cache key with
           | Some d -> d
           | None ->
-            incr n_unique_dist_pairs;
             let d =
               if i < n && j < n then
                 eucl_dist data.(i) data.(j)
@@ -1465,55 +1461,12 @@ include (
       let rebuild_interval =
         max 1 (int_of_float (ceil (sqrt (float_of_int n)))) in
       let n_rebuilds = ref 0 in
-      let n_rebuild_nbrs_calls = ref 0 in
-      let n_forest_queries = ref 0 in
-      let n_dist_of_calls = ref 0 in
-      let n_dist_of_misses = ref 0 in
-      let total_affected = ref 0 in
-      let n_merges = ref 0 in
-      (* Heap pop accounting: every pop_best invocation classifies each
-         popped entry as dead (a.i or a.j inactive), stale (version
-         mismatch -> re-push), or fresh (accepted into the budget). *)
-      let n_pops_total = ref 0 in
-      let n_pops_dead = ref 0 in
-      let n_pops_stale = ref 0 in
-      let n_pops_fresh = ref 0 in
-      let max_heap_size = ref 0 in
-      let t_dist_of = BiOCamLib.Tools.Timer.of_string "SparseNJ.compute_rp_forest_rebuild.dist_of" in
-      let t_active_scan = BiOCamLib.Tools.Timer.of_string "SparseNJ.compute_rp_forest_rebuild.active_scan" in
-      let t_forest_build = BiOCamLib.Tools.Timer.of_string "SparseNJ.compute_rp_forest_rebuild.forest_build" in
-      let t_forest_query = BiOCamLib.Tools.Timer.of_string "SparseNJ.compute_rp_forest_rebuild.forest_query" in
-      let t_rebuild_nbrs = BiOCamLib.Tools.Timer.of_string "SparseNJ.compute_rp_forest_rebuild.rebuild_nbrs" in
-      let t_pop_best = BiOCamLib.Tools.Timer.of_string "SparseNJ.compute_rp_forest_rebuild.pop_best" in
-      let t_push_pairs = BiOCamLib.Tools.Timer.of_string "SparseNJ.compute_rp_forest_rebuild.push_pairs" in
-      let t_step_c = BiOCamLib.Tools.Timer.of_string "SparseNJ.compute_rp_forest_rebuild.step_c" in
-      let t_bootstrap = BiOCamLib.Tools.Timer.of_string "SparseNJ.compute_rp_forest_rebuild.bootstrap" in
-      let t_main_loop = BiOCamLib.Tools.Timer.of_string "SparseNJ.compute_rp_forest_rebuild.main_loop" in
-      let t_total = BiOCamLib.Tools.Timer.of_string "SparseNJ.compute_rp_forest_rebuild.total" in
-      BiOCamLib.Tools.Timer.start t_total;
-      let dist_of_raw = dist_of in
-      let dist_of i j =
-        BiOCamLib.Tools.Timer.start t_dist_of;
-        incr n_dist_of_calls;
-        (* Cache-miss accounting is only meaningful for the SaitouNei
-           model; the Centroid proxy keeps no cache (unique_pairs
-           stays 0, which is the signal that coverage collapsed). *)
-        if distance = Distance.SaitouNei && i <> j then begin
-          let key = cache_key i j in
-          if not (Hashtbl.mem dist_cache key) then incr n_dist_of_misses
-        end;
-        let d = dist_of_raw i j in
-        BiOCamLib.Tools.Timer.stop t_dist_of;
-        d in
       let rebuild_forest () =
-        BiOCamLib.Tools.Timer.start t_active_scan;
         let act = ref [] in
         for s = max_slots - 1 downto 0 do
           if active.(s) then act := (s, embedding.(s)) :: !act
         done;
         let arr = Array.of_list !act in
-        BiOCamLib.Tools.Timer.stop t_active_scan;
-        BiOCamLib.Tools.Timer.start t_forest_build;
         if Array.length arr > 0 then
           cur_forest :=
             Some
@@ -1521,14 +1474,11 @@ include (
                  arr)
         else
           cur_forest := None;
-        BiOCamLib.Tools.Timer.stop t_forest_build;
         new_slots := [];
         merges_since_rebuild := 0;
         incr n_rebuilds in
       let k_query = k_nn * k_query_factor in
       let forest_expand v =
-        BiOCamLib.Tools.Timer.start t_forest_query;
-        incr n_forest_queries;
         let res = ref [] in
         (match !cur_forest with
          | None -> ()
@@ -1542,11 +1492,8 @@ include (
              cands);
         List.iter (fun s ->
           if s <> v && active.(s) then res := s :: !res) !new_slots;
-        BiOCamLib.Tools.Timer.stop t_forest_query;
         !res in
       let rebuild_nbrs v candidates =
-        BiOCamLib.Tools.Timer.start t_rebuild_nbrs;
-        incr n_rebuild_nbrs_calls;
         let seen = Hashtbl.create 16 in
         let pairs = ref [] in
         List.iter (fun c ->
@@ -1561,8 +1508,7 @@ include (
         let new_nbrs = Array.sub arr 0 m in
         Array.iter (fun (j, _) -> rev_remove j v) nbrs.(v);
         nbrs.(v) <- new_nbrs;
-        Array.iter (fun (j, _) -> rev_add j v) new_nbrs;
-        BiOCamLib.Tools.Timer.stop t_rebuild_nbrs in
+        Array.iter (fun (j, _) -> rev_add j v) new_nbrs in
       for i = 0 to n - 1 do
         trees.(i) <- Trees.Newick.leaf names.(i);
         active.(i) <- true;
@@ -1577,44 +1523,6 @@ include (
           prefix n_trees leaf_size k_nn k_query rebuild_interval
           (Distance.to_string distance)
           (RowSum.to_string row_sum) (Symmetry.to_string symmetry);
-      (* Diagnostic: how faithfully does the leaf lift reproduce the
-         base (= leaf-level Saitou-Nei = Euclidean) distances?  At the
-         leaves, before any merge, Saitou-Nei equals the Euclidean CA
-         distance, so the Pearson correlation between hyp_dist on the
-         lifted leaves and eucl_dist on the raw leaves directly measures
-         the lift's distance fidelity.  Sampled over random leaf pairs. *)
-      if verbose && use_hyp then begin
-        let n_pairs = min 4000 (n * (n - 1) / 2) in
-        let seed = ref 0x9E3779B1 in
-        let next_rand m =
-          (* xorshift, deterministic; avoids Random-state nondeterminism *)
-          let x = !seed in
-          let x = x lxor (x lsl 13) in
-          let x = x lxor (x lsr 17) in
-          let x = x lxor (x lsl 5) in
-          seed := x land 0x3FFFFFFF;
-          !seed mod m in
-        let sx = ref 0. and sy = ref 0. and sxx = ref 0. and syy = ref 0.
-        and sxy = ref 0. and cnt = ref 0 in
-        for _ = 1 to n_pairs do
-          let i = next_rand n and j = next_rand n in
-          if i <> j then begin
-            let dh = hyp_dist hyp_pos.(i) hyp_pos.(j) in
-            let de = eucl_dist data.(i) data.(j) in
-            sx := !sx +. dh; sy := !sy +. de;
-            sxx := !sxx +. dh *. dh; syy := !syy +. de *. de;
-            sxy := !sxy +. dh *. de; incr cnt
-          end
-        done;
-        let nf = float_of_int !cnt in
-        let cov = !sxy /. nf -. (!sx /. nf) *. (!sy /. nf) in
-        let vx = !sxx /. nf -. (!sx /. nf) ** 2.
-        and vy = !syy /. nf -. (!sy /. nf) ** 2. in
-        let pearson =
-          if vx > 0. && vy > 0. then cov /. sqrt (vx *. vy) else nan in
-        Printf.eprintf "%s   leaf-lift fidelity (hyp vs Euclidean, scale=%g): Pearson=%.4f over %d pairs\n%!"
-          prefix hyp_scale pearson !cnt
-      end;
       (* Per-cluster cached mean K-NN distance r̂(v).  Used to compute
          row sums on the fly (r(v) = (n_act - 1) * r̂(v)) and as part
          of the heap key Q' = d(i,j) - r̂(i) - r̂(j). *)
@@ -1653,10 +1561,7 @@ include (
               vi = version.(i); vj = version.(j); i; j }
         end in
       let push_pairs_of v =
-        BiOCamLib.Tools.Timer.start t_push_pairs;
-        Array.iter (fun (x, _) -> push_pair_unordered v x) nbrs.(v);
-        BiOCamLib.Tools.Timer.stop t_push_pairs in
-      BiOCamLib.Tools.Timer.start t_bootstrap;
+        Array.iter (fun (x, _) -> push_pair_unordered v x) nbrs.(v) in
       rebuild_forest ();
       (match !cur_forest with
        | None -> ()
@@ -1675,7 +1580,6 @@ include (
       for i = 0 to n - 1 do
         push_pairs_of i
       done;
-      BiOCamLib.Tools.Timer.stop t_bootstrap;
       (* Skip the RowSum CLI selector for this mode: K-NN mean is the
          only estimator the heap supports.  RowSum.Full / Topk would
          be possible extensions but are not the validated path. *)
@@ -1694,9 +1598,6 @@ include (
            *. (Float.Array.unsafe_get r_hat i
                +. Float.Array.unsafe_get r_hat j) in
       let pop_best () =
-        BiOCamLib.Tools.Timer.start t_pop_best;
-        let cur_size = QHeap.length heap in
-        if cur_size > !max_heap_size then max_heap_size := cur_size;
         let budget = max 4 (4 * k_nn) in
         let fresh = ref [] in
         let n_fresh = ref 0 in
@@ -1705,19 +1606,16 @@ include (
           match QHeap.pop heap with
           | None -> going := false
           | Some e ->
-            incr n_pops_total;
             if not active.(e.QHeap.i) || not active.(e.QHeap.j) then
-              incr n_pops_dead
+              ()
             else if version.(e.QHeap.i) <> e.QHeap.vi
                  || version.(e.QHeap.j) <> e.QHeap.vj then begin
-              incr n_pops_stale;
               let qp = q_prime e.QHeap.i e.QHeap.j in
               QHeap.push heap
                 { e with QHeap.q_prime = qp;
                          vi = version.(e.QHeap.i);
                          vj = version.(e.QHeap.j) }
             end else begin
-              incr n_pops_fresh;
               fresh := e :: !fresh;
               incr n_fresh;
               if !n_fresh >= budget then going := false
@@ -1733,9 +1631,7 @@ include (
             end;
             QHeap.push heap e)
           !fresh;
-        BiOCamLib.Tools.Timer.stop t_pop_best;
         !best_pair in
-      BiOCamLib.Tools.Timer.start t_main_loop;
       while !n_active > 3 do
         let i, j = pop_best () in
         let i, j =
@@ -1820,8 +1716,6 @@ include (
         List.iter (fun v ->
           if v <> i && v <> j && v <> u && active.(v) then
             Hashtbl.replace affected v ()) forest_cands;
-        total_affected := !total_affected + Hashtbl.length affected;
-        incr n_merges;
         Array.iter (fun (x, _) -> rev_remove x i) nbrs.(i);
         Array.iter (fun (x, _) -> rev_remove x j) nbrs.(j);
         nbrs.(i) <- [||];
@@ -1830,7 +1724,6 @@ include (
         active.(j) <- false;
         decr n_active;
         new_slots := u :: !new_slots;
-        BiOCamLib.Tools.Timer.start t_step_c;
         Hashtbl.iter (fun v () ->
           let cands_v = ref [] in
           Array.iter (fun (x, _) ->
@@ -1846,14 +1739,12 @@ include (
           rebuild_nbrs v !cands_v;
           update_r_hat v;
           version.(v) <- version.(v) + 1) affected;
-        BiOCamLib.Tools.Timer.stop t_step_c;
         push_pairs_of u;
         Hashtbl.iter (fun v () -> push_pairs_of v) affected;
         incr merges_since_rebuild;
         if !merges_since_rebuild >= rebuild_interval then
           rebuild_forest ()
       done;
-      BiOCamLib.Tools.Timer.stop t_main_loop;
       cur_forest := None;
       let active_three =
         let acc = ref [] in
@@ -1874,49 +1765,9 @@ include (
           [| Trees.Newick.edge ~length:b1 (), trees.(i1);
              Trees.Newick.edge ~length:b2 (), trees.(i2);
              Trees.Newick.edge ~length:b3 (), trees.(i3) |] in
-      BiOCamLib.Tools.Timer.stop t_total;
-      if verbose then begin
+      if verbose then
         Printf.eprintf "%s Sparse-NJ (rp-forest): built unrooted tree on %d leaves (%d rebuilds).\n%!"
           prefix n !n_rebuilds;
-        let mean_affected =
-          if !n_merges = 0 then 0.
-          else float_of_int !total_affected /. float_of_int !n_merges in
-        let fmerges = max 1 !n_merges in
-        Printf.eprintf
-          "%s  counts: n=%d, merges=%d, rebuild_nbrs=%d, forest_queries=%d, dist_of_top=%d, dist_of_internal=%d, unique_pairs=%d, mean_affected/merge=%.2f\n%!"
-          prefix n !n_merges !n_rebuild_nbrs_calls !n_forest_queries
-          !n_dist_of_calls !n_dist_of_internal !n_unique_dist_pairs
-          mean_affected;
-        Printf.eprintf
-          "%s  pop_best:  total=%d (per_merge=%.1f), dead=%d, stale=%d, fresh=%d, ratio_stale=%.2f, ratio_dead=%.2f\n%!"
-          prefix !n_pops_total
-          (float_of_int !n_pops_total /. float_of_int fmerges)
-          !n_pops_dead !n_pops_stale !n_pops_fresh
-          (float_of_int !n_pops_stale
-           /. float_of_int (max 1 !n_pops_fresh))
-          (float_of_int !n_pops_dead
-           /. float_of_int (max 1 !n_pops_fresh));
-        Printf.eprintf
-          "%s  heap:      max_size=%d, final_size=%d\n%!"
-          prefix !max_heap_size (QHeap.length heap);
-        Printf.eprintf
-          "%s  dist_of:   recursion_factor=%.2f (internal/top), cache_density=%.3f (unique_pairs/n^2 with n=%d)\n%!"
-          prefix
-          (float_of_int !n_dist_of_internal
-           /. float_of_int (max 1 !n_dist_of_calls))
-          (float_of_int !n_unique_dist_pairs
-           /. float_of_int (n * n))
-          n;
-        let pfx_t = "SparseNJ.compute_rp_forest_rebuild." in
-        let pn = String.length pfx_t in
-        Printf.eprintf "%s --- Timer breakdown ---\n%!" prefix;
-        List.iter (fun (name, secs) ->
-          let nn = String.length name in
-          if nn >= pn && String.sub name 0 pn = pfx_t then
-            Printf.eprintf "%s   %-30s %8.3f s\n%!" prefix
-              (String.sub name pn (nn - pn)) secs)
-          (BiOCamLib.Tools.Timer.snapshot ())
-      end;
       root
     (* ====================================================================
        Cover-tree-backed subquadratic implementation.
@@ -1979,39 +1830,7 @@ include (
                 0.5 *. (dist_of older yl +. dist_of older yr -. dlr) in
             Hashtbl.add dist_cache key d;
             d in
-      (* Per-operation timers.  All accumulate to global Tools.Timer
-         buckets that compute_cover_tree dumps via BiOCamLib.Tools.Timer.snapshot
-         at exit.  Timers are non-nesting: each guards exactly its own
-         function's body; we don't try to attribute nested costs (e.g.,
-         dist_of inside rebuild_nbrs charges to rebuild_nbrs, not
-         dist_of, because the latter's timer is started AFTER the
-         former).  BiOCamLib.Tools.Timer.start is a no-op when the timer is
-         already running, so nested starts don't double-count -- they
-         just lose the inner attribution. *)
-      let t_dist_of = BiOCamLib.Tools.Timer.of_string "SparseNJ.compute_cover_tree.dist_of" in
-      let t_rebuild_nbrs = BiOCamLib.Tools.Timer.of_string "SparseNJ.compute_cover_tree.rebuild_nbrs" in
-      let t_ct_insert = BiOCamLib.Tools.Timer.of_string "SparseNJ.compute_cover_tree.ct_insert" in
-      let t_ct_remove = BiOCamLib.Tools.Timer.of_string "SparseNJ.compute_cover_tree.ct_remove" in
-      let t_ct_knn = BiOCamLib.Tools.Timer.of_string "SparseNJ.compute_cover_tree.ct_knn" in
-      let t_row_sums = BiOCamLib.Tools.Timer.of_string "SparseNJ.compute_cover_tree.row_sums" in
-      let t_candidate_pairs = BiOCamLib.Tools.Timer.of_string "SparseNJ.compute_cover_tree.candidate_pairs" in
-      let t_q_search = BiOCamLib.Tools.Timer.of_string "SparseNJ.compute_cover_tree.q_search" in
-      let t_step_c = BiOCamLib.Tools.Timer.of_string "SparseNJ.compute_cover_tree.step_c" in
-      let t_bootstrap = BiOCamLib.Tools.Timer.of_string "SparseNJ.compute_cover_tree.bootstrap" in
-      let t_main_loop = BiOCamLib.Tools.Timer.of_string "SparseNJ.compute_cover_tree.main_loop" in
-      let t_total = BiOCamLib.Tools.Timer.of_string "SparseNJ.compute_cover_tree.total" in
-      BiOCamLib.Tools.Timer.start t_total;
-      (* Wrap dist_of so its compute time is attributed (cache hits are
-         essentially free; we want to know how much the recursive
-         Saitou-Nei chain costs). *)
-      let dist_of_raw = dist_of in
-      let dist_of i j =
-        BiOCamLib.Tools.Timer.start t_dist_of;
-        let d = dist_of_raw i j in
-        BiOCamLib.Tools.Timer.stop t_dist_of;
-        d in
       let rebuild_nbrs v candidates =
-        BiOCamLib.Tools.Timer.start t_rebuild_nbrs;
         let seen = Hashtbl.create 16 in
         let pairs = ref [] in
         List.iter (fun c ->
@@ -2026,8 +1845,7 @@ include (
         let new_nbrs = Array.sub arr 0 m in
         Array.iter (fun (j, _) -> rev_remove j v) nbrs.(v);
         nbrs.(v) <- new_nbrs;
-        Array.iter (fun (j, _) -> rev_add j v) new_nbrs;
-        BiOCamLib.Tools.Timer.stop t_rebuild_nbrs in
+        Array.iter (fun (j, _) -> rev_add j v) new_nbrs in
       for i = 0 to n - 1 do
         trees.(i) <- Trees.Newick.leaf names.(i);
         active.(i) <- true;
@@ -2050,19 +1868,15 @@ include (
       end in
       let module CT = CoverTree.Make (M) in
       let ct = CT.create () in
-      BiOCamLib.Tools.Timer.start t_ct_insert;
       for i = 0 to n - 1 do
         CT.insert ct (i, embedding.(i))
       done;
-      BiOCamLib.Tools.Timer.stop t_ct_insert;
       let k_query = k_nn * k_query_factor in
       let ct_expand v =
         if !n_active <= 1 then []
         else begin
           let q_point = (v, embedding.(v)) in
-          BiOCamLib.Tools.Timer.start t_ct_knn;
           let knn = CT.knn ct q_point (k_query + 1) in
-          BiOCamLib.Tools.Timer.stop t_ct_knn;
           List.filter_map (fun (s, _) ->
             if s = v || not active.(s) then None else Some s
           ) knn
@@ -2072,18 +1886,15 @@ include (
           prefix k_nn k_query
           (RowSum.to_string row_sum) (Symmetry.to_string symmetry);
       (* Bootstrap: K-NN per leaf via the cover tree *)
-      BiOCamLib.Tools.Timer.start t_bootstrap;
       for i = 0 to n - 1 do
         let cands = ct_expand i in
         rebuild_nbrs i cands
       done;
-      BiOCamLib.Tools.Timer.stop t_bootstrap;
       let nbrs_idx () =
         Array.init max_slots (fun v ->
           let a = nbrs.(v) in
           Array.init (Array.length a) (fun k -> fst a.(k))) in
       let row_sums () =
-        BiOCamLib.Tools.Timer.start t_row_sums;
         let s = Float.Array.create max_slots in
         Float.Array.fill s 0 max_slots 0.;
         let n_active_minus_1 = float_of_int (!n_active - 1) in
@@ -2114,12 +1925,9 @@ include (
                end
              end
            done);
-        BiOCamLib.Tools.Timer.stop t_row_sums;
         s in
-      BiOCamLib.Tools.Timer.start t_main_loop;
       while !n_active > 3 do
         let s = row_sums () in
-        BiOCamLib.Tools.Timer.start t_candidate_pairs;
         let cand = candidate_pairs symmetry (nbrs_idx ()) active in
         let cand =
           if cand = [] then begin
@@ -2132,8 +1940,6 @@ include (
             done;
             !acc
           end else cand in
-        BiOCamLib.Tools.Timer.stop t_candidate_pairs;
-        BiOCamLib.Tools.Timer.start t_q_search;
         let n_act_minus_2 = float_of_int (!n_active - 2) in
         let best_q = ref infinity and best_pair = ref (-1, -1) in
         List.iter
@@ -2146,7 +1952,6 @@ include (
               best_pair := (i, j)
             end)
           cand;
-        BiOCamLib.Tools.Timer.stop t_q_search;
         let i, j = !best_pair in
         let d_ij = dist_of i j in
         let s_i = Float.Array.unsafe_get s i and s_j = Float.Array.unsafe_get s j in
@@ -2200,14 +2005,9 @@ include (
            u must precede the affected-v patching loop (so Step C
            queries see u); the removes of i / j must precede it too
            (so dead slots don't keep coming back as candidates). *)
-        BiOCamLib.Tools.Timer.start t_ct_insert;
         CT.insert ct (u, embedding.(u));
-        BiOCamLib.Tools.Timer.stop t_ct_insert;
-        BiOCamLib.Tools.Timer.start t_ct_remove;
         let _ = CT.remove ct (i, embedding.(i)) in
         let _ = CT.remove ct (j, embedding.(j)) in
-        BiOCamLib.Tools.Timer.stop t_ct_remove;
-        BiOCamLib.Tools.Timer.start t_step_c;
         Hashtbl.iter (fun v () ->
           let cands_v = ref [] in
           Array.iter (fun (x, _) ->
@@ -2220,10 +2020,8 @@ include (
               if x <> v && not (List.mem x !cands_v) then
                 cands_v := x :: !cands_v) fx
           end;
-          rebuild_nbrs v !cands_v) affected;
-        BiOCamLib.Tools.Timer.stop t_step_c
+          rebuild_nbrs v !cands_v) affected
       done;
-      BiOCamLib.Tools.Timer.stop t_main_loop;
       let active_three =
         let acc = ref [] in
         for s = max_slots - 1 downto 0 do
@@ -2246,14 +2044,6 @@ include (
       if verbose then
         Printf.eprintf "%s Sparse-NJ (cover-tree): built unrooted tree on %d leaves.\n%!"
           prefix n;
-      BiOCamLib.Tools.Timer.stop t_total;
-      if verbose then begin
-        Printf.eprintf "%s --- Timer breakdown (raw snapshot) ---\n%!" prefix;
-        let snap = BiOCamLib.Tools.Timer.snapshot () in
-        Printf.eprintf "%s   snapshot has %d entries\n%!" prefix (List.length snap);
-        List.iter (fun (name, secs) ->
-          Printf.eprintf "%s   %-50s %8.3f s\n%!" prefix name secs) snap
-      end;
       root
     (* ====================================================================
        Hyperbolic-embedding implementation.  Hyperboloid positions are
