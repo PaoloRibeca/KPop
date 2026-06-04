@@ -222,13 +222,11 @@ include (
     (* Hyperboloid model, shared by [compute_hyperbolic] (where it is
        the retrieval metric) and by the [Hyperbolic] distance proxy of
        [compute_rp_forest_rebuild] (where it is the Q-formula distance).
-
        A point p in H^d is stored as a (d + 1)-vector with p.(0) the
        time-like coord (positive) and p.(1..d) the spatial coords,
        satisfying the Lorentz constraint -p.(0)^2 + sum p.(k)^2 = -1.
        The Lorentz inner product is <p, q>_L = -p.(0) q.(0) + sum
        p.(k) q.(k); hyperbolic distance is acosh(-<p, q>_L).
-
        Leaf positions are lifted from the Euclidean embedding via
            p_i -> (cosh(s |p_i|), sinh(s |p_i|) * p_i / |p_i|)
        with [scale] = s a tunable radial scale; per-merge the new
@@ -392,7 +390,7 @@ include (
             Some top
           end
       end
-    (* === Dense reference implementation === *)
+    (* Dense reference implementation *)
     let compute_dense ?(verbose = false)
         ?(index_type = Interfaiss.Type.of_string "hnsw(32)")
         ?(k_nn = 10) ?(row_sum = RowSum.Knn) ?(symmetry = Symmetry.One)
@@ -599,17 +597,14 @@ include (
         Printf.eprintf "%s Sparse-NJ (dense): built unrooted tree on %d leaves.\n%!"
           prefix n;
       root
-    (* === Subquadratic experimental implementation ===
-
+    (* Subquadratic experimental implementation.
        State: each cluster (leaf or merged) gets its own slot in
        [0, 2n - 3); leaves occupy [0, n), merges fill [n, 2n - 3).
        Slots are NOT reused -- so the merge history is uniquely
        indexable and the Saitou-Nei recursion is well-defined.
-
        Saitou-Nei distance lookup: cache-hit on first try; otherwise
        recurse via the merge formula.  Cached entries are pruned
        lazily (we don't actively evict).
-
        K-NN maintenance: each active cluster has [nbrs.(v) : (slot, dist)
        array].  A reverse index [rev_nbrs.(v)] tracks who has v in
        their K-NN list, so on merge we update only the affected
@@ -617,7 +612,6 @@ include (
        below K (because both i and j were neighbours and got replaced
        by a single u entry), we re-fill from a FAISS centroid query
        over the active set.
-
        FAISS: rebuilt from scratch each merge for the prototype
        (O(n_active * dim) per merge).  A periodic-rebuild or
        incremental insert/remove variant is the obvious next
@@ -971,9 +965,7 @@ include (
         Printf.eprintf "%s Sparse-NJ (subquadratic): built unrooted tree on %d leaves.\n%!"
           prefix n;
       root
-    (* ====================================================================
-       Periodic-rebuild FAISS implementation.
-
+    (* Periodic-rebuild FAISS implementation.
        Same algorithmic skeleton as [compute_subquadratic] but the
        per-merge FAISS rebuild is replaced by a persistent index plus
        tombstoning of merged-away slots and a side-scan over the
@@ -981,7 +973,6 @@ include (
        Every [rebuild_interval] merges (default ceil(sqrt n)) the
        index is rebuilt over the current active set and the tombstone /
        new-slot bookkeeping resets.
-
        With FAISS-Flat the per-query cost stays O(n_act * d) regardless,
        so this saves only the per-merge rebuild constant (the K-NN
        query cost dominates).  With HNSW the per-query cost would drop
@@ -1352,9 +1343,7 @@ include (
         Printf.eprintf "%s Sparse-NJ (periodic-rebuild): built unrooted tree on %d leaves (%d rebuilds).\n%!"
           prefix n !n_rebuilds;
       root
-    (* ====================================================================
-       Random-projection-forest periodic-rebuild implementation.
-
+    (* Random-projection-forest periodic-rebuild implementation.
        Same skeleton as [compute_periodic_rebuild] but the spatial
        index is a native OCaml RP-forest (lib/RPForest.ml) instead of
        FAISS.  Build cost O(M n log n) per rebuild; K-NN query cost
@@ -1769,9 +1758,7 @@ include (
         Printf.eprintf "%s Sparse-NJ (rp-forest): built unrooted tree on %d leaves (%d rebuilds).\n%!"
           prefix n !n_rebuilds;
       root
-    (* ====================================================================
-       Cover-tree-backed subquadratic implementation.
-
+    (* Cover-tree-backed subquadratic implementation.
        Same algorithmic skeleton as [compute_subquadratic] (rev_nbrs +
        FAISS-K_QUERY-expansion with Saitou-Nei reranking) but with the
        per-merge FAISS rebuild replaced by a persistent cover tree
@@ -2045,8 +2032,7 @@ include (
         Printf.eprintf "%s Sparse-NJ (cover-tree): built unrooted tree on %d leaves.\n%!"
           prefix n;
       root
-    (* ====================================================================
-       Hyperbolic-embedding implementation.  Hyperboloid positions are
+    (* Hyperbolic-embedding implementation.  Hyperboloid positions are
        maintained by geodesic placement and used directly as the K-NN
        retrieval metric (brute-force scan).  The hyperboloid helpers
        [lorentz_inner], [hyp_dist], [hyp_lift], [hyp_geodesic] are
