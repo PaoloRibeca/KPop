@@ -472,6 +472,32 @@ include (
             Hashtbl.add dist_cache key d;
             d in
       dist_of
+    (* Deactivate the merged pair (i, j): drop them from the reverse
+       index, clear their K-NN lists, mark them inactive and decrement
+       the active count.  Shared by the slotted modes. *)
+    let deactivate_pair ~i ~j ~nbrs ~rev_remove ~active ~n_active =
+      Array.iter (fun (x, _) -> rev_remove x i) nbrs.(i);
+      Array.iter (fun (x, _) -> rev_remove x j) nbrs.(j);
+      nbrs.(i) <- [||];
+      nbrs.(j) <- [||];
+      active.(i) <- false;
+      active.(j) <- false;
+      decr n_active
+    (* The active clusters whose K-NN list a merge of (i, j) into u may
+       invalidate: everyone who had i or j as a neighbour, plus the
+       index's K-NN of u ([idx_cands]) as reverse-insertion candidates. *)
+    let collect_affected ~i ~j ~u ~active ~rev_nbrs idx_cands =
+      let affected = Hashtbl.create 16 in
+      Hashtbl.iter (fun v () ->
+        if v <> i && v <> j && active.(v) then
+          Hashtbl.replace affected v ()) rev_nbrs.(i);
+      Hashtbl.iter (fun v () ->
+        if v <> i && v <> j && active.(v) then
+          Hashtbl.replace affected v ()) rev_nbrs.(j);
+      List.iter (fun v ->
+        if v <> i && v <> j && v <> u && active.(v) then
+          Hashtbl.replace affected v ()) idx_cands;
+      affected
     (* Size-weighted centroid of two cluster embeddings. *)
     let weighted_centroid ~dim ~si_f ~sj_f ~tot_f emb_i emb_j =
       Float.Array.init dim (fun k ->
@@ -921,25 +947,10 @@ include (
                "reverse insertion" candidate set; without this step,
                unaffected v's never get to consider u and we plateau well
                below the dense quality). *)
-        let affected = Hashtbl.create 16 in
-        Hashtbl.iter (fun v () ->
-          if v <> i && v <> j && active.(v) then
-            Hashtbl.replace affected v ()) rev_nbrs.(i);
-        Hashtbl.iter (fun v () ->
-          if v <> i && v <> j && active.(v) then
-            Hashtbl.replace affected v ()) rev_nbrs.(j);
-        List.iter (fun v ->
-          if v <> i && v <> j && v <> u && active.(v) then
-            Hashtbl.replace affected v ()) faiss_cands;
+        let affected = collect_affected ~i ~j ~u ~active ~rev_nbrs faiss_cands in
         (* Step B: Deactivate i and j (before patching others, so the
            patches won't reintroduce them).  Their nbrs are cleared. *)
-        Array.iter (fun (x, _) -> rev_remove x i) nbrs.(i);
-        Array.iter (fun (x, _) -> rev_remove x j) nbrs.(j);
-        nbrs.(i) <- [||];
-        nbrs.(j) <- [||];
-        active.(i) <- false;
-        active.(j) <- false;
-        decr n_active;
+        deactivate_pair ~i ~j ~nbrs ~rev_remove ~active ~n_active;
         (* Step C: Patch each affected v.  v's old K-NN contained i
            and/or j; replace with u (if not already there) and rebuild.
            If v's neighbour list would drop below K, expand via FAISS. *)
@@ -1186,23 +1197,8 @@ include (
         List.iter (fun x ->
           if x <> i && x <> j then cands_u := x :: !cands_u) faiss_cands;
         rebuild_nbrs u !cands_u;
-        let affected = Hashtbl.create 16 in
-        Hashtbl.iter (fun v () ->
-          if v <> i && v <> j && active.(v) then
-            Hashtbl.replace affected v ()) rev_nbrs.(i);
-        Hashtbl.iter (fun v () ->
-          if v <> i && v <> j && active.(v) then
-            Hashtbl.replace affected v ()) rev_nbrs.(j);
-        List.iter (fun v ->
-          if v <> i && v <> j && v <> u && active.(v) then
-            Hashtbl.replace affected v ()) faiss_cands;
-        Array.iter (fun (x, _) -> rev_remove x i) nbrs.(i);
-        Array.iter (fun (x, _) -> rev_remove x j) nbrs.(j);
-        nbrs.(i) <- [||];
-        nbrs.(j) <- [||];
-        active.(i) <- false;
-        active.(j) <- false;
-        decr n_active;
+        let affected = collect_affected ~i ~j ~u ~active ~rev_nbrs faiss_cands in
+        deactivate_pair ~i ~j ~nbrs ~rev_remove ~active ~n_active;
         (* Update persistent-index bookkeeping for this merge: i and j
            tombstoned in the existing index; u added to new_slots
            (it will be in the index after the next rebuild). *)
@@ -1541,23 +1537,8 @@ include (
           if x <> i && x <> j then cands_u := x :: !cands_u) forest_cands;
         rebuild_nbrs u !cands_u;
         update_r_hat u;
-        let affected = Hashtbl.create 16 in
-        Hashtbl.iter (fun v () ->
-          if v <> i && v <> j && active.(v) then
-            Hashtbl.replace affected v ()) rev_nbrs.(i);
-        Hashtbl.iter (fun v () ->
-          if v <> i && v <> j && active.(v) then
-            Hashtbl.replace affected v ()) rev_nbrs.(j);
-        List.iter (fun v ->
-          if v <> i && v <> j && v <> u && active.(v) then
-            Hashtbl.replace affected v ()) forest_cands;
-        Array.iter (fun (x, _) -> rev_remove x i) nbrs.(i);
-        Array.iter (fun (x, _) -> rev_remove x j) nbrs.(j);
-        nbrs.(i) <- [||];
-        nbrs.(j) <- [||];
-        active.(i) <- false;
-        active.(j) <- false;
-        decr n_active;
+        let affected = collect_affected ~i ~j ~u ~active ~rev_nbrs forest_cands in
+        deactivate_pair ~i ~j ~nbrs ~rev_remove ~active ~n_active;
         new_slots := u :: !new_slots;
         Hashtbl.iter (fun v () ->
           let cands_v = ref [] in
@@ -1710,23 +1691,8 @@ include (
         List.iter (fun x ->
           if x <> i && x <> j then cands_u := x :: !cands_u) ct_cands;
         rebuild_nbrs u !cands_u;
-        let affected = Hashtbl.create 16 in
-        Hashtbl.iter (fun v () ->
-          if v <> i && v <> j && active.(v) then
-            Hashtbl.replace affected v ()) rev_nbrs.(i);
-        Hashtbl.iter (fun v () ->
-          if v <> i && v <> j && active.(v) then
-            Hashtbl.replace affected v ()) rev_nbrs.(j);
-        List.iter (fun v ->
-          if v <> i && v <> j && v <> u && active.(v) then
-            Hashtbl.replace affected v ()) ct_cands;
-        Array.iter (fun (x, _) -> rev_remove x i) nbrs.(i);
-        Array.iter (fun (x, _) -> rev_remove x j) nbrs.(j);
-        nbrs.(i) <- [||];
-        nbrs.(j) <- [||];
-        active.(i) <- false;
-        active.(j) <- false;
-        decr n_active;
+        let affected = collect_affected ~i ~j ~u ~active ~rev_nbrs ct_cands in
+        deactivate_pair ~i ~j ~nbrs ~rev_remove ~active ~n_active;
         (* Update the cover tree: add u, remove i and j.  The add of
            u must precede the affected-v patching loop (so Step C
            queries see u); the removes of i / j must precede it too
