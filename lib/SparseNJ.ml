@@ -448,6 +448,75 @@ include (
         [| Trees.Newick.edge ~length:b1 (), trees.(i1);
            Trees.Newick.edge ~length:b2 (), trees.(i2);
            Trees.Newick.edge ~length:b3 (), trees.(i3) |]
+    (* Size-weighted centroid of two cluster embeddings. *)
+    let weighted_centroid ~dim ~si_f ~sj_f ~tot_f emb_i emb_j =
+      Float.Array.init dim (fun k ->
+        (si_f *. Float.Array.unsafe_get emb_i k
+         +. sj_f *. Float.Array.unsafe_get emb_j k)
+        /. tot_f)
+    (* The shared per-cluster K-NN view over the [nbrs] slot arrays,
+       projected to plain slot indices for [candidate_pairs]. *)
+    let make_nbrs_idx ~max_slots ~nbrs =
+      fun () ->
+        Array.init max_slots (fun v ->
+          let a = nbrs.(v) in
+          Array.init (Array.length a) (fun k -> fst a.(k)))
+    (* The shared K-NN rebuild for the slotted modes: rank the deduped
+       candidate slots by [dist_of] from v, keep the top [k_nn], and
+       keep the reverse index consistent. *)
+    let make_rebuild_nbrs ~k_nn ~max_slots ~active ~nbrs ~rev_add ~rev_remove ~dist_of =
+      fun v candidates ->
+        let seen = Hashtbl.create 16 in
+        let pairs = ref [] in
+        List.iter (fun c ->
+          if c <> v && c >= 0 && c < max_slots && active.(c)
+             && not (Hashtbl.mem seen c) then begin
+            Hashtbl.add seen c ();
+            pairs := (c, dist_of v c) :: !pairs
+          end) candidates;
+        let arr = Array.of_list !pairs in
+        Array.sort (fun (_, a) (_, b) -> compare a b) arr;
+        let m = min k_nn (Array.length arr) in
+        let new_nbrs = Array.sub arr 0 m in
+        Array.iter (fun (j, _) -> rev_remove j v) nbrs.(v);
+        nbrs.(v) <- new_nbrs;
+        Array.iter (fun (j, _) -> rev_add j v) new_nbrs
+    (* The shared row-sum estimator for the slotted scan modes: [Full]
+       is the exact active row sum, [Knn]/[Topk] the K-NN mean rescaled
+       by n_act - 1.  [bound] is the active array's length. *)
+    let make_row_sums ~bound ~active ~nbrs ~dist_of ~row_sum ~n_active =
+      fun () ->
+        let s = Float.Array.create bound in
+        Float.Array.fill s 0 bound 0.;
+        let n_active_minus_1 = float_of_int (!n_active - 1) in
+        (match row_sum with
+         | RowSum.Full ->
+           for i = 0 to bound - 1 do
+             if active.(i) then begin
+               let acc = ref 0. in
+               for j = 0 to bound - 1 do
+                 if j <> i && active.(j) then
+                   acc := !acc +. dist_of i j
+               done;
+               Float.Array.unsafe_set s i !acc
+             end
+           done
+         | RowSum.Knn | RowSum.Topk ->
+           for i = 0 to bound - 1 do
+             if active.(i) then begin
+               let arr = nbrs.(i) in
+               let kk = Array.length arr in
+               if kk > 0 then begin
+                 let acc = ref 0. in
+                 for p = 0 to kk - 1 do
+                   acc := !acc +. snd arr.(p)
+                 done;
+                 Float.Array.unsafe_set s i
+                   (!acc *. n_active_minus_1 /. float_of_int kk)
+               end
+             end
+           done);
+        s
     (* Dense reference implementation *)
     let compute_dense ?(verbose = false)
         ?(index_type = Interfaiss.Type.of_string "hnsw(32)")
@@ -603,10 +672,7 @@ include (
         let total = si + sj in
         let si_f = float_of_int si and sj_f = float_of_int sj
         and total_f = float_of_int total in
-        let new_emb = Float.Array.init dim (fun k ->
-          (si_f *. Float.Array.unsafe_get embedding.(i) k
-           +. sj_f *. Float.Array.unsafe_get embedding.(j) k)
-          /. total_f) in
+        let new_emb = weighted_centroid ~dim ~si_f ~sj_f ~tot_f:total_f embedding.(i) embedding.(j) in
         embedding.(i) <- new_emb;
         size.(i) <- total;
         active.(j) <- false;
@@ -746,22 +812,7 @@ include (
          current Saitou-Nei distance and keeping the top K.  Also
          updates the rev_nbrs index for both the removed-old and
          added-new neighbours. *)
-      let rebuild_nbrs v candidates =
-        let seen = Hashtbl.create 16 in
-        let pairs = ref [] in
-        List.iter (fun c ->
-          if c <> v && c >= 0 && c < max_slots && active.(c)
-             && not (Hashtbl.mem seen c) then begin
-            Hashtbl.add seen c ();
-            pairs := (c, dist_of v c) :: !pairs
-          end) candidates;
-        let arr = Array.of_list !pairs in
-        Array.sort (fun (_, a) (_, b) -> compare a b) arr;
-        let m = min k_nn (Array.length arr) in
-        let new_nbrs = Array.sub arr 0 m in
-        Array.iter (fun (j, _) -> rev_remove j v) nbrs.(v);
-        nbrs.(v) <- new_nbrs;
-        Array.iter (fun (j, _) -> rev_add j v) new_nbrs in
+      let rebuild_nbrs = make_rebuild_nbrs ~k_nn ~max_slots ~active ~nbrs ~rev_add ~rev_remove ~dist_of in
       (* Initialise leaves *)
       for i = 0 to n - 1 do
         trees.(i) <- Trees.Newick.leaf names.(i);
@@ -807,42 +858,8 @@ include (
       end;
       (* Build a slot-indexed nbrs view for [candidate_pairs] reuse;
          candidate_pairs expects an [int array array] keyed by slot. *)
-      let nbrs_idx () =
-        Array.init max_slots (fun v ->
-          let a = nbrs.(v) in
-          Array.init (Array.length a) (fun k -> fst a.(k))) in
-      let row_sums () =
-        let s = Float.Array.create max_slots in
-        Float.Array.fill s 0 max_slots 0.;
-        let n_active_minus_1 = float_of_int (!n_active - 1) in
-        (match row_sum with
-         | RowSum.Full ->
-           for i = 0 to max_slots - 1 do
-             if active.(i) then begin
-               let acc = ref 0. in
-               for j = 0 to max_slots - 1 do
-                 if j <> i && active.(j) then
-                   acc := !acc +. dist_of i j
-               done;
-               Float.Array.unsafe_set s i !acc
-             end
-           done
-         | RowSum.Knn | RowSum.Topk ->
-           for i = 0 to max_slots - 1 do
-             if active.(i) then begin
-               let arr = nbrs.(i) in
-               let kk = Array.length arr in
-               if kk > 0 then begin
-                 let acc = ref 0. in
-                 for p = 0 to kk - 1 do
-                   acc := !acc +. snd arr.(p)
-                 done;
-                 Float.Array.unsafe_set s i
-                   (!acc *. n_active_minus_1 /. float_of_int kk)
-               end
-             end
-           done);
-        s in
+      let nbrs_idx = make_nbrs_idx ~max_slots ~nbrs in
+      let row_sums = make_row_sums ~bound:max_slots ~active ~nbrs ~dist_of ~row_sum ~n_active in
       (* Main loop *)
       while !n_active > 3 do
         let s = row_sums () in
@@ -878,10 +895,7 @@ include (
         merge_dist.(u) <- d_ij;
         let si_f = float_of_int size.(i) and sj_f = float_of_int size.(j)
         and tot_f = float_of_int size.(u) in
-        embedding.(u) <- Float.Array.init dim (fun k ->
-          (si_f *. Float.Array.unsafe_get embedding.(i) k
-           +. sj_f *. Float.Array.unsafe_get embedding.(j) k)
-          /. tot_f);
+        embedding.(u) <- weighted_centroid ~dim ~si_f ~sj_f ~tot_f embedding.(i) embedding.(j);
         (* Step A: Build K-NN(u) from parent inheritance + FAISS expansion.
            Explicitly exclude i and j -- both are still flagged active at
            this point (we deactivate below to keep their nbrs / rev_nbrs
@@ -1100,22 +1114,7 @@ include (
         List.iter (fun s ->
           if s <> v && active.(s) then res := s :: !res) !new_slots;
         !res in
-      let rebuild_nbrs v candidates =
-        let seen = Hashtbl.create 16 in
-        let pairs = ref [] in
-        List.iter (fun c ->
-          if c <> v && c >= 0 && c < max_slots && active.(c)
-             && not (Hashtbl.mem seen c) then begin
-            Hashtbl.add seen c ();
-            pairs := (c, dist_of v c) :: !pairs
-          end) candidates;
-        let arr = Array.of_list !pairs in
-        Array.sort (fun (_, a) (_, b) -> compare a b) arr;
-        let m = min k_nn (Array.length arr) in
-        let new_nbrs = Array.sub arr 0 m in
-        Array.iter (fun (j, _) -> rev_remove j v) nbrs.(v);
-        nbrs.(v) <- new_nbrs;
-        Array.iter (fun (j, _) -> rev_add j v) new_nbrs in
+      let rebuild_nbrs = make_rebuild_nbrs ~k_nn ~max_slots ~active ~nbrs ~rev_add ~rev_remove ~dist_of in
       for i = 0 to n - 1 do
         trees.(i) <- Trees.Newick.leaf names.(i);
         active.(i) <- true;
@@ -1156,42 +1155,8 @@ include (
            done;
            rebuild_nbrs i !cands
          done);
-      let nbrs_idx () =
-        Array.init max_slots (fun v ->
-          let a = nbrs.(v) in
-          Array.init (Array.length a) (fun k -> fst a.(k))) in
-      let row_sums () =
-        let s = Float.Array.create max_slots in
-        Float.Array.fill s 0 max_slots 0.;
-        let n_active_minus_1 = float_of_int (!n_active - 1) in
-        (match row_sum with
-         | RowSum.Full ->
-           for i = 0 to max_slots - 1 do
-             if active.(i) then begin
-               let acc = ref 0. in
-               for j = 0 to max_slots - 1 do
-                 if j <> i && active.(j) then
-                   acc := !acc +. dist_of i j
-               done;
-               Float.Array.unsafe_set s i !acc
-             end
-           done
-         | RowSum.Knn | RowSum.Topk ->
-           for i = 0 to max_slots - 1 do
-             if active.(i) then begin
-               let arr = nbrs.(i) in
-               let kk = Array.length arr in
-               if kk > 0 then begin
-                 let acc = ref 0. in
-                 for p = 0 to kk - 1 do
-                   acc := !acc +. snd arr.(p)
-                 done;
-                 Float.Array.unsafe_set s i
-                   (!acc *. n_active_minus_1 /. float_of_int kk)
-               end
-             end
-           done);
-        s in
+      let nbrs_idx = make_nbrs_idx ~max_slots ~nbrs in
+      let row_sums = make_row_sums ~bound:max_slots ~active ~nbrs ~dist_of ~row_sum ~n_active in
       while !n_active > 3 do
         let s = row_sums () in
         let cand = candidate_pairs symmetry (nbrs_idx ()) active in
@@ -1226,10 +1191,7 @@ include (
         merge_dist.(u) <- d_ij;
         let si_f = float_of_int size.(i) and sj_f = float_of_int size.(j)
         and tot_f = float_of_int size.(u) in
-        embedding.(u) <- Float.Array.init dim (fun k ->
-          (si_f *. Float.Array.unsafe_get embedding.(i) k
-           +. sj_f *. Float.Array.unsafe_get embedding.(j) k)
-          /. tot_f);
+        embedding.(u) <- weighted_centroid ~dim ~si_f ~sj_f ~tot_f embedding.(i) embedding.(j);
         let faiss_cands = faiss_expand u in
         let cands_u = ref [] in
         Array.iter (fun (x, _) ->
@@ -1419,22 +1381,7 @@ include (
         List.iter (fun s ->
           if s <> v && active.(s) then res := s :: !res) !new_slots;
         !res in
-      let rebuild_nbrs v candidates =
-        let seen = Hashtbl.create 16 in
-        let pairs = ref [] in
-        List.iter (fun c ->
-          if c <> v && c >= 0 && c < max_slots && active.(c)
-             && not (Hashtbl.mem seen c) then begin
-            Hashtbl.add seen c ();
-            pairs := (c, dist_of v c) :: !pairs
-          end) candidates;
-        let arr = Array.of_list !pairs in
-        Array.sort (fun (_, a) (_, b) -> compare a b) arr;
-        let m = min k_nn (Array.length arr) in
-        let new_nbrs = Array.sub arr 0 m in
-        Array.iter (fun (j, _) -> rev_remove j v) nbrs.(v);
-        nbrs.(v) <- new_nbrs;
-        Array.iter (fun (j, _) -> rev_add j v) new_nbrs in
+      let rebuild_nbrs = make_rebuild_nbrs ~k_nn ~max_slots ~active ~nbrs ~rev_add ~rev_remove ~dist_of in
       for i = 0 to n - 1 do
         trees.(i) <- Trees.Newick.leaf names.(i);
         active.(i) <- true;
@@ -1600,10 +1547,7 @@ include (
         merge_dist.(u) <- d_ij;
         let si_f = float_of_int size.(i) and sj_f = float_of_int size.(j)
         and tot_f = float_of_int size.(u) in
-        embedding.(u) <- Float.Array.init dim (fun k ->
-          (si_f *. Float.Array.unsafe_get embedding.(i) k
-           +. sj_f *. Float.Array.unsafe_get embedding.(j) k)
-          /. tot_f);
+        embedding.(u) <- weighted_centroid ~dim ~si_f ~sj_f ~tot_f embedding.(i) embedding.(j);
         (* Hyperbolic Q-distance: place u on the geodesic between its
            parents.  [Hyperbolic] uses the NJ branch length b_i from i
            (faithful under additivity, but b_i is noisy and the
@@ -1727,22 +1671,7 @@ include (
                 0.5 *. (dist_of older yl +. dist_of older yr -. dlr) in
             Hashtbl.add dist_cache key d;
             d in
-      let rebuild_nbrs v candidates =
-        let seen = Hashtbl.create 16 in
-        let pairs = ref [] in
-        List.iter (fun c ->
-          if c <> v && c >= 0 && c < max_slots && active.(c)
-             && not (Hashtbl.mem seen c) then begin
-            Hashtbl.add seen c ();
-            pairs := (c, dist_of v c) :: !pairs
-          end) candidates;
-        let arr = Array.of_list !pairs in
-        Array.sort (fun (_, a) (_, b) -> compare a b) arr;
-        let m = min k_nn (Array.length arr) in
-        let new_nbrs = Array.sub arr 0 m in
-        Array.iter (fun (j, _) -> rev_remove j v) nbrs.(v);
-        nbrs.(v) <- new_nbrs;
-        Array.iter (fun (j, _) -> rev_add j v) new_nbrs in
+      let rebuild_nbrs = make_rebuild_nbrs ~k_nn ~max_slots ~active ~nbrs ~rev_add ~rev_remove ~dist_of in
       for i = 0 to n - 1 do
         trees.(i) <- Trees.Newick.leaf names.(i);
         active.(i) <- true;
@@ -1787,42 +1716,8 @@ include (
         let cands = ct_expand i in
         rebuild_nbrs i cands
       done;
-      let nbrs_idx () =
-        Array.init max_slots (fun v ->
-          let a = nbrs.(v) in
-          Array.init (Array.length a) (fun k -> fst a.(k))) in
-      let row_sums () =
-        let s = Float.Array.create max_slots in
-        Float.Array.fill s 0 max_slots 0.;
-        let n_active_minus_1 = float_of_int (!n_active - 1) in
-        (match row_sum with
-         | RowSum.Full ->
-           for i = 0 to max_slots - 1 do
-             if active.(i) then begin
-               let acc = ref 0. in
-               for j = 0 to max_slots - 1 do
-                 if j <> i && active.(j) then
-                   acc := !acc +. dist_of i j
-               done;
-               Float.Array.unsafe_set s i !acc
-             end
-           done
-         | RowSum.Knn | RowSum.Topk ->
-           for i = 0 to max_slots - 1 do
-             if active.(i) then begin
-               let arr = nbrs.(i) in
-               let kk = Array.length arr in
-               if kk > 0 then begin
-                 let acc = ref 0. in
-                 for p = 0 to kk - 1 do
-                   acc := !acc +. snd arr.(p)
-                 done;
-                 Float.Array.unsafe_set s i
-                   (!acc *. n_active_minus_1 /. float_of_int kk)
-               end
-             end
-           done);
-        s in
+      let nbrs_idx = make_nbrs_idx ~max_slots ~nbrs in
+      let row_sums = make_row_sums ~bound:max_slots ~active ~nbrs ~dist_of ~row_sum ~n_active in
       while !n_active > 3 do
         let s = row_sums () in
         let cand = candidate_pairs symmetry (nbrs_idx ()) active in
@@ -1855,10 +1750,7 @@ include (
         merge_dist.(u) <- d_ij;
         let si_f = float_of_int size.(i) and sj_f = float_of_int size.(j)
         and tot_f = float_of_int size.(u) in
-        embedding.(u) <- Float.Array.init dim (fun k ->
-          (si_f *. Float.Array.unsafe_get embedding.(i) k
-           +. sj_f *. Float.Array.unsafe_get embedding.(j) k)
-          /. tot_f);
+        embedding.(u) <- weighted_centroid ~dim ~si_f ~sj_f ~tot_f embedding.(i) embedding.(j);
         let ct_cands = ct_expand u in
         let cands_u = ref [] in
         Array.iter (fun (x, _) ->
@@ -2010,42 +1902,8 @@ include (
           let _ = d in
           (j, dist_of i j)) knn
       done;
-      let nbrs_idx () =
-        Array.init max_slots (fun v ->
-          let a = nbrs.(v) in
-          Array.init (Array.length a) (fun k -> fst a.(k))) in
-      let row_sums () =
-        let s = Float.Array.create max_slots in
-        Float.Array.fill s 0 max_slots 0.;
-        let n_active_minus_1 = float_of_int (!n_active - 1) in
-        (match row_sum with
-         | RowSum.Full ->
-           for i = 0 to max_slots - 1 do
-             if active.(i) then begin
-               let acc = ref 0. in
-               for j = 0 to max_slots - 1 do
-                 if j <> i && active.(j) then
-                   acc := !acc +. dist_of i j
-               done;
-               Float.Array.unsafe_set s i !acc
-             end
-           done
-         | RowSum.Knn | RowSum.Topk ->
-           for i = 0 to max_slots - 1 do
-             if active.(i) then begin
-               let arr = nbrs.(i) in
-               let kk = Array.length arr in
-               if kk > 0 then begin
-                 let acc = ref 0. in
-                 for p = 0 to kk - 1 do
-                   acc := !acc +. snd arr.(p)
-                 done;
-                 Float.Array.unsafe_set s i
-                   (!acc *. n_active_minus_1 /. float_of_int kk)
-               end
-             end
-           done);
-        s in
+      let nbrs_idx = make_nbrs_idx ~max_slots ~nbrs in
+      let row_sums = make_row_sums ~bound:max_slots ~active ~nbrs ~dist_of ~row_sum ~n_active in
       while !n_active > 3 do
         let s = row_sums () in
         let cand = candidate_pairs symmetry (nbrs_idx ()) active in
