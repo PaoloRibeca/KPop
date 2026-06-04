@@ -448,6 +448,30 @@ include (
         [| Trees.Newick.edge ~length:b1 (), trees.(i1);
            Trees.Newick.edge ~length:b2 (), trees.(i2);
            Trees.Newick.edge ~length:b3 (), trees.(i3) |]
+    (* The memoised Saitou-Nei distance recursion shared by the slotted
+       modes: a cache hit, else the leaf Euclidean distance or the NJ
+       merge update expanded over the younger cluster's history (the
+       younger is always a merged slot, index >= n). *)
+    let make_dist_of ~n ~data ~merge_left ~merge_right ~merge_dist ~dist_cache =
+      let rec dist_of i j =
+        if i = j then 0.
+        else
+          let key = cache_key i j in
+          match Hashtbl.find_opt dist_cache key with
+          | Some d -> d
+          | None ->
+            let d =
+              if i < n && j < n then
+                eucl_dist data.(i) data.(j)
+              else
+                let younger = max i j and older = min i j in
+                let yl = merge_left.(younger)
+                and yr = merge_right.(younger)
+                and dlr = merge_dist.(younger) in
+                0.5 *. (dist_of older yl +. dist_of older yr -. dlr) in
+            Hashtbl.add dist_cache key d;
+            d in
+      dist_of
     (* Size-weighted centroid of two cluster embeddings. *)
     let weighted_centroid ~dim ~si_f ~sj_f ~tot_f emb_i emb_j =
       Float.Array.init dim (fun k ->
@@ -738,29 +762,7 @@ include (
       (* Saitou-Nei distance cache.  Populated lazily; entries for pairs
          involving inactive slots are not actively evicted. *)
       let dist_cache : (int * int, float) Hashtbl.t = Hashtbl.create (n * k_nn * 8) in
-      let rec dist_of i j =
-        if i = j then 0.
-        else
-          let key = cache_key i j in
-          match Hashtbl.find_opt dist_cache key with
-          | Some d -> d
-          | None ->
-            let d =
-              if i < n && j < n then
-                eucl_dist data.(i) data.(j)
-              else begin
-                (* Expand the younger (higher-index) of the two via its
-                   merge.  Younger is always a merged slot (index >= n)
-                   since min(i, j) might be a leaf but max must be >= n
-                   when we reach this branch. *)
-                let younger = max i j and older = min i j in
-                let yl = merge_left.(younger)
-                and yr = merge_right.(younger)
-                and dlr = merge_dist.(younger) in
-                0.5 *. (dist_of older yl +. dist_of older yr -. dlr)
-              end in
-            Hashtbl.add dist_cache key d;
-            d in
+      let dist_of = make_dist_of ~n ~data ~merge_left ~merge_right ~merge_dist ~dist_cache in
       (* Pack the current active centroid embeddings (excluding [exclude]
          if [exclude >= 0]) into a (n_act, dim) Bigarray suitable for a
          FAISS index.  Returns the Bigarray + a slot-index map. *)
@@ -1003,24 +1005,7 @@ include (
       let rev_remove v u =
         if v >= 0 && v < max_slots then Hashtbl.remove rev_nbrs.(v) u in
       let dist_cache : (int * int, float) Hashtbl.t = Hashtbl.create (n * k_nn * 8) in
-      let rec dist_of i j =
-        if i = j then 0.
-        else
-          let key = cache_key i j in
-          match Hashtbl.find_opt dist_cache key with
-          | Some d -> d
-          | None ->
-            let d =
-              if i < n && j < n then
-                eucl_dist data.(i) data.(j)
-              else
-                let younger = max i j and older = min i j in
-                let yl = merge_left.(younger)
-                and yr = merge_right.(younger)
-                and dlr = merge_dist.(younger) in
-                0.5 *. (dist_of older yl +. dist_of older yr -. dlr) in
-            Hashtbl.add dist_cache key d;
-            d in
+      let dist_of = make_dist_of ~n ~data ~merge_left ~merge_right ~merge_dist ~dist_cache in
       (* Persistent FAISS state.  [cur_index] / [cur_index_slots] hold
          the index built at the last rebuild and the slot-id for each
          row in it; [tombstoned] marks rows whose slot has since been
@@ -1302,25 +1287,7 @@ include (
         if i = j then 0. else eucl_dist embedding.(i) embedding.(j) in
       let dist_of_hyp i j =
         if i = j then 0. else hyp_dist hyp_pos.(i) hyp_pos.(j) in
-      let rec dist_of_saitou_nei i j =
-        if i = j then 0.
-        else
-          let key = cache_key i j in
-          match Hashtbl.find_opt dist_cache key with
-          | Some d -> d
-          | None ->
-            let d =
-              if i < n && j < n then
-                eucl_dist data.(i) data.(j)
-              else
-                let younger = max i j and older = min i j in
-                let yl = merge_left.(younger)
-                and yr = merge_right.(younger)
-                and dlr = merge_dist.(younger) in
-                0.5 *. (dist_of_saitou_nei older yl
-                        +. dist_of_saitou_nei older yr -. dlr) in
-            Hashtbl.add dist_cache key d;
-            d in
+      let dist_of_saitou_nei = make_dist_of ~n ~data ~merge_left ~merge_right ~merge_dist ~dist_cache in
       (* Bulk distance used by retrieval / K-NN lists / row sums / heap
          ordering.  Hybrid uses the centroid proxy here (cheap). *)
       let dist_of =
@@ -1653,24 +1620,7 @@ include (
       let rev_remove v u =
         if v >= 0 && v < max_slots then Hashtbl.remove rev_nbrs.(v) u in
       let dist_cache : (int * int, float) Hashtbl.t = Hashtbl.create (n * k_nn * 8) in
-      let rec dist_of i j =
-        if i = j then 0.
-        else
-          let key = cache_key i j in
-          match Hashtbl.find_opt dist_cache key with
-          | Some d -> d
-          | None ->
-            let d =
-              if i < n && j < n then
-                eucl_dist data.(i) data.(j)
-              else
-                let younger = max i j and older = min i j in
-                let yl = merge_left.(younger)
-                and yr = merge_right.(younger)
-                and dlr = merge_dist.(younger) in
-                0.5 *. (dist_of older yl +. dist_of older yr -. dlr) in
-            Hashtbl.add dist_cache key d;
-            d in
+      let dist_of = make_dist_of ~n ~data ~merge_left ~merge_right ~merge_dist ~dist_cache in
       let rebuild_nbrs = make_rebuild_nbrs ~k_nn ~max_slots ~active ~nbrs ~rev_add ~rev_remove ~dist_of in
       for i = 0 to n - 1 do
         trees.(i) <- Trees.Newick.leaf names.(i);
@@ -1827,24 +1777,7 @@ include (
       let merge_dist = Array.make max_slots 0. in
       let nbrs : (int * float) array array = Array.make max_slots [||] in
       let dist_cache : (int * int, float) Hashtbl.t = Hashtbl.create (n * k_nn * 8) in
-      let rec dist_of i j =
-        if i = j then 0.
-        else
-          let key = cache_key i j in
-          match Hashtbl.find_opt dist_cache key with
-          | Some d -> d
-          | None ->
-            let d =
-              if i < n && j < n then
-                eucl_dist data.(i) data.(j)
-              else
-                let younger = max i j and older = min i j in
-                let yl = merge_left.(younger)
-                and yr = merge_right.(younger)
-                and dlr = merge_dist.(younger) in
-                0.5 *. (dist_of older yl +. dist_of older yr -. dlr) in
-            Hashtbl.add dist_cache key d;
-            d in
+      let dist_of = make_dist_of ~n ~data ~merge_left ~merge_right ~merge_dist ~dist_cache in
       (* Brute-force [k_nn * k_query_factor] nearest by hyperbolic
          distance over the active set, then rerank by Saitou-Nei
          (via [dist_of]) and keep the top [k_nn].  The k_query_factor
