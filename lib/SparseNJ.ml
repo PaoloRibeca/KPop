@@ -390,6 +390,64 @@ include (
             Some top
           end
       end
+    (* Validate the inputs shared by every compute_* entry point and
+       return the leaf count; [func] is the caller's __FUNCTION__ so the
+       raised errors name the actual mode. *)
+    let check_inputs func names data =
+      let n = Array.length names in
+      if Array.length data <> n then
+        Exception.raise func IO_Format
+          (Printf.sprintf "Sample count mismatch: %d names vs %d data rows"
+             n (Array.length data));
+      if n < 3 then
+        Exception.raise func IO_Format
+          (Printf.sprintf "Sparse-NJ requires at least 3 leaves (got %d)" n);
+      n
+    (* Saitou-Nei split of an edge length [d_ij] into its two child
+       branch lengths, clamped non-negative. *)
+    let nj_branch_lengths ~d_ij ~s_i ~s_j ~n_act_minus_2_max =
+      let b_i = 0.5 *. d_ij +. (s_i -. s_j) /. (2. *. n_act_minus_2_max) in
+      let b_j = d_ij -. b_i in
+      max 0. b_i, max 0. b_j
+    (* Scan the candidate pairs for the minimum Q = (n_act - 2) d(i, j)
+       - s_i - s_j, returning the argmin pair (first minimum wins). *)
+    let best_q_pair ~n_act_minus_2 ~s ~dist_of cand =
+      let best_q = ref infinity and best_pair = ref (-1, -1) in
+      List.iter
+        (fun (i, j) ->
+          let q =
+            n_act_minus_2 *. dist_of i j
+            -. Float.Array.unsafe_get s i -. Float.Array.unsafe_get s j in
+          if q < !best_q then begin
+            best_q := q;
+            best_pair := (i, j)
+          end)
+        cand;
+      !best_pair
+    (* The closing three-leaf join shared by every mode: collect the
+       three still-active slots (descending), compute the trifurcating
+       branch lengths, and build the unrooted root.  [bound] is the
+       active array's length (n for dense, 2n - 3 for the slotted
+       modes); [dist_of] is the mode's own distance closure. *)
+    let finalize_root ~bound ~active ~trees ~dist_of =
+      let active_three =
+        let acc = ref [] in
+        for s = bound - 1 downto 0 do
+          if active.(s) then List.accum acc s
+        done;
+        Array.of_rlist !acc in
+      assert (Array.length active_three = 3);
+      let i1, i2, i3 = active_three.(0), active_three.(1), active_three.(2) in
+      let d12 = dist_of i1 i2
+      and d13 = dist_of i1 i3
+      and d23 = dist_of i2 i3 in
+      let b1 = max 0. (0.5 *. (d12 +. d13 -. d23))
+      and b2 = max 0. (0.5 *. (d12 +. d23 -. d13))
+      and b3 = max 0. (0.5 *. (d13 +. d23 -. d12)) in
+      Trees.Newick.join
+        [| Trees.Newick.edge ~length:b1 (), trees.(i1);
+           Trees.Newick.edge ~length:b2 (), trees.(i2);
+           Trees.Newick.edge ~length:b3 (), trees.(i3) |]
     (* Dense reference implementation *)
     let compute_dense ?(verbose = false)
         ?(index_type = Interfaiss.Type.of_string "hnsw(32)")
@@ -397,14 +455,7 @@ include (
         names data =
       let open String.TermIO in
       let prefix = grey (Printf.sprintf "(%s):" __FUNCTION__) in
-      let n = Array.length names in
-      if Array.length data <> n then
-        Exception.raise __FUNCTION__ IO_Format
-          (Printf.sprintf "Sample count mismatch: %d names vs %d data rows"
-             n (Array.length data));
-      if n < 3 then
-        Exception.raise __FUNCTION__ IO_Format
-          (Printf.sprintf "Sparse-NJ requires at least 3 leaves (got %d)" n);
+      let n = check_inputs __FUNCTION__ names data in
       let dim = Float.Array.length data.(0) in
       let trees = Array.init n (fun i -> Trees.Newick.leaf names.(i)) in
       let active = Array.make n true in
@@ -529,24 +580,11 @@ include (
           end else
             cand in
         let n_act_minus_2 = float_of_int (!n_active - 2) in
-        let best_q = ref infinity and best_pair = ref (-1, -1) in
-        List.iter
-          (fun (i, j) ->
-            let q =
-              n_act_minus_2 *. dist_of i j
-              -. Float.Array.unsafe_get s i -. Float.Array.unsafe_get s j in
-            if q < !best_q then begin
-              best_q := q;
-              best_pair := (i, j)
-            end)
-          cand;
-        let i, j = !best_pair in
+        let i, j = best_q_pair ~n_act_minus_2 ~s ~dist_of cand in
         let d_ij = dist_of i j in
         let s_i = Float.Array.unsafe_get s i and s_j = Float.Array.unsafe_get s j in
         let n_act_minus_2_max = max n_act_minus_2 1. in
-        let b_i = 0.5 *. d_ij +. (s_i -. s_j) /. (2. *. n_act_minus_2_max) in
-        let b_j = d_ij -. b_i in
-        let b_i = max 0. b_i and b_j = max 0. b_j in
+        let b_i, b_j = nj_branch_lengths ~d_ij ~s_i ~s_j ~n_act_minus_2_max in
         let merged =
           Trees.Newick.join
             [| Trees.Newick.edge ~length:b_i (), trees.(i);
@@ -574,25 +612,7 @@ include (
         active.(j) <- false;
         decr n_active
       done;
-      let active_three =
-        let acc = ref [] in
-        for i = n - 1 downto 0 do
-          if active.(i) then List.accum acc i
-        done;
-        Array.of_rlist !acc in
-      assert (Array.length active_three = 3);
-      let i1, i2, i3 = active_three.(0), active_three.(1), active_three.(2) in
-      let d12 = dist_of i1 i2
-      and d13 = dist_of i1 i3
-      and d23 = dist_of i2 i3 in
-      let b1 = max 0. (0.5 *. (d12 +. d13 -. d23))
-      and b2 = max 0. (0.5 *. (d12 +. d23 -. d13))
-      and b3 = max 0. (0.5 *. (d13 +. d23 -. d12)) in
-      let root =
-        Trees.Newick.join
-          [| Trees.Newick.edge ~length:b1 (), trees.(i1);
-             Trees.Newick.edge ~length:b2 (), trees.(i2);
-             Trees.Newick.edge ~length:b3 (), trees.(i3) |] in
+      let root = finalize_root ~bound:n ~active ~trees ~dist_of in
       if verbose then
         Printf.eprintf "%s Sparse-NJ (dense): built unrooted tree on %d leaves.\n%!"
           prefix n;
@@ -625,14 +645,7 @@ include (
         names data =
       let open String.TermIO in
       let prefix = grey (Printf.sprintf "(%s):" __FUNCTION__) in
-      let n = Array.length names in
-      if Array.length data <> n then
-        Exception.raise __FUNCTION__ IO_Format
-          (Printf.sprintf "Sample count mismatch: %d names vs %d data rows"
-             n (Array.length data));
-      if n < 3 then
-        Exception.raise __FUNCTION__ IO_Format
-          (Printf.sprintf "Sparse-NJ requires at least 3 leaves (got %d)" n);
+      let n = check_inputs __FUNCTION__ names data in
       let dim = Float.Array.length data.(0) in
       let max_slots = 2 * n - 3 in
       (* Per-slot state *)
@@ -848,24 +861,11 @@ include (
           end else
             cand in
         let n_act_minus_2 = float_of_int (!n_active - 2) in
-        let best_q = ref infinity and best_pair = ref (-1, -1) in
-        List.iter
-          (fun (i, j) ->
-            let q =
-              n_act_minus_2 *. dist_of i j
-              -. Float.Array.unsafe_get s i -. Float.Array.unsafe_get s j in
-            if q < !best_q then begin
-              best_q := q;
-              best_pair := (i, j)
-            end)
-          cand;
-        let i, j = !best_pair in
+        let i, j = best_q_pair ~n_act_minus_2 ~s ~dist_of cand in
         let d_ij = dist_of i j in
         let s_i = Float.Array.unsafe_get s i and s_j = Float.Array.unsafe_get s j in
         let n_act_minus_2_max = max n_act_minus_2 1. in
-        let b_i = 0.5 *. d_ij +. (s_i -. s_j) /. (2. *. n_act_minus_2_max) in
-        let b_j = d_ij -. b_i in
-        let b_i = max 0. b_i and b_j = max 0. b_j in
+        let b_i, b_j = nj_branch_lengths ~d_ij ~s_i ~s_j ~n_act_minus_2_max in
         let u = !next_slot in
         incr next_slot;
         trees.(u) <- Trees.Newick.join
@@ -942,25 +942,7 @@ include (
           end;
           rebuild_nbrs v !cands_v) affected
       done;
-      let active_three =
-        let acc = ref [] in
-        for s = max_slots - 1 downto 0 do
-          if active.(s) then List.accum acc s
-        done;
-        Array.of_rlist !acc in
-      assert (Array.length active_three = 3);
-      let i1, i2, i3 = active_three.(0), active_three.(1), active_three.(2) in
-      let d12 = dist_of i1 i2
-      and d13 = dist_of i1 i3
-      and d23 = dist_of i2 i3 in
-      let b1 = max 0. (0.5 *. (d12 +. d13 -. d23))
-      and b2 = max 0. (0.5 *. (d12 +. d23 -. d13))
-      and b3 = max 0. (0.5 *. (d13 +. d23 -. d12)) in
-      let root =
-        Trees.Newick.join
-          [| Trees.Newick.edge ~length:b1 (), trees.(i1);
-             Trees.Newick.edge ~length:b2 (), trees.(i2);
-             Trees.Newick.edge ~length:b3 (), trees.(i3) |] in
+      let root = finalize_root ~bound:max_slots ~active ~trees ~dist_of in
       if verbose then
         Printf.eprintf "%s Sparse-NJ (subquadratic): built unrooted tree on %d leaves.\n%!"
           prefix n;
@@ -989,14 +971,7 @@ include (
         names data =
       let open String.TermIO in
       let prefix = grey (Printf.sprintf "(%s):" __FUNCTION__) in
-      let n = Array.length names in
-      if Array.length data <> n then
-        Exception.raise __FUNCTION__ IO_Format
-          (Printf.sprintf "Sample count mismatch: %d names vs %d data rows"
-             n (Array.length data));
-      if n < 3 then
-        Exception.raise __FUNCTION__ IO_Format
-          (Printf.sprintf "Sparse-NJ requires at least 3 leaves (got %d)" n);
+      let n = check_inputs __FUNCTION__ names data in
       let dim = Float.Array.length data.(0) in
       let max_slots = 2 * n - 3 in
       let trees = Array.make max_slots (Trees.Newick.leaf "") in
@@ -1234,24 +1209,11 @@ include (
           end else
             cand in
         let n_act_minus_2 = float_of_int (!n_active - 2) in
-        let best_q = ref infinity and best_pair = ref (-1, -1) in
-        List.iter
-          (fun (i, j) ->
-            let q =
-              n_act_minus_2 *. dist_of i j
-              -. Float.Array.unsafe_get s i -. Float.Array.unsafe_get s j in
-            if q < !best_q then begin
-              best_q := q;
-              best_pair := (i, j)
-            end)
-          cand;
-        let i, j = !best_pair in
+        let i, j = best_q_pair ~n_act_minus_2 ~s ~dist_of cand in
         let d_ij = dist_of i j in
         let s_i = Float.Array.unsafe_get s i and s_j = Float.Array.unsafe_get s j in
         let n_act_minus_2_max = max n_act_minus_2 1. in
-        let b_i = 0.5 *. d_ij +. (s_i -. s_j) /. (2. *. n_act_minus_2_max) in
-        let b_j = d_ij -. b_i in
-        let b_i = max 0. b_i and b_j = max 0. b_j in
+        let b_i, b_j = nj_branch_lengths ~d_ij ~s_i ~s_j ~n_act_minus_2_max in
         let u = !next_slot in
         incr next_slot;
         trees.(u) <- Trees.Newick.join
@@ -1320,25 +1282,7 @@ include (
       (match !cur_index with
        | Some idx -> Interfaiss.delete idx; cur_index := None
        | None -> ());
-      let active_three =
-        let acc = ref [] in
-        for s = max_slots - 1 downto 0 do
-          if active.(s) then List.accum acc s
-        done;
-        Array.of_rlist !acc in
-      assert (Array.length active_three = 3);
-      let i1, i2, i3 = active_three.(0), active_three.(1), active_three.(2) in
-      let d12 = dist_of i1 i2
-      and d13 = dist_of i1 i3
-      and d23 = dist_of i2 i3 in
-      let b1 = max 0. (0.5 *. (d12 +. d13 -. d23))
-      and b2 = max 0. (0.5 *. (d12 +. d23 -. d13))
-      and b3 = max 0. (0.5 *. (d13 +. d23 -. d12)) in
-      let root =
-        Trees.Newick.join
-          [| Trees.Newick.edge ~length:b1 (), trees.(i1);
-             Trees.Newick.edge ~length:b2 (), trees.(i2);
-             Trees.Newick.edge ~length:b3 (), trees.(i3) |] in
+      let root = finalize_root ~bound:max_slots ~active ~trees ~dist_of in
       if verbose then
         Printf.eprintf "%s Sparse-NJ (periodic-rebuild): built unrooted tree on %d leaves (%d rebuilds).\n%!"
           prefix n !n_rebuilds;
@@ -1361,14 +1305,7 @@ include (
         names data =
       let open String.TermIO in
       let prefix = grey (Printf.sprintf "(%s):" __FUNCTION__) in
-      let n = Array.length names in
-      if Array.length data <> n then
-        Exception.raise __FUNCTION__ IO_Format
-          (Printf.sprintf "Sample count mismatch: %d names vs %d data rows"
-             n (Array.length data));
-      if n < 3 then
-        Exception.raise __FUNCTION__ IO_Format
-          (Printf.sprintf "Sparse-NJ requires at least 3 leaves (got %d)" n);
+      let n = check_inputs __FUNCTION__ names data in
       let dim = Float.Array.length data.(0) in
       let max_slots = 2 * n - 3 in
       let trees = Array.make max_slots (Trees.Newick.leaf "") in
@@ -1650,9 +1587,7 @@ include (
         let s_i = n_act_minus_1 *. Float.Array.unsafe_get r_hat i in
         let s_j = n_act_minus_1 *. Float.Array.unsafe_get r_hat j in
         let n_act_minus_2_max = max n_act_minus_2 1. in
-        let b_i = 0.5 *. d_ij +. (s_i -. s_j) /. (2. *. n_act_minus_2_max) in
-        let b_j = d_ij -. b_i in
-        let b_i = max 0. b_i and b_j = max 0. b_j in
+        let b_i, b_j = nj_branch_lengths ~d_ij ~s_i ~s_j ~n_act_minus_2_max in
         let u = !next_slot in
         incr next_slot;
         trees.(u) <- Trees.Newick.join
@@ -1735,25 +1670,7 @@ include (
           rebuild_forest ()
       done;
       cur_forest := None;
-      let active_three =
-        let acc = ref [] in
-        for s = max_slots - 1 downto 0 do
-          if active.(s) then List.accum acc s
-        done;
-        Array.of_rlist !acc in
-      assert (Array.length active_three = 3);
-      let i1, i2, i3 = active_three.(0), active_three.(1), active_three.(2) in
-      let d12 = dist_of i1 i2
-      and d13 = dist_of i1 i3
-      and d23 = dist_of i2 i3 in
-      let b1 = max 0. (0.5 *. (d12 +. d13 -. d23))
-      and b2 = max 0. (0.5 *. (d12 +. d23 -. d13))
-      and b3 = max 0. (0.5 *. (d13 +. d23 -. d12)) in
-      let root =
-        Trees.Newick.join
-          [| Trees.Newick.edge ~length:b1 (), trees.(i1);
-             Trees.Newick.edge ~length:b2 (), trees.(i2);
-             Trees.Newick.edge ~length:b3 (), trees.(i3) |] in
+      let root = finalize_root ~bound:max_slots ~active ~trees ~dist_of in
       if verbose then
         Printf.eprintf "%s Sparse-NJ (rp-forest): built unrooted tree on %d leaves (%d rebuilds).\n%!"
           prefix n !n_rebuilds;
@@ -1774,14 +1691,7 @@ include (
         names data =
       let open String.TermIO in
       let prefix = grey (Printf.sprintf "(%s):" __FUNCTION__) in
-      let n = Array.length names in
-      if Array.length data <> n then
-        Exception.raise __FUNCTION__ IO_Format
-          (Printf.sprintf "Sample count mismatch: %d names vs %d data rows"
-             n (Array.length data));
-      if n < 3 then
-        Exception.raise __FUNCTION__ IO_Format
-          (Printf.sprintf "Sparse-NJ requires at least 3 leaves (got %d)" n);
+      let n = check_inputs __FUNCTION__ names data in
       let dim = Float.Array.length data.(0) in
       let max_slots = 2 * n - 3 in
       let trees = Array.make max_slots (Trees.Newick.leaf "") in
@@ -1928,24 +1838,11 @@ include (
             !acc
           end else cand in
         let n_act_minus_2 = float_of_int (!n_active - 2) in
-        let best_q = ref infinity and best_pair = ref (-1, -1) in
-        List.iter
-          (fun (i, j) ->
-            let q =
-              n_act_minus_2 *. dist_of i j
-              -. Float.Array.unsafe_get s i -. Float.Array.unsafe_get s j in
-            if q < !best_q then begin
-              best_q := q;
-              best_pair := (i, j)
-            end)
-          cand;
-        let i, j = !best_pair in
+        let i, j = best_q_pair ~n_act_minus_2 ~s ~dist_of cand in
         let d_ij = dist_of i j in
         let s_i = Float.Array.unsafe_get s i and s_j = Float.Array.unsafe_get s j in
         let n_act_minus_2_max = max n_act_minus_2 1. in
-        let b_i = 0.5 *. d_ij +. (s_i -. s_j) /. (2. *. n_act_minus_2_max) in
-        let b_j = d_ij -. b_i in
-        let b_i = max 0. b_i and b_j = max 0. b_j in
+        let b_i, b_j = nj_branch_lengths ~d_ij ~s_i ~s_j ~n_act_minus_2_max in
         let u = !next_slot in
         incr next_slot;
         trees.(u) <- Trees.Newick.join
@@ -2009,25 +1906,7 @@ include (
           end;
           rebuild_nbrs v !cands_v) affected
       done;
-      let active_three =
-        let acc = ref [] in
-        for s = max_slots - 1 downto 0 do
-          if active.(s) then List.accum acc s
-        done;
-        Array.of_rlist !acc in
-      assert (Array.length active_three = 3);
-      let i1, i2, i3 = active_three.(0), active_three.(1), active_three.(2) in
-      let d12 = dist_of i1 i2
-      and d13 = dist_of i1 i3
-      and d23 = dist_of i2 i3 in
-      let b1 = max 0. (0.5 *. (d12 +. d13 -. d23))
-      and b2 = max 0. (0.5 *. (d12 +. d23 -. d13))
-      and b3 = max 0. (0.5 *. (d13 +. d23 -. d12)) in
-      let root =
-        Trees.Newick.join
-          [| Trees.Newick.edge ~length:b1 (), trees.(i1);
-             Trees.Newick.edge ~length:b2 (), trees.(i2);
-             Trees.Newick.edge ~length:b3 (), trees.(i3) |] in
+      let root = finalize_root ~bound:max_slots ~active ~trees ~dist_of in
       if verbose then
         Printf.eprintf "%s Sparse-NJ (cover-tree): built unrooted tree on %d leaves.\n%!"
           prefix n;
@@ -2043,14 +1922,7 @@ include (
         names data =
       let open String.TermIO in
       let prefix = grey (Printf.sprintf "(%s):" __FUNCTION__) in
-      let n = Array.length names in
-      if Array.length data <> n then
-        Exception.raise __FUNCTION__ IO_Format
-          (Printf.sprintf "Sample count mismatch: %d names vs %d data rows"
-             n (Array.length data));
-      if n < 3 then
-        Exception.raise __FUNCTION__ IO_Format
-          (Printf.sprintf "Sparse-NJ requires at least 3 leaves (got %d)" n);
+      let n = check_inputs __FUNCTION__ names data in
       let max_slots = 2 * n - 3 in
       (* Per-slot state.  Slots [0, n) are leaves; [n, max_slots) are
          merged clusters created in order. *)
@@ -2191,24 +2063,11 @@ include (
           end else
             cand in
         let n_act_minus_2 = float_of_int (!n_active - 2) in
-        let best_q = ref infinity and best_pair = ref (-1, -1) in
-        List.iter
-          (fun (i, j) ->
-            let q =
-              n_act_minus_2 *. dist_of i j
-              -. Float.Array.unsafe_get s i -. Float.Array.unsafe_get s j in
-            if q < !best_q then begin
-              best_q := q;
-              best_pair := (i, j)
-            end)
-          cand;
-        let i, j = !best_pair in
+        let i, j = best_q_pair ~n_act_minus_2 ~s ~dist_of cand in
         let d_ij = dist_of i j in
         let s_i = Float.Array.unsafe_get s i and s_j = Float.Array.unsafe_get s j in
         let n_act_minus_2_max = max n_act_minus_2 1. in
-        let b_i = 0.5 *. d_ij +. (s_i -. s_j) /. (2. *. n_act_minus_2_max) in
-        let b_j = d_ij -. b_i in
-        let b_i = max 0. b_i and b_j = max 0. b_j in
+        let b_i, b_j = nj_branch_lengths ~d_ij ~s_i ~s_j ~n_act_minus_2_max in
         let u = !next_slot in
         incr next_slot;
         trees.(u) <- Trees.Newick.join
@@ -2246,25 +2105,7 @@ include (
           end
         done
       done;
-      let active_three =
-        let acc = ref [] in
-        for s = max_slots - 1 downto 0 do
-          if active.(s) then List.accum acc s
-        done;
-        Array.of_rlist !acc in
-      assert (Array.length active_three = 3);
-      let i1, i2, i3 = active_three.(0), active_three.(1), active_three.(2) in
-      let d12 = dist_of i1 i2
-      and d13 = dist_of i1 i3
-      and d23 = dist_of i2 i3 in
-      let b1 = max 0. (0.5 *. (d12 +. d13 -. d23))
-      and b2 = max 0. (0.5 *. (d12 +. d23 -. d13))
-      and b3 = max 0. (0.5 *. (d13 +. d23 -. d12)) in
-      let root =
-        Trees.Newick.join
-          [| Trees.Newick.edge ~length:b1 (), trees.(i1);
-             Trees.Newick.edge ~length:b2 (), trees.(i2);
-             Trees.Newick.edge ~length:b3 (), trees.(i3) |] in
+      let root = finalize_root ~bound:max_slots ~active ~trees ~dist_of in
       if verbose then
         Printf.eprintf "%s Sparse-NJ (hyperbolic): built unrooted tree on %d leaves.\n%!"
           prefix n;
