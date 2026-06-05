@@ -244,7 +244,7 @@ let () =
       (fun _ -> Set_splits_keep_at_most (TA.get_parameter_int_pos ())
         |> List.accum Parameters.program);
     [ "--snj-mode" ],
-      Some "'dense'|'subquadratic'|'hyperbolic'|'cover-tree'|'periodic-rebuild'|'rp-forest'",
+      Some "'dense'|'periodic-rebuild'|'rp-forest'",
       [ "sparse-NJ implementation mode (see KPop-PhyloSplits-Subquadratic).";
         "'dense' (default, validated O(n^3)); 'periodic-rebuild' is the";
         "  recommended exact quadratic engine; 'rp-forest' with";
@@ -253,7 +253,7 @@ let () =
       (fun _ -> Set_snj_mode (TA.get_parameter () |> SparseNJ.Mode.of_string)
         |> List.accum Parameters.program);
     [ "--snj-distance" ],
-      Some "'saitou-nei'|'centroid'|'hyperbolic'|'hyperbolic-frechet'|'hybrid'",
+      Some "'saitou-nei'|'centroid'|'hyperbolic'",
       [ "distance model fed to the sparse-NJ Q-formula (only honoured by";
         "'--snj-mode rp-forest')" ],
       TA.Default (SparseNJ.Distance.to_string Defaults.snj_distance |> Fun.const),

@@ -27,7 +27,7 @@
     three-way merge of the last three active clusters produces an
     unrooted-tree-style trifurcating root.
 
-    Two implementation modes are available via [Mode.t]:
+    Three implementation modes are available via [Mode.t]:
       - [Dense] (default, validated): a persistent symmetric distance
         cache stores the current Saitou-Nei distance between every pair
         of active clusters, updated symmetrically at each merge.  K-NN
@@ -35,16 +35,15 @@
         ranks them by their current Saitou-Nei distance.  Time
         O(n^3); memory O(n^2).  Reproduces the test prototype
         (test/Trees/sparse_nj.py) byte-identical on prot_k5_kt0.035.
-      - [Subquadratic] (experimental): a per-cluster K-NN list with
-        a reverse index, FAISS-driven candidate expansion when a
-        list shrinks below K, and an explicit Saitou-Nei recursion
-        over the merge tree for distances not in the K-NN cache.
-        Time O(n K^2 + n K log n); memory O(n K).  Reproduces
-        the [Dense] result whenever the FAISS expansion captures the
-        true Saitou-Nei K-NN of the merged cluster -- which requires
-        the centroid embedding to approximate the Saitou-Nei
-        neighbourhood structure well.  Validate empirically before
-        switching to [Subquadratic] as the default.
+      - [PeriodicRebuild]: K-NN-restricted scan-NJ with exact Saitou-Nei
+        distances served from a persistent FAISS index rebuilt every
+        sqrt(n) merges.  Theta(n^2) time and memory; the recommended
+        exact engine at scale.
+      - [RPForestRebuild]: K-NN retrieval from a native RP-forest with a
+        heap-driven merge loop; under the [Hyperbolic] geometric-proxy
+        Q-distance it drops the Theta(n^2) Saitou-Nei recursion for
+        sub-quadratic memory, at a quality cost -- the fallback for very
+        large n.
 
     This program was designed and developed by the author(s),
     with the assistance of the following AI tool(s):
@@ -113,7 +112,7 @@ include (
        d(j, x) - d(i, j)), computed by memoised recursion over the
        merge history -- the validated default, but whose recursion
        tiles the full O(n^2) distance-pair space (see
-       PhyloSplits-Subquadratic.tex).  [Centroid] is an O(d) geometric
+       KPopPhylo-Subquadratic.tex).  [Centroid] is an O(d) geometric
        proxy: the Euclidean distance between the size-weighted cluster
        centroids already maintained for K-NN retrieval, with no
        recursion (and so no n^2 cache fill).  [Hyperbolic] is also an
@@ -123,70 +122,40 @@ include (
        geodesic between its parents at the NJ branch length, so
        hyperbolic distances follow the exact update closely across the
        whole run (Phase 0: Pearson 0.97+ vs Saitou-Nei, where the
-       centroid collapses to ~0.33 mid-run).  [HyperbolicFrechet] is
-       the same hyperboloid distance, but places the merged cluster at
-       the size-weighted hyperbolic barycenter (geodesic point at
-       fraction size_j/(size_i+size_j) of d(i,j) from i) instead of at
-       the NJ branch length b_i.  The barycenter is bounded in
-       [0, d(i,j)] and depends only on cluster sizes, not on the noisy
-       b_i, so it does not amplify branch-length noise on a steeply
-       curved manifold --- the failure mode that makes plain
-       [Hyperbolic] crash at large radial scale.  [Hybrid] uses the
-       centroid proxy for the cheap bulk work (retrieval, K-NN lists,
-       row sums, heap ordering) but confirms the winning merge by
-       exact Saitou-Nei over the popped shortlist only, and stores the
-       exact pairwise distance so the recursion stays consistent --- a
-       bounded amount of exact recursion per merge, intended to recover
-       the proxy's quality gap while keeping coverage sub-quadratic
-       (whether it does is the empirical question the cache-coverage
-       counter answers).  All non-default models experimental and only
-       wired into the RP-forest mode. *)
+       centroid collapses to ~0.33 mid-run).  The proxy models
+       ([Centroid], [Hyperbolic]) are only honoured by the RP-forest
+       mode; [SaitouNei] is the default everywhere. *)
     module Distance =
       struct
         type t =
           | SaitouNei
           | Centroid
           | Hyperbolic
-          | HyperbolicFrechet
-          | Hybrid
         let of_string = function
           | "saitou-nei" | "saitou_nei" | "saitounei" | "nj" -> SaitouNei
           | "centroid" -> Centroid
           | "hyperbolic" -> Hyperbolic
-          | "hyperbolic-frechet" | "hyperbolic_frechet" | "hyp-frechet" ->
-            HyperbolicFrechet
-          | "hybrid" | "centroid-exact" | "hybrid-centroid" -> Hybrid
           | s ->
             Exception.raise_unrecognized_initializer __FUNCTION__ "sparse-NJ distance model" s
         let to_string = function
           | SaitouNei -> "saitou-nei"
           | Centroid -> "centroid"
           | Hyperbolic -> "hyperbolic"
-          | HyperbolicFrechet -> "hyperbolic-frechet"
-          | Hybrid -> "hybrid"
       end
-    (* Implementation mode.  [Dense] is the validated reference; see
-       compute_dense.  [Subquadratic] is the experimental
-       O(n K^2 + n K log n) centroid-based path; see compute_subquadratic.
-       [Hyperbolic] is the geodesic-tracked hyperbolic-embedding path
-       motivated by the Phase 0 result showing hyperbolic geodesic
-       placement tracks Saitou-Nei distances across the whole NJ run
-       (whereas size-weighted centroids drift catastrophically in
-       middle iterations); see compute_hyperbolic. *)
+    (* Implementation mode.  [Dense] is the validated O(n^3) reference
+       (compute_dense); [PeriodicRebuild] is the recommended exact
+       Theta(n^2) engine (persistent-FAISS scan-NJ,
+       compute_periodic_rebuild); [RPForestRebuild] is the RP-forest
+       heap-driven path whose [Hyperbolic] proxy distance gives the
+       sub-quadratic-memory fallback (compute_rp_forest_rebuild). *)
     module Mode =
       struct
         type t =
           | Dense
-          | Subquadratic
-          | Hyperbolic
-          | CoverTree
           | PeriodicRebuild
           | RPForestRebuild
         let of_string = function
           | "dense" -> Dense
-          | "subquadratic" -> Subquadratic
-          | "hyperbolic" -> Hyperbolic
-          | "cover-tree" | "cover_tree" | "covertree" -> CoverTree
           | "periodic-rebuild" | "periodic_rebuild" | "periodicrebuild" ->
             PeriodicRebuild
           | "rp-forest" | "rp_forest" | "rpforest"
@@ -196,9 +165,6 @@ include (
             Exception.raise_unrecognized_initializer __FUNCTION__ "sparse-NJ mode" s
         let to_string = function
           | Dense -> "dense"
-          | Subquadratic -> "subquadratic"
-          | Hyperbolic -> "hyperbolic"
-          | CoverTree -> "cover-tree"
           | PeriodicRebuild -> "periodic-rebuild"
           | RPForestRebuild -> "rp-forest"
       end
@@ -215,8 +181,7 @@ include (
       !acc
     let eucl_dist a b = sqrt (sq_dist a b) [@@inline]
     let cache_key i j = if i < j then (i, j) else (j, i) [@@inline]
-    (* Hyperboloid model, shared by [compute_hyperbolic] (where it is
-       the retrieval metric) and by the [Hyperbolic] distance proxy of
+    (* Hyperboloid model, used by the [Hyperbolic] distance proxy of
        [compute_rp_forest_rebuild] (where it is the Q-formula distance).
        A point p in H^d is stored as a (d + 1)-vector with p.(0) the
        time-like coord (positive) and p.(1..d) the spatial coords,
@@ -230,7 +195,7 @@ include (
        b_i from p_i (toward p_j).  Under tree-metric additivity this
        yields d_H(p_u, p_x) = d_NJ(u, x) exactly; on real data it is
        approximate but tracks Saitou-Nei closely (Phase 0: Pearson
-       0.97+; see PhyloSplits-Subquadratic.tex Path 3). *)
+       0.97+; see KPopPhylo-Subquadratic.tex Path 3). *)
     let lorentz_inner p q =
       let acc = ref (~-. (Float.Array.unsafe_get p 0 *. Float.Array.unsafe_get q 0)) in
       let dim = Float.Array.length p in
@@ -842,179 +807,9 @@ include (
         Printf.eprintf "%s Sparse-NJ (dense): built unrooted tree on %d leaves.\n%!"
           prefix n;
       root
-    (* Subquadratic experimental implementation.
-       State: each cluster (leaf or merged) gets its own slot in
-       [0, 2n - 3); leaves occupy [0, n), merges fill [n, 2n - 3).
-       Slots are NOT reused -- so the merge history is uniquely
-       indexable and the Saitou-Nei recursion is well-defined.
-       Saitou-Nei distance lookup: cache-hit on first try; otherwise
-       recurse via the merge formula.  Cached entries are pruned
-       lazily (we don't actively evict).
-       K-NN maintenance: each active cluster has [nbrs.(v) : (slot, dist)
-       array].  A reverse index [rev_nbrs.(v)] tracks who has v in
-       their K-NN list, so on merge we update only the affected
-       clusters in O(K^2) worst case.  When a K-NN list shrinks
-       below K (because both i and j were neighbours and got replaced
-       by a single u entry), we re-fill from a FAISS centroid query
-       over the active set.
-       FAISS: rebuilt from scratch each merge for the prototype
-       (O(n_active * dim) per merge).  A periodic-rebuild or
-       incremental insert/remove variant is the obvious next
-       optimisation but is not load-bearing for the algorithmic
-       complexity claim (which is the work-per-merge in the K-NN
-       maintenance layer). *)
-    let compute_subquadratic ?(verbose = false)
-        ?(index_type = Interfaiss.Type.of_string "hnsw(32)")
-        ?(k_nn = 10) ?(k_query_factor = 3)
-        ?(row_sum = RowSum.Knn) ?(symmetry = Symmetry.One)
-        names data =
-      let open String.TermIO in
-      let prefix = grey (Printf.sprintf "(%s):" __FUNCTION__) in
-      let n = check_inputs __FUNCTION__ names data in
-      let dim = Float.Array.length data.(0) in
-      let max_slots = 2 * n - 3 in
-      (* Per-slot state *)
-      let trees = Array.make max_slots (Trees.Newick.leaf "") in
-      let active = Array.make max_slots false in
-      let size = Array.make max_slots 0 in
-      let embedding = Array.make max_slots (Float.Array.make 0 0.) in
-      (* Merge history (only meaningful for slots >= n) *)
-      let merge_left = Array.make max_slots (-1) in
-      let merge_right = Array.make max_slots (-1) in
-      let merge_dist = Array.make max_slots 0. in
-      (* K-NN per cluster: sorted ascending by distance, length <= k_nn.
-         Stored as (slot, dist) pairs.  Empty for inactive slots. *)
-      let nbrs : (int * float) array array = Array.make max_slots [||] in
-      (* Reverse index: rev_nbrs.(v) lists slots whose nbrs contains v.
-         Maintained on every nbrs update so that on merge of (i, j) we
-         know exactly which other clusters need patching. *)
-      let rev_nbrs : (int, unit) Hashtbl.t array =
-        Array.init max_slots (fun _ -> Hashtbl.create 8) in
-      let rev_add v u =
-        if v >= 0 && v < max_slots then Hashtbl.replace rev_nbrs.(v) u () in
-      let rev_remove v u =
-        if v >= 0 && v < max_slots then Hashtbl.remove rev_nbrs.(v) u in
-      (* Saitou-Nei distance cache.  Populated lazily; entries for pairs
-         involving inactive slots are not actively evicted. *)
-      let dist_cache : (int * int, float) Hashtbl.t = Hashtbl.create (n * k_nn * 8) in
-      let dist_of = make_dist_of ~n ~data ~merge_left ~merge_right ~merge_dist ~dist_cache in
-      (* Pack the current active centroid embeddings (excluding [exclude]
-         if [exclude >= 0]) into a (n_act, dim) Bigarray suitable for a
-         FAISS index.  Returns the Bigarray + a slot-index map. *)
-      let pack_active_embeddings ~exclude =
-        let slots = Array.make max_slots (-1) in
-        let n_act = ref 0 in
-        for s = 0 to max_slots - 1 do
-          if active.(s) && s <> exclude then begin
-            slots.(!n_act) <- s;
-            incr n_act
-          end
-        done;
-        let m = !n_act in
-        let ba = Bigarray.Array2.create Bigarray.Float32 Bigarray.C_layout (max m 1) dim in
-        for p = 0 to m - 1 do
-          let s = slots.(p) in
-          let row = embedding.(s) in
-          for k = 0 to dim - 1 do
-            ba.{p, k} <- Float.Array.unsafe_get row k
-          done
-        done;
-        ba, slots, m in
-      (* FAISS K_QUERY-NN of v's current centroid embedding (excluding
-         v itself).  Returns a list of slot indices. *)
-      let k_query = k_nn * k_query_factor in
-      let faiss_expand v =
-        let ba_active, slots, m = pack_active_embeddings ~exclude:v in
-        if m = 0 then []
-        else begin
-          let query = Bigarray.Array2.create Bigarray.Float32 Bigarray.C_layout 1 dim in
-          let row = embedding.(v) in
-          for k = 0 to dim - 1 do
-            query.{0, k} <- Float.Array.unsafe_get row k
-          done;
-          let index = Interfaiss.create ~index_type dim in
-          Interfaiss.train index ba_active;
-          Interfaiss.add index ba_active;
-          let k_use = min m k_query in
-          let offsets, _ = Interfaiss.query index query k_use in
-          Interfaiss.delete index;
-          let res = ref [] in
-          for k = 0 to k_use - 1 do
-            let p = Int64.to_int offsets.{0, k} in
-            if p >= 0 && p < m then res := slots.(p) :: !res
-          done;
-          !res
-        end in
-      (* Recompute nbrs.(v) from the given candidate list, ranking by
-         current Saitou-Nei distance and keeping the top K.  Also
-         updates the rev_nbrs index for both the removed-old and
-         added-new neighbours. *)
-      let rebuild_nbrs = make_rebuild_nbrs ~k_nn ~max_slots ~active ~nbrs ~rev_add ~rev_remove ~dist_of in
-      (* Initialise leaves *)
-      for i = 0 to n - 1 do
-        trees.(i) <- Trees.Newick.leaf names.(i);
-        active.(i) <- true;
-        size.(i) <- 1;
-        embedding.(i) <- Float.Array.copy data.(i)
-      done;
-      let n_active = ref n in
-      let next_slot = ref n in
-      if verbose then
-        Printf.eprintf "%s Sparse-NJ (subquadratic): index=%s, K=%d, K_QUERY=%d, rowsum=%s, sym=%s.\n%!"
-          prefix (Interfaiss.Type.to_string index_type) k_nn k_query
-          (RowSum.to_string row_sum) (Symmetry.to_string symmetry);
-      (* Bootstrap: build initial K-NN lists for the leaves via a single
-         FAISS pass.  The candidate set is K_QUERY-nearest by centroid
-         (= Euclidean at bootstrap, since no merges have happened yet);
-         distances are exact. *)
-      if verbose then
-        Printf.eprintf "%s Bootstrapping K-NN graph via FAISS over %d points...\n%!"
-          prefix n;
-      begin
-        let ba = Bigarray.Array2.create Bigarray.Float32 Bigarray.C_layout n dim in
-        for i = 0 to n - 1 do
-          let row = embedding.(i) in
-          for k = 0 to dim - 1 do
-            ba.{i, k} <- Float.Array.unsafe_get row k
-          done
-        done;
-        let index = Interfaiss.create ~index_type dim in
-        Interfaiss.train index ba;
-        Interfaiss.add index ba;
-        let kq = min n (k_query + 1) in
-        let offsets, _ = Interfaiss.query index ba kq in
-        Interfaiss.delete index;
-        for i = 0 to n - 1 do
-          let cands = ref [] in
-          for k = 0 to kq - 1 do
-            let j = Int64.to_int offsets.{i, k} in
-            if j >= 0 && j < n && j <> i then cands := j :: !cands
-          done;
-          rebuild_nbrs i !cands
-        done
-      end;
-      (* Build a slot-indexed nbrs view for [candidate_pairs] reuse;
-         candidate_pairs expects an [int array array] keyed by slot. *)
-      let nbrs_idx = make_nbrs_idx ~max_slots ~nbrs in
-      let row_sums = make_row_sums ~bound:max_slots ~active ~nbrs ~dist_of ~row_sum ~n_active in
-      (* Main loop *)
-      let st =
-        { trees; active; size; embedding; merge_left; merge_right; merge_dist;
-          nbrs; rev_nbrs; n_active; next_slot } in
-      let strategy =
-        { expand = faiss_expand;
-          on_merge = (fun ~i:_ ~j:_ ~u:_ -> ());
-          rebuild = (fun () -> ()) } in
-      let root =
-        run_core ~max_slots ~dim ~k_nn ~symmetry ~st ~dist_of ~rebuild_nbrs
-          ~row_sums ~nbrs_idx ~rev_remove ~strategy in
-      if verbose then
-        Printf.eprintf "%s Sparse-NJ (subquadratic): built unrooted tree on %d leaves.\n%!"
-          prefix n;
-      root
     (* Periodic-rebuild FAISS implementation.
-       Same algorithmic skeleton as [compute_subquadratic] but the
-       per-merge FAISS rebuild is replaced by a persistent index plus
+       K-NN-restricted scan-NJ (the shared [run_core] driver) backed by
+       a persistent FAISS index plus
        tombstoning of merged-away slots and a side-scan over the
        merged-in slots that have appeared since the last rebuild.
        Every [rebuild_interval] merges (default ceil(sqrt n)) the
@@ -1244,9 +1039,7 @@ include (
       let merge_left = Array.make max_slots (-1) in
       let merge_right = Array.make max_slots (-1) in
       let merge_dist = Array.make max_slots 0. in
-      let use_hyp =
-        distance = Distance.Hyperbolic
-        || distance = Distance.HyperbolicFrechet in
+      let use_hyp = distance = Distance.Hyperbolic in
       (* Hyperbolic positions on the upper hyperboloid (dim + 1 coords),
          maintained by geodesic placement; only populated under a
          hyperbolic distance model. *)
@@ -1271,20 +1064,12 @@ include (
         if i = j then 0. else hyp_dist hyp_pos.(i) hyp_pos.(j) in
       let dist_of_saitou_nei = make_dist_of ~n ~data ~merge_left ~merge_right ~merge_dist ~dist_cache in
       (* Bulk distance used by retrieval / K-NN lists / row sums / heap
-         ordering.  Hybrid uses the centroid proxy here (cheap). *)
+         ordering. *)
       let dist_of =
         match distance with
         | Distance.SaitouNei -> dist_of_saitou_nei
         | Distance.Centroid -> dist_of_centroid
-        | Distance.Hyperbolic | Distance.HyperbolicFrechet -> dist_of_hyp
-        | Distance.Hybrid -> dist_of_centroid in
-      (* Confirmation distance used only to rank the popped shortlist
-         and to set the chosen merge's branch lengths / stored
-         merge_dist.  Hybrid upgrades this to exact Saitou-Nei; the
-         other models reuse their bulk distance. *)
-      let use_exact_confirm = (distance = Distance.Hybrid) in
-      let dist_confirm i j =
-        if use_exact_confirm then dist_of_saitou_nei i j else dist_of i j in
+        | Distance.Hyperbolic -> dist_of_hyp in
       let module Pt = struct
         type t = int * Float.Array.t
         let equal (a, _) (b, _) = a = b
@@ -1415,7 +1200,7 @@ include (
       let q_exact i j =
         let n_act_minus_1 = float_of_int (!n_active - 1) in
         let n_act_minus_2 = float_of_int (!n_active - 2) in
-        n_act_minus_2 *. dist_confirm i j
+        n_act_minus_2 *. dist_of i j
         -. n_act_minus_1
            *. (Float.Array.unsafe_get r_hat i
                +. Float.Array.unsafe_get r_hat j) in
@@ -1473,11 +1258,7 @@ include (
             !a, !b
           end else
             i, j in
-        (* Under Hybrid this is the exact Saitou-Nei distance (a cache
-           hit, since pop_best already confirmed this pair); it both
-           sets the branch lengths and is stored in merge_dist so the
-           recursion remains consistent for future confirmations. *)
-        let d_ij = dist_confirm i j in
+        let d_ij = dist_of i j in
         let n_act_minus_1 = float_of_int (!n_active - 1) in
         let n_act_minus_2 = float_of_int (!n_active - 2) in
         let s_i = n_act_minus_1 *. Float.Array.unsafe_get r_hat i in
@@ -1498,21 +1279,11 @@ include (
         and tot_f = float_of_int size.(u) in
         embedding.(u) <- weighted_centroid ~dim ~si_f ~sj_f ~tot_f embedding.(i) embedding.(j);
         (* Hyperbolic Q-distance: place u on the geodesic between its
-           parents.  [Hyperbolic] uses the NJ branch length b_i from i
-           (faithful under additivity, but b_i is noisy and the
-           curvature amplifies that noise); [HyperbolicFrechet] uses the
-           size-weighted barycenter --- distance
-           (size_j / (size_i + size_j)) * d(i,j) from i --- which is
-           bounded in [0, d(i,j)] and noise-free.  The Euclidean
+           parents at the NJ branch length b_i from i.  The Euclidean
            centroid above is still kept for RP-forest retrieval; only
            the Q-formula / row-sum distances are hyperbolic. *)
-        if use_hyp then begin
-          let t =
-            match distance with
-            | Distance.HyperbolicFrechet -> (sj_f /. tot_f) *. d_ij
-            | _ -> b_i in
-          hyp_pos.(u) <- hyp_geodesic hyp_pos.(i) hyp_pos.(j) t
-        end;
+        if use_hyp then
+          hyp_pos.(u) <- hyp_geodesic hyp_pos.(i) hyp_pos.(j) b_i;
         let forest_cands = forest_expand u in
         let cands_u = ref [] in
         Array.iter (fun (x, _) ->
@@ -1553,256 +1324,6 @@ include (
         Printf.eprintf "%s Sparse-NJ (rp-forest): built unrooted tree on %d leaves (%d rebuilds).\n%!"
           prefix n !n_rebuilds;
       root
-    (* Cover-tree-backed subquadratic implementation.
-       Same algorithmic skeleton as [compute_subquadratic] (rev_nbrs +
-       FAISS-K_QUERY-expansion with Saitou-Nei reranking) but with the
-       per-merge FAISS rebuild replaced by a persistent cover tree
-       over the active cluster centroid embeddings.  Cover tree
-       supports true insert / remove / K-NN in O(c^{O(1)} log n)
-       amortised under bounded doubling dimension, so the K-NN
-       queries that drove the empirical O(n^2) wall-clock of the FAISS-
-       Flat path drop to O(K log n).  No FAISS index is built at all
-       in this mode; the cover tree is the sole spatial index. *)
-    let compute_cover_tree ?(verbose = false)
-        ?(k_nn = 10) ?(k_query_factor = 3)
-        ?(row_sum = RowSum.Knn) ?(symmetry = Symmetry.One)
-        names data =
-      let open String.TermIO in
-      let prefix = grey (Printf.sprintf "(%s):" __FUNCTION__) in
-      let n = check_inputs __FUNCTION__ names data in
-      let dim = Float.Array.length data.(0) in
-      let max_slots = 2 * n - 3 in
-      let trees = Array.make max_slots (Trees.Newick.leaf "") in
-      let active = Array.make max_slots false in
-      let size = Array.make max_slots 0 in
-      let embedding = Array.make max_slots (Float.Array.make 0 0.) in
-      let merge_left = Array.make max_slots (-1) in
-      let merge_right = Array.make max_slots (-1) in
-      let merge_dist = Array.make max_slots 0. in
-      let nbrs : (int * float) array array = Array.make max_slots [||] in
-      let rev_nbrs : (int, unit) Hashtbl.t array =
-        Array.init max_slots (fun _ -> Hashtbl.create 8) in
-      let rev_add v u =
-        if v >= 0 && v < max_slots then Hashtbl.replace rev_nbrs.(v) u () in
-      let rev_remove v u =
-        if v >= 0 && v < max_slots then Hashtbl.remove rev_nbrs.(v) u in
-      let dist_cache : (int * int, float) Hashtbl.t = Hashtbl.create (n * k_nn * 8) in
-      let dist_of = make_dist_of ~n ~data ~merge_left ~merge_right ~merge_dist ~dist_cache in
-      let rebuild_nbrs = make_rebuild_nbrs ~k_nn ~max_slots ~active ~nbrs ~rev_add ~rev_remove ~dist_of in
-      for i = 0 to n - 1 do
-        trees.(i) <- Trees.Newick.leaf names.(i);
-        active.(i) <- true;
-        size.(i) <- 1;
-        embedding.(i) <- Float.Array.copy data.(i)
-      done;
-      let n_active = ref n in
-      let next_slot = ref n in
-      let module M = struct
-        type t = int * Float.Array.t
-        let equal (i, _) (j, _) = i = j
-        let dist (_, a) (_, b) =
-          let dm = Float.Array.length a in
-          let acc = ref 0. in
-          for k = 0 to dm - 1 do
-            let delta = Float.Array.unsafe_get a k -. Float.Array.unsafe_get b k in
-            acc := !acc +. delta *. delta
-          done;
-          sqrt !acc
-      end in
-      let module CT = CoverTree.Make (M) in
-      let ct = CT.create () in
-      for i = 0 to n - 1 do
-        CT.insert ct (i, embedding.(i))
-      done;
-      let k_query = k_nn * k_query_factor in
-      let ct_expand v =
-        if !n_active <= 1 then []
-        else begin
-          let q_point = (v, embedding.(v)) in
-          let knn = CT.knn ct q_point (k_query + 1) in
-          List.filter_map (fun (s, _) ->
-            if s = v || not active.(s) then None else Some s
-          ) knn
-        end in
-      if verbose then
-        Printf.eprintf "%s Sparse-NJ (cover-tree): K=%d, K_QUERY=%d, rowsum=%s, sym=%s.\n%!"
-          prefix k_nn k_query
-          (RowSum.to_string row_sum) (Symmetry.to_string symmetry);
-      (* Bootstrap: K-NN per leaf via the cover tree *)
-      for i = 0 to n - 1 do
-        let cands = ct_expand i in
-        rebuild_nbrs i cands
-      done;
-      let nbrs_idx = make_nbrs_idx ~max_slots ~nbrs in
-      let row_sums = make_row_sums ~bound:max_slots ~active ~nbrs ~dist_of ~row_sum ~n_active in
-      let st =
-        { trees; active; size; embedding; merge_left; merge_right; merge_dist;
-          nbrs; rev_nbrs; n_active; next_slot } in
-      let strategy =
-        { expand = ct_expand;
-          on_merge =
-            (fun ~i ~j ~u ->
-              CT.insert ct (u, embedding.(u));
-              let _ = CT.remove ct (i, embedding.(i)) in
-              let _ = CT.remove ct (j, embedding.(j)) in
-              ());
-          rebuild = (fun () -> ()) } in
-      let root =
-        run_core ~max_slots ~dim ~k_nn ~symmetry ~st ~dist_of ~rebuild_nbrs
-          ~row_sums ~nbrs_idx ~rev_remove ~strategy in
-      if verbose then
-        Printf.eprintf "%s Sparse-NJ (cover-tree): built unrooted tree on %d leaves.\n%!"
-          prefix n;
-      root
-    (* Hyperbolic-embedding implementation.  Hyperboloid positions are
-       maintained by geodesic placement and used directly as the K-NN
-       retrieval metric (brute-force scan).  The hyperboloid helpers
-       [lorentz_inner], [hyp_dist], [hyp_lift], [hyp_geodesic] are
-       shared module-level functions defined near the top. *)
-    let compute_hyperbolic ?(verbose = false)
-        ?(k_nn = 10) ?(k_query_factor = 1) ?(hyp_scale = 1.0)
-        ?(row_sum = RowSum.Knn) ?(symmetry = Symmetry.One)
-        names data =
-      let open String.TermIO in
-      let prefix = grey (Printf.sprintf "(%s):" __FUNCTION__) in
-      let n = check_inputs __FUNCTION__ names data in
-      let max_slots = 2 * n - 3 in
-      (* Per-slot state.  Slots [0, n) are leaves; [n, max_slots) are
-         merged clusters created in order. *)
-      let trees = Array.make max_slots (Trees.Newick.leaf "") in
-      let active = Array.make max_slots false in
-      let size = Array.make max_slots 0 in
-      let hyp_pos = Array.make max_slots (Float.Array.make 0 0.) in
-      let merge_left = Array.make max_slots (-1) in
-      let merge_right = Array.make max_slots (-1) in
-      let merge_dist = Array.make max_slots 0. in
-      let nbrs : (int * float) array array = Array.make max_slots [||] in
-      let dist_cache : (int * int, float) Hashtbl.t = Hashtbl.create (n * k_nn * 8) in
-      let dist_of = make_dist_of ~n ~data ~merge_left ~merge_right ~merge_dist ~dist_cache in
-      (* Brute-force [k_nn * k_query_factor] nearest by hyperbolic
-         distance over the active set, then rerank by Saitou-Nei
-         (via [dist_of]) and keep the top [k_nn].  The k_query_factor
-         tunes how many hyperbolic candidates we consider; factor = 1
-         uses hyperbolic ranking directly (the cheapest variant), but
-         empirically the hyperbolic Spearman against Saitou-Nei isn't
-         quite tight enough at top-K for sparse-NJ to land on the
-         best Q-pair, so a small constant factor (2-3) is needed to
-         widen the candidate pool.  O(n_active * k_query_factor) per
-         query; Phase 2 will replace this with a cover-tree query for
-         O(k_nn * k_query_factor * log n). *)
-      let k_query = k_nn * k_query_factor in
-      let hyp_knn v =
-        let p_v = hyp_pos.(v) in
-        let acc = ref [] in
-        for s = 0 to max_slots - 1 do
-          if s <> v && active.(s) then
-            acc := (hyp_dist p_v hyp_pos.(s), s) :: !acc
-        done;
-        let arr = Array.of_list !acc in
-        Array.sort (fun (a, _) (b, _) -> compare a b) arr;
-        let m = min k_query (Array.length arr) in
-        if k_query_factor <= 1 then
-          Array.sub arr 0 (min k_nn m)
-        else begin
-          (* Rerank the top k_query hyperbolic candidates by Saitou-Nei *)
-          let cand =
-            Array.init m (fun p ->
-              let (_d_hyp, x) = arr.(p) in
-              (dist_of v x, x)) in
-          Array.sort (fun (a, _) (b, _) -> compare a b) cand;
-          let kk = min k_nn (Array.length cand) in
-          Array.sub cand 0 kk
-        end in
-      (* Lift the n leaf principal-coord vectors into the hyperboloid. *)
-      for i = 0 to n - 1 do
-        trees.(i) <- Trees.Newick.leaf names.(i);
-        active.(i) <- true;
-        size.(i) <- 1;
-        hyp_pos.(i) <- hyp_lift ~scale:hyp_scale data.(i)
-      done;
-      let n_active = ref n in
-      let next_slot = ref n in
-      if verbose then
-        Printf.eprintf "%s Sparse-NJ (hyperbolic): K=%d, scale=%g, rowsum=%s, sym=%s.\n%!"
-          prefix k_nn hyp_scale (RowSum.to_string row_sum)
-          (Symmetry.to_string symmetry);
-      (* Bootstrap K-NN lists for the leaves *)
-      for i = 0 to n - 1 do
-        let knn = hyp_knn i in
-        nbrs.(i) <- Array.map (fun (d, j) ->
-          (* Replace hyp distance with the true Saitou-Nei (= Euclidean
-             at leaves) so dists.(i) is consistent with what the
-             Q-formula expects.  Hyperbolic was only used for ranking. *)
-          let _ = d in
-          (j, dist_of i j)) knn
-      done;
-      let nbrs_idx = make_nbrs_idx ~max_slots ~nbrs in
-      let row_sums = make_row_sums ~bound:max_slots ~active ~nbrs ~dist_of ~row_sum ~n_active in
-      while !n_active > 3 do
-        let s = row_sums () in
-        let cand = candidate_pairs symmetry (nbrs_idx ()) active in
-        let cand =
-          if cand = [] then begin
-            let acc = ref [] in
-            for i = 0 to max_slots - 1 do
-              if active.(i) then
-                for j = i + 1 to max_slots - 1 do
-                  if active.(j) then
-                    List.accum acc (i, j)
-                done
-            done;
-            !acc
-          end else
-            cand in
-        let n_act_minus_2 = float_of_int (!n_active - 2) in
-        let i, j = best_q_pair ~n_act_minus_2 ~s ~dist_of cand in
-        let d_ij = dist_of i j in
-        let s_i = Float.Array.unsafe_get s i and s_j = Float.Array.unsafe_get s j in
-        let n_act_minus_2_max = max n_act_minus_2 1. in
-        let b_i, b_j = nj_branch_lengths ~d_ij ~s_i ~s_j ~n_act_minus_2_max in
-        let u = !next_slot in
-        incr next_slot;
-        trees.(u) <- Trees.Newick.join
-          [| Trees.Newick.edge ~length:b_i (), trees.(i);
-             Trees.Newick.edge ~length:b_j (), trees.(j) |];
-        active.(u) <- true;
-        size.(u) <- size.(i) + size.(j);
-        merge_left.(u) <- i;
-        merge_right.(u) <- j;
-        merge_dist.(u) <- d_ij;
-        (* Hyperbolic geodesic placement: p_u at distance b_i from p_i
-           toward p_j on the geodesic.  Under additivity this gives
-           d_H(p_u, p_x) = d_NJ(u, x) for every other active x. *)
-        hyp_pos.(u) <- hyp_geodesic hyp_pos.(i) hyp_pos.(j) b_i;
-        (* Deactivate i and j BEFORE the K-NN recomputation so the
-           brute-force scan filters them out automatically. *)
-        nbrs.(i) <- [||];
-        nbrs.(j) <- [||];
-        active.(i) <- false;
-        active.(j) <- false;
-        decr n_active;
-        (* Rebuild K-NN of u and of every active cluster whose K-NN
-           might have changed.  For the brute-force Phase 1 we
-           recompute the K-NN of every active cluster on every merge
-           via [hyp_knn]: O(n_active^2) per iteration, O(n^3) total --
-           same as the dense reference but tests the algorithmic
-           idea cleanly before the cover-tree work.  Phase 2 swaps
-           [hyp_knn] for a cover-tree query (O(log n)) and refreshes
-           only the clusters whose K-NN actually changed. *)
-        for v = 0 to max_slots - 1 do
-          if active.(v) then begin
-            let knn = hyp_knn v in
-            nbrs.(v) <- Array.map (fun (_d_hyp, x) ->
-              (x, dist_of v x)) knn
-          end
-        done
-      done;
-      let root = finalize_root ~bound:max_slots ~active ~trees ~dist_of in
-      if verbose then
-        Printf.eprintf "%s Sparse-NJ (hyperbolic): built unrooted tree on %d leaves.\n%!"
-          prefix n;
-      root
-    (* Dispatcher *)
     let compute ?(verbose = false)
         ?(mode = Mode.Dense)
         ?(index_type = Interfaiss.Type.of_string "hnsw(32)")
@@ -1813,15 +1334,6 @@ include (
       match mode with
       | Mode.Dense ->
         compute_dense ~verbose ~index_type ~k_nn ~row_sum ~symmetry names data
-      | Mode.Subquadratic ->
-        compute_subquadratic ~verbose ~index_type ~k_nn ~k_query_factor
-          ~row_sum ~symmetry names data
-      | Mode.Hyperbolic ->
-        compute_hyperbolic ~verbose ~k_nn ~k_query_factor ~hyp_scale
-          ~row_sum ~symmetry names data
-      | Mode.CoverTree ->
-        compute_cover_tree ~verbose ~k_nn ~k_query_factor
-          ~row_sum ~symmetry names data
       | Mode.PeriodicRebuild ->
         compute_periodic_rebuild ~verbose ~index_type ~k_nn ~k_query_factor
           ~row_sum ~symmetry names data
@@ -1851,8 +1363,6 @@ include (
           | SaitouNei
           | Centroid
           | Hyperbolic
-          | HyperbolicFrechet
-          | Hybrid
         val of_string: string -> t
         val to_string: t -> string
       end
@@ -1860,9 +1370,6 @@ include (
       sig
         type t =
           | Dense
-          | Subquadratic
-          | Hyperbolic
-          | CoverTree
           | PeriodicRebuild
           | RPForestRebuild
         val of_string: string -> t
@@ -1874,21 +1381,19 @@ include (
        carrying the NJ-computed branch lengths above its children; the
        final three-way merge produces a trifurcating unrooted root.
        [mode] selects the engine: [Dense] is the validated O(n^3)-time /
-       O(n^2)-memory reference (best quality, the default); the others
-       are sub-quadratic-memory K-NN-restricted variants differing in how
-       candidate neighbours are found -- [Subquadratic] rebuilds a FAISS
-       index per merge, [PeriodicRebuild] keeps a persistent FAISS index
-       with tombstoning and a sqrt(n)-periodic rebuild, [CoverTree]
-       maintains an incremental cover tree, [RPForestRebuild] uses a
-       native RP-forest with a heap-driven merge loop and optional
-       geometric-proxy [distance] models, and [Hyperbolic] lifts the
-       leaves onto the upper hyperboloid and places merges by geodesic.
-       [index_type] picks the FAISS index (Subquadratic / PeriodicRebuild);
-       [k_query_factor] sets the K-NN over-fetch factor; [distance]
-       selects the rp-forest Q-distance model; [hyp_scale] sets the radial
-       scale s for the hyperboloid lift (empirically s in [0.5, 1.0];
-       default 1.0); [row_sum] and [symmetry] tune the NJ row-sum
-       estimator and the K-NN candidate symmetry. *)
+       O(n^2)-memory reference (best quality, the default);
+       [PeriodicRebuild] is the recommended exact Theta(n^2) engine
+       (K-NN-restricted scan-NJ over a persistent FAISS index with a
+       sqrt(n)-periodic rebuild); [RPForestRebuild] uses a native
+       RP-forest with a heap-driven merge loop and, under the
+       [Hyperbolic] geometric-proxy [distance], gives the
+       sub-quadratic-memory fallback.  [index_type] picks the FAISS index
+       (PeriodicRebuild); [k_query_factor] sets the K-NN over-fetch
+       factor; [distance] selects the rp-forest Q-distance model;
+       [hyp_scale] sets the radial scale s for the hyperboloid lift
+       (empirically s in [0.5, 1.0]; default 1.0); [row_sum] and
+       [symmetry] tune the NJ row-sum estimator and the K-NN candidate
+       symmetry. *)
     val compute:
       ?verbose:bool ->
       ?mode:Mode.t ->

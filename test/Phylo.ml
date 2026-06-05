@@ -215,7 +215,7 @@ let () =
 (*  this small fixture cannot answer.                                         *)
 (* -------------------------------------------------------------------------- *)
 let () =
-  Printf.printf "=== Part 8: subquadratic matches dense at K_QUERY=5K on small fixture ===\n%!";
+  Printf.printf "=== Part 8: periodic-rebuild matches dense at K_QUERY=5K on small fixture ===\n%!";
   let twisted = Twisted.of_binary twisted_prefix in
   let m = Twisted.to_embeddings ~normalize:true ~verbose:false distance metric twisted in
   let dense =
@@ -225,7 +225,7 @@ let () =
       m.matrix.row_names m.matrix.data in
   let sq =
     SparseNJ.compute ~verbose:false ~k_nn:5 ~k_query_factor:5
-      ~mode:SparseNJ.Mode.Subquadratic
+      ~mode:SparseNJ.Mode.PeriodicRebuild
       ~index_type:(Interfaiss.Type.of_string "flat")
       m.matrix.row_names m.matrix.data in
   let dense_splits = Trees_Base.Splits.of_newick dense in
