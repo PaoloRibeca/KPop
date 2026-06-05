@@ -567,6 +567,119 @@ include (
              end
            done);
         s
+    (* The per-slot state shared by the slotted scan modes.  Each mode
+       allocates these arrays/refs locally and bundles them here by field
+       punning, so [run_core] can drive the merge loop over them. *)
+    type slot_state = {
+      trees: Trees.Newick.t array;
+      active: bool array;
+      size: int array;
+      embedding: Float.Array.t array;
+      merge_left: int array;
+      merge_right: int array;
+      merge_dist: float array;
+      nbrs: (int * float) array array;
+      rev_nbrs: (int, unit) Hashtbl.t array;
+      n_active: int ref;
+      next_slot: int ref
+    }
+    (* The spatial-index strategy that distinguishes the scan modes:
+       [expand v] is the index K-NN of slot v, [on_merge] keeps the index
+       consistent after a merge (i, j) -> u, [rebuild] is the periodic
+       index rebuild (a no-op where the index is incremental). *)
+    type strategy = {
+      expand: int -> int list;
+      on_merge: i:int -> j:int -> u:int -> unit;
+      rebuild: unit -> unit
+    }
+    (* Create the merged slot u from (i, j): a join node carrying the two
+       NJ branch lengths, its merge-history entry, and its size-weighted
+       centroid embedding.  Returns u. *)
+    let do_merge ~dim ~st ~i ~j ~d_ij ~b_i ~b_j =
+      let u = !(st.next_slot) in
+      incr st.next_slot;
+      st.trees.(u) <- Trees.Newick.join
+        [| Trees.Newick.edge ~length:b_i (), st.trees.(i);
+           Trees.Newick.edge ~length:b_j (), st.trees.(j) |];
+      st.active.(u) <- true;
+      st.size.(u) <- st.size.(i) + st.size.(j);
+      st.merge_left.(u) <- i;
+      st.merge_right.(u) <- j;
+      st.merge_dist.(u) <- d_ij;
+      let si_f = float_of_int st.size.(i) and sj_f = float_of_int st.size.(j)
+      and tot_f = float_of_int st.size.(u) in
+      st.embedding.(u) <-
+        weighted_centroid ~dim ~si_f ~sj_f ~tot_f st.embedding.(i) st.embedding.(j);
+      u
+    (* All (i, j), i < j, both active, in the canonical nested-loop order
+       -- the fallback candidate set when the K-NN graph yields no pairs.
+       [bound] is the active array's length. *)
+    let all_active_pairs ~bound ~active =
+      let acc = ref [] in
+      for i = 0 to bound - 1 do
+        if active.(i) then
+          for j = i + 1 to bound - 1 do
+            if active.(j) then List.accum acc (i, j)
+          done
+      done;
+      !acc
+    (* Step C: patch every affected cluster v whose K-NN list a merge into
+       u may have invalidated -- keep its surviving neighbours, splice in
+       u, refill from [expand] if it would drop below k_nn, and rebuild. *)
+    let patch_affected ~u ~k_nn ~active ~nbrs ~rebuild_nbrs ~expand affected =
+      Hashtbl.iter (fun v () ->
+        let cands_v = ref [] in
+        Array.iter (fun (x, _) ->
+          if active.(x) && x <> v then cands_v := x :: !cands_v) nbrs.(v);
+        if not (List.mem u !cands_v) then cands_v := u :: !cands_v;
+        let already = List.length !cands_v in
+        if already < k_nn + 1 then begin
+          let fx = expand v in
+          List.iter (fun x ->
+            if x <> v && not (List.mem x !cands_v) then
+              cands_v := x :: !cands_v) fx
+        end;
+        rebuild_nbrs v !cands_v) affected
+    (* The shared scan-merge driver for the slotted modes.  While more
+       than three clusters remain: estimate row sums, pick the minimum-Q
+       candidate pair, merge it, rebuild u's K-NN from its parents plus the
+       index, then patch every affected cluster -- the [strategy] supplies
+       the index-specific expand / on_merge / rebuild.  Returns the
+       trifurcating unrooted root. *)
+    let run_core ~max_slots ~dim ~k_nn ~symmetry ~st ~dist_of ~rebuild_nbrs
+        ~row_sums ~nbrs_idx ~rev_remove ~strategy =
+      while !(st.n_active) > 3 do
+        let s = row_sums () in
+        let cand = candidate_pairs symmetry (nbrs_idx ()) st.active in
+        let cand =
+          if cand = [] then all_active_pairs ~bound:max_slots ~active:st.active
+          else cand in
+        let n_act_minus_2 = float_of_int (!(st.n_active) - 2) in
+        let i, j = best_q_pair ~n_act_minus_2 ~s ~dist_of cand in
+        let d_ij = dist_of i j in
+        let s_i = Float.Array.unsafe_get s i and s_j = Float.Array.unsafe_get s j in
+        let n_act_minus_2_max = max n_act_minus_2 1. in
+        let b_i, b_j = nj_branch_lengths ~d_ij ~s_i ~s_j ~n_act_minus_2_max in
+        let u = do_merge ~dim ~st ~i ~j ~d_ij ~b_i ~b_j in
+        let idx_cands = strategy.expand u in
+        let cands_u = ref [] in
+        Array.iter (fun (x, _) ->
+          if x <> i && x <> j then cands_u := x :: !cands_u) st.nbrs.(i);
+        Array.iter (fun (x, _) ->
+          if x <> i && x <> j then cands_u := x :: !cands_u) st.nbrs.(j);
+        List.iter (fun x ->
+          if x <> i && x <> j then cands_u := x :: !cands_u) idx_cands;
+        rebuild_nbrs u !cands_u;
+        let affected =
+          collect_affected ~i ~j ~u ~active:st.active ~rev_nbrs:st.rev_nbrs idx_cands in
+        deactivate_pair ~i ~j ~nbrs:st.nbrs ~rev_remove ~active:st.active
+          ~n_active:st.n_active;
+        strategy.on_merge ~i ~j ~u;
+        patch_affected ~u ~k_nn ~active:st.active ~nbrs:st.nbrs
+          ~rebuild_nbrs ~expand:strategy.expand affected;
+        strategy.rebuild ()
+      done;
+      finalize_root ~bound:max_slots ~active:st.active ~trees:st.trees ~dist_of
     (* Dense reference implementation *)
     let compute_dense ?(verbose = false)
         ?(index_type = Interfaiss.Type.of_string "hnsw(32)")
@@ -889,87 +1002,16 @@ include (
       let nbrs_idx = make_nbrs_idx ~max_slots ~nbrs in
       let row_sums = make_row_sums ~bound:max_slots ~active ~nbrs ~dist_of ~row_sum ~n_active in
       (* Main loop *)
-      while !n_active > 3 do
-        let s = row_sums () in
-        let cand = candidate_pairs symmetry (nbrs_idx ()) active in
-        let cand =
-          if cand = [] then begin
-            let acc = ref [] in
-            for i = 0 to max_slots - 1 do
-              if active.(i) then
-                for j = i + 1 to max_slots - 1 do
-                  if active.(j) then
-                    List.accum acc (i, j)
-                done
-            done;
-            !acc
-          end else
-            cand in
-        let n_act_minus_2 = float_of_int (!n_active - 2) in
-        let i, j = best_q_pair ~n_act_minus_2 ~s ~dist_of cand in
-        let d_ij = dist_of i j in
-        let s_i = Float.Array.unsafe_get s i and s_j = Float.Array.unsafe_get s j in
-        let n_act_minus_2_max = max n_act_minus_2 1. in
-        let b_i, b_j = nj_branch_lengths ~d_ij ~s_i ~s_j ~n_act_minus_2_max in
-        let u = !next_slot in
-        incr next_slot;
-        trees.(u) <- Trees.Newick.join
-          [| Trees.Newick.edge ~length:b_i (), trees.(i);
-             Trees.Newick.edge ~length:b_j (), trees.(j) |];
-        active.(u) <- true;
-        size.(u) <- size.(i) + size.(j);
-        merge_left.(u) <- i;
-        merge_right.(u) <- j;
-        merge_dist.(u) <- d_ij;
-        let si_f = float_of_int size.(i) and sj_f = float_of_int size.(j)
-        and tot_f = float_of_int size.(u) in
-        embedding.(u) <- weighted_centroid ~dim ~si_f ~sj_f ~tot_f embedding.(i) embedding.(j);
-        (* Step A: Build K-NN(u) from parent inheritance + FAISS expansion.
-           Explicitly exclude i and j -- both are still flagged active at
-           this point (we deactivate below to keep their nbrs / rev_nbrs
-           snapshots readable) but they must not enter u's K-NN. *)
-        let faiss_cands = faiss_expand u in
-        let cands_u = ref [] in
-        Array.iter (fun (x, _) ->
-          if x <> i && x <> j then cands_u := x :: !cands_u) nbrs.(i);
-        Array.iter (fun (x, _) ->
-          if x <> i && x <> j then cands_u := x :: !cands_u) nbrs.(j);
-        List.iter (fun x ->
-          if x <> i && x <> j then cands_u := x :: !cands_u) faiss_cands;
-        rebuild_nbrs u !cands_u;
-        (* Snapshot the set of clusters whose K-NN list could be invalidated
-           by this merge.  Two sources:
-             - rev_nbrs.(i) and rev_nbrs.(j): clusters that had i or j in
-               their K-NN list (they need i / j removed and replaced by u
-               with a Saitou-Nei distance).
-             - FAISS-K-NN(u): clusters that may now want u as a new K-NN
-               entry because their centroid is near u's centroid (the
-               "reverse insertion" candidate set; without this step,
-               unaffected v's never get to consider u and we plateau well
-               below the dense quality). *)
-        let affected = collect_affected ~i ~j ~u ~active ~rev_nbrs faiss_cands in
-        (* Step B: Deactivate i and j (before patching others, so the
-           patches won't reintroduce them).  Their nbrs are cleared. *)
-        deactivate_pair ~i ~j ~nbrs ~rev_remove ~active ~n_active;
-        (* Step C: Patch each affected v.  v's old K-NN contained i
-           and/or j; replace with u (if not already there) and rebuild.
-           If v's neighbour list would drop below K, expand via FAISS. *)
-        Hashtbl.iter (fun v () ->
-          let cands_v = ref [] in
-          Array.iter (fun (x, _) ->
-            if active.(x) && x <> v then cands_v := x :: !cands_v) nbrs.(v);
-          if not (List.mem u !cands_v) then cands_v := u :: !cands_v;
-          (* If we expect to drop below K, expand from FAISS to refill *)
-          let already = List.length !cands_v in
-          if already < k_nn + 1 then begin
-            let fx = faiss_expand v in
-            List.iter (fun x ->
-              if x <> v && not (List.mem x !cands_v) then
-                cands_v := x :: !cands_v) fx
-          end;
-          rebuild_nbrs v !cands_v) affected
-      done;
-      let root = finalize_root ~bound:max_slots ~active ~trees ~dist_of in
+      let st =
+        { trees; active; size; embedding; merge_left; merge_right; merge_dist;
+          nbrs; rev_nbrs; n_active; next_slot } in
+      let strategy =
+        { expand = faiss_expand;
+          on_merge = (fun ~i:_ ~j:_ ~u:_ -> ());
+          rebuild = (fun () -> ()) } in
+      let root =
+        run_core ~max_slots ~dim ~k_nn ~symmetry ~st ~dist_of ~rebuild_nbrs
+          ~row_sums ~nbrs_idx ~rev_remove ~strategy in
       if verbose then
         Printf.eprintf "%s Sparse-NJ (subquadratic): built unrooted tree on %d leaves.\n%!"
           prefix n;
@@ -1153,79 +1195,27 @@ include (
          done);
       let nbrs_idx = make_nbrs_idx ~max_slots ~nbrs in
       let row_sums = make_row_sums ~bound:max_slots ~active ~nbrs ~dist_of ~row_sum ~n_active in
-      while !n_active > 3 do
-        let s = row_sums () in
-        let cand = candidate_pairs symmetry (nbrs_idx ()) active in
-        let cand =
-          if cand = [] then begin
-            let acc = ref [] in
-            for i = 0 to max_slots - 1 do
-              if active.(i) then
-                for j = i + 1 to max_slots - 1 do
-                  if active.(j) then
-                    List.accum acc (i, j)
-                done
-            done;
-            !acc
-          end else
-            cand in
-        let n_act_minus_2 = float_of_int (!n_active - 2) in
-        let i, j = best_q_pair ~n_act_minus_2 ~s ~dist_of cand in
-        let d_ij = dist_of i j in
-        let s_i = Float.Array.unsafe_get s i and s_j = Float.Array.unsafe_get s j in
-        let n_act_minus_2_max = max n_act_minus_2 1. in
-        let b_i, b_j = nj_branch_lengths ~d_ij ~s_i ~s_j ~n_act_minus_2_max in
-        let u = !next_slot in
-        incr next_slot;
-        trees.(u) <- Trees.Newick.join
-          [| Trees.Newick.edge ~length:b_i (), trees.(i);
-             Trees.Newick.edge ~length:b_j (), trees.(j) |];
-        active.(u) <- true;
-        size.(u) <- size.(i) + size.(j);
-        merge_left.(u) <- i;
-        merge_right.(u) <- j;
-        merge_dist.(u) <- d_ij;
-        let si_f = float_of_int size.(i) and sj_f = float_of_int size.(j)
-        and tot_f = float_of_int size.(u) in
-        embedding.(u) <- weighted_centroid ~dim ~si_f ~sj_f ~tot_f embedding.(i) embedding.(j);
-        let faiss_cands = faiss_expand u in
-        let cands_u = ref [] in
-        Array.iter (fun (x, _) ->
-          if x <> i && x <> j then cands_u := x :: !cands_u) nbrs.(i);
-        Array.iter (fun (x, _) ->
-          if x <> i && x <> j then cands_u := x :: !cands_u) nbrs.(j);
-        List.iter (fun x ->
-          if x <> i && x <> j then cands_u := x :: !cands_u) faiss_cands;
-        rebuild_nbrs u !cands_u;
-        let affected = collect_affected ~i ~j ~u ~active ~rev_nbrs faiss_cands in
-        deactivate_pair ~i ~j ~nbrs ~rev_remove ~active ~n_active;
-        (* Update persistent-index bookkeeping for this merge: i and j
-           tombstoned in the existing index; u added to new_slots
-           (it will be in the index after the next rebuild). *)
-        tombstone_slot i;
-        tombstone_slot j;
-        new_slots := u :: !new_slots;
-        Hashtbl.iter (fun v () ->
-          let cands_v = ref [] in
-          Array.iter (fun (x, _) ->
-            if active.(x) && x <> v then cands_v := x :: !cands_v) nbrs.(v);
-          if not (List.mem u !cands_v) then cands_v := u :: !cands_v;
-          let already = List.length !cands_v in
-          if already < k_nn + 1 then begin
-            let fx = faiss_expand v in
-            List.iter (fun x ->
-              if x <> v && not (List.mem x !cands_v) then
-                cands_v := x :: !cands_v) fx
-          end;
-          rebuild_nbrs v !cands_v) affected;
-        incr merges_since_rebuild;
-        if !merges_since_rebuild >= rebuild_interval then
-          rebuild_index ()
-      done;
+      let st =
+        { trees; active; size; embedding; merge_left; merge_right; merge_dist;
+          nbrs; rev_nbrs; n_active; next_slot } in
+      let strategy =
+        { expand = faiss_expand;
+          on_merge =
+            (fun ~i ~j ~u ->
+              tombstone_slot i;
+              tombstone_slot j;
+              new_slots := u :: !new_slots);
+          rebuild =
+            (fun () ->
+              incr merges_since_rebuild;
+              if !merges_since_rebuild >= rebuild_interval then
+                rebuild_index ()) } in
+      let root =
+        run_core ~max_slots ~dim ~k_nn ~symmetry ~st ~dist_of ~rebuild_nbrs
+          ~row_sums ~nbrs_idx ~rev_remove ~strategy in
       (match !cur_index with
        | Some idx -> Interfaiss.delete idx; cur_index := None
        | None -> ());
-      let root = finalize_root ~bound:max_slots ~active ~trees ~dist_of in
       if verbose then
         Printf.eprintf "%s Sparse-NJ (periodic-rebuild): built unrooted tree on %d leaves (%d rebuilds).\n%!"
           prefix n !n_rebuilds;
@@ -1649,72 +1639,21 @@ include (
       done;
       let nbrs_idx = make_nbrs_idx ~max_slots ~nbrs in
       let row_sums = make_row_sums ~bound:max_slots ~active ~nbrs ~dist_of ~row_sum ~n_active in
-      while !n_active > 3 do
-        let s = row_sums () in
-        let cand = candidate_pairs symmetry (nbrs_idx ()) active in
-        let cand =
-          if cand = [] then begin
-            let acc = ref [] in
-            for i = 0 to max_slots - 1 do
-              if active.(i) then
-                for j = i + 1 to max_slots - 1 do
-                  if active.(j) then List.accum acc (i, j)
-                done
-            done;
-            !acc
-          end else cand in
-        let n_act_minus_2 = float_of_int (!n_active - 2) in
-        let i, j = best_q_pair ~n_act_minus_2 ~s ~dist_of cand in
-        let d_ij = dist_of i j in
-        let s_i = Float.Array.unsafe_get s i and s_j = Float.Array.unsafe_get s j in
-        let n_act_minus_2_max = max n_act_minus_2 1. in
-        let b_i, b_j = nj_branch_lengths ~d_ij ~s_i ~s_j ~n_act_minus_2_max in
-        let u = !next_slot in
-        incr next_slot;
-        trees.(u) <- Trees.Newick.join
-          [| Trees.Newick.edge ~length:b_i (), trees.(i);
-             Trees.Newick.edge ~length:b_j (), trees.(j) |];
-        active.(u) <- true;
-        size.(u) <- size.(i) + size.(j);
-        merge_left.(u) <- i;
-        merge_right.(u) <- j;
-        merge_dist.(u) <- d_ij;
-        let si_f = float_of_int size.(i) and sj_f = float_of_int size.(j)
-        and tot_f = float_of_int size.(u) in
-        embedding.(u) <- weighted_centroid ~dim ~si_f ~sj_f ~tot_f embedding.(i) embedding.(j);
-        let ct_cands = ct_expand u in
-        let cands_u = ref [] in
-        Array.iter (fun (x, _) ->
-          if x <> i && x <> j then cands_u := x :: !cands_u) nbrs.(i);
-        Array.iter (fun (x, _) ->
-          if x <> i && x <> j then cands_u := x :: !cands_u) nbrs.(j);
-        List.iter (fun x ->
-          if x <> i && x <> j then cands_u := x :: !cands_u) ct_cands;
-        rebuild_nbrs u !cands_u;
-        let affected = collect_affected ~i ~j ~u ~active ~rev_nbrs ct_cands in
-        deactivate_pair ~i ~j ~nbrs ~rev_remove ~active ~n_active;
-        (* Update the cover tree: add u, remove i and j.  The add of
-           u must precede the affected-v patching loop (so Step C
-           queries see u); the removes of i / j must precede it too
-           (so dead slots don't keep coming back as candidates). *)
-        CT.insert ct (u, embedding.(u));
-        let _ = CT.remove ct (i, embedding.(i)) in
-        let _ = CT.remove ct (j, embedding.(j)) in
-        Hashtbl.iter (fun v () ->
-          let cands_v = ref [] in
-          Array.iter (fun (x, _) ->
-            if active.(x) && x <> v then cands_v := x :: !cands_v) nbrs.(v);
-          if not (List.mem u !cands_v) then cands_v := u :: !cands_v;
-          let already = List.length !cands_v in
-          if already < k_nn + 1 then begin
-            let fx = ct_expand v in
-            List.iter (fun x ->
-              if x <> v && not (List.mem x !cands_v) then
-                cands_v := x :: !cands_v) fx
-          end;
-          rebuild_nbrs v !cands_v) affected
-      done;
-      let root = finalize_root ~bound:max_slots ~active ~trees ~dist_of in
+      let st =
+        { trees; active; size; embedding; merge_left; merge_right; merge_dist;
+          nbrs; rev_nbrs; n_active; next_slot } in
+      let strategy =
+        { expand = ct_expand;
+          on_merge =
+            (fun ~i ~j ~u ->
+              CT.insert ct (u, embedding.(u));
+              let _ = CT.remove ct (i, embedding.(i)) in
+              let _ = CT.remove ct (j, embedding.(j)) in
+              ());
+          rebuild = (fun () -> ()) } in
+      let root =
+        run_core ~max_slots ~dim ~k_nn ~symmetry ~st ~dist_of ~rebuild_nbrs
+          ~row_sums ~nbrs_idx ~rev_remove ~strategy in
       if verbose then
         Printf.eprintf "%s Sparse-NJ (cover-tree): built unrooted tree on %d leaves.\n%!"
           prefix n;
