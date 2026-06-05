@@ -1878,16 +1878,22 @@ include (
        the rows of [data].  Each internal merge contributes a join node
        carrying the NJ-computed branch lengths above its children; the
        final three-way merge produces a trifurcating unrooted root.
-       [mode] selects between the validated O(n^3)/O(n^2) dense
-       reference, the experimental centroid-based subquadratic
-       prototype, and the hyperbolic-embedding mode (Phase 1: with
-       brute-force K-NN scan, same O(n^3) asymptotic as the dense
-       reference; Phase 2 will swap in a cover-tree query for
-       O(n K log n)).  [index_type] picks the FAISS index;
-       [k_query_factor] sets the FAISS expansion factor in
-       Subquadratic mode; [hyp_scale] sets the radial scale s for the
-       initial hyperboloid lift in Hyperbolic mode (empirically
-       s in [0.5, 1.0] works; default 1.0). *)
+       [mode] selects the engine: [Dense] is the validated O(n^3)-time /
+       O(n^2)-memory reference (best quality, the default); the others
+       are sub-quadratic-memory K-NN-restricted variants differing in how
+       candidate neighbours are found -- [Subquadratic] rebuilds a FAISS
+       index per merge, [PeriodicRebuild] keeps a persistent FAISS index
+       with tombstoning and a sqrt(n)-periodic rebuild, [CoverTree]
+       maintains an incremental cover tree, [RPForestRebuild] uses a
+       native RP-forest with a heap-driven merge loop and optional
+       geometric-proxy [distance] models, and [Hyperbolic] lifts the
+       leaves onto the upper hyperboloid and places merges by geodesic.
+       [index_type] picks the FAISS index (Subquadratic / PeriodicRebuild);
+       [k_query_factor] sets the K-NN over-fetch factor; [distance]
+       selects the rp-forest Q-distance model; [hyp_scale] sets the radial
+       scale s for the hyperboloid lift (empirically s in [0.5, 1.0];
+       default 1.0); [row_sum] and [symmetry] tune the NJ row-sum
+       estimator and the K-NN candidate symmetry. *)
     val compute:
       ?verbose:bool ->
       ?mode:Mode.t ->
