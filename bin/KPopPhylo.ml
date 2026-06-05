@@ -279,7 +279,7 @@ let () =
       (fun _ -> Set_snj_hyp_scale (TA.get_parameter_float_pos ())
         |> List.accum Parameters.program);
     [ "--snj-rowsum" ],
-      Some "'knn'|'topk'|'full'",
+      Some "'knn'|'full'",
       [ "row-sum estimator for the sparse-NJ Q-formula" ],
       TA.Default (SparseNJ.RowSum.to_string Defaults.snj_row_sum |> Fun.const),
       (fun _ -> Set_snj_row_sum (TA.get_parameter () |> SparseNJ.RowSum.of_string)

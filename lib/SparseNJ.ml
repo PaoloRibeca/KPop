@@ -73,25 +73,21 @@ include (
   struct
     (* Row-sum estimator used in the NJ Q-formula.  [Knn] approximates
        r(i) as (n_act - 1) / K times the sum of i's K-NN distances;
-       [Topk] is the same up to a constant scaling (uses the mean
-       and rescales by n_act - 1); [Full] uses the exact global row
-       sum, recomputed lazily from the Saitou-Nei distance cache
-       (with centroid-Euclidean fallback) at each iteration. *)
+       [Full] uses the exact global row sum, recomputed lazily from the
+       Saitou-Nei distance cache (with centroid-Euclidean fallback) at
+       each iteration. *)
     module RowSum =
       struct
         type t =
           | Knn
-          | Topk
           | Full
         let of_string = function
           | "knn" -> Knn
-          | "topk" -> Topk
           | "full" -> Full
           | s ->
             Exception.raise_unrecognized_initializer __FUNCTION__ "sparse-NJ row-sum estimator" s
         let to_string = function
           | Knn -> "knn"
-          | Topk -> "topk"
           | Full -> "full"
       end
     (* K-NN symmetry policy.  [One] includes pair (i, j) in the
@@ -532,8 +528,8 @@ include (
         nbrs.(v) <- new_nbrs;
         Array.iter (fun (j, _) -> rev_add j v) new_nbrs
     (* The shared row-sum estimator for the slotted scan modes: [Full]
-       is the exact active row sum, [Knn]/[Topk] the K-NN mean rescaled
-       by n_act - 1.  [bound] is the active array's length. *)
+       is the exact active row sum, [Knn] the K-NN mean rescaled by
+       n_act - 1.  [bound] is the active array's length. *)
     let make_row_sums ~bound ~active ~nbrs ~dist_of ~row_sum ~n_active =
       fun () ->
         let s = Float.Array.create bound in
@@ -551,7 +547,7 @@ include (
                Float.Array.unsafe_set s i !acc
              end
            done
-         | RowSum.Knn | RowSum.Topk ->
+         | RowSum.Knn ->
            for i = 0 to bound - 1 do
              if active.(i) then begin
                let arr = nbrs.(i) in
@@ -767,7 +763,7 @@ include (
                Float.Array.unsafe_set s i !acc
              end
            done
-         | RowSum.Knn | RowSum.Topk ->
+         | RowSum.Knn ->
            for i = 0 to n - 1 do
              if active.(i) then begin
                let arr_d = dists.(i) in
@@ -1407,8 +1403,8 @@ include (
         push_pairs_of i
       done;
       (* Skip the RowSum CLI selector for this mode: K-NN mean is the
-         only estimator the heap supports.  RowSum.Full / Topk would
-         be possible extensions but are not the validated path. *)
+         only estimator the heap supports.  RowSum.Full would be a
+         possible extension but is not the validated path. *)
       let _ = row_sum in
       let _ = symmetry in
       (* Pop top [budget] fresh entries by Q', then pick the exact-Q
@@ -1837,7 +1833,6 @@ include (
       sig
         type t =
           | Knn
-          | Topk
           | Full
         val of_string: string -> t
         val to_string: t -> string
