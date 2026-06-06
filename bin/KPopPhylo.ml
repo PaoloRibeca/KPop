@@ -146,7 +146,7 @@ module Defaults =
     let snj_mode = SparseNJ.Mode.of_string "dense"
     let snj_num_neighbors = 10
     let snj_k_query_factor = 3
-    let snj_hyp_scale = 1.0
+    let snj_hyp_scale = 0.0  (* auto: derive 1/RMS(leaf-norm) at run time *)
     let snj_distance = SparseNJ.Distance.of_string "saitou-nei"
     let snj_row_sum = SparseNJ.RowSum.of_string "knn"
     let snj_symmetry = SparseNJ.Symmetry.of_string "one"
@@ -272,11 +272,14 @@ let () =
       (fun _ -> Set_snj_k_query_factor (TA.get_parameter_int_pos ())
         |> List.accum Parameters.program);
     [ "--snj-hyp-scale" ],
-      Some "<positive_float>",
-      [ "radial lift scale for hyperbolic modes (best ~0.08 for the";
-        "rp-forest hyperbolic distance)" ],
-      TA.Default (string_of_float Defaults.snj_hyp_scale |> Fun.const),
-      (fun _ -> Set_snj_hyp_scale (TA.get_parameter_float_pos ())
+      Some "'auto'|<positive_float>",
+      [ "radial lift scale for the rp-forest hyperbolic distance;";
+        "'auto' (default) derives it from the data as 1/RMS(leaf-norm)" ],
+      TA.Default ((if Defaults.snj_hyp_scale <= 0. then "auto"
+                   else string_of_float Defaults.snj_hyp_scale) |> Fun.const),
+      (fun _ ->
+        let p = TA.get_parameter () in
+        Set_snj_hyp_scale (if p = "auto" then 0. else float_of_string p)
         |> List.accum Parameters.program);
     [ "--snj-rowsum" ],
       Some "'knn'|'full'",

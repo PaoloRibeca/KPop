@@ -665,7 +665,7 @@ include (
         ?(sparse_nj_mode = SparseNJ.Mode.Dense)
         ?(sparse_nj_num_neighbors = 10)
         ?(sparse_nj_k_query_factor = 3)
-        ?(sparse_nj_hyp_scale = 1.0)
+        ?(sparse_nj_hyp_scale = 0.0)  (* 0 = auto: SparseNJ derives 1/RMS(leaf-norm) *)
         ?(sparse_nj_distance = SparseNJ.Distance.SaitouNei)
         ?(sparse_nj_row_sum = SparseNJ.RowSum.Knn)
         ?(sparse_nj_symmetry = SparseNJ.Symmetry.One)

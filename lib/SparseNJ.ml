@@ -1024,7 +1024,7 @@ include (
     let compute_rp_forest_rebuild ?(verbose = false)
         ?(k_nn = 10) ?(k_query_factor = 3)
         ?(n_trees = 25) ?(leaf_size = 16)
-        ?(distance = Distance.SaitouNei) ?(hyp_scale = 1.0)
+        ?(distance = Distance.SaitouNei) ?(hyp_scale = 0.)
         ?(row_sum = RowSum.Knn) ?(symmetry = Symmetry.One)
         names data =
       let open String.TermIO in
@@ -1040,6 +1040,25 @@ include (
       let merge_right = Array.make max_slots (-1) in
       let merge_dist = Array.make max_slots 0. in
       let use_hyp = distance = Distance.Hyperbolic in
+      (* When [hyp_scale] is left at its auto sentinel (<= 0) the radial
+         scale is derived from the data as s = kappa / RMS(leaf norms),
+         so the hyperbolic radius s*|x| is invariant to the embedding's
+         absolute magnitude (CA coordinates scale with sqrt(N)); kappa is
+         the dimensionless target radius.  A positive value overrides. *)
+      let hyp_scale =
+        if use_hyp && hyp_scale <= 0. then begin
+          let kappa = 1.0 in
+          let acc = ref 0. in
+          for i = 0 to n - 1 do
+            let x = data.(i) in
+            for d = 0 to Float.Array.length x - 1 do
+              let v = Float.Array.unsafe_get x d in
+              acc := !acc +. v *. v
+            done
+          done;
+          let rms = sqrt (!acc /. float_of_int n) in
+          if rms > 0. then kappa /. rms else 1.0
+        end else hyp_scale in
       (* Hyperbolic positions on the upper hyperboloid (dim + 1 coords),
          maintained by geodesic placement; only populated under a
          hyperbolic distance model. *)
@@ -1126,9 +1145,9 @@ include (
       let n_active = ref n in
       let next_slot = ref n in
       if verbose then
-        Printf.eprintf "%s Sparse-NJ (rp-forest): n_trees=%d, leaf_size=%d, K=%d, K_QUERY=%d, rebuild_interval=%d, distance=%s, rowsum=%s, sym=%s.\n%!"
+        Printf.eprintf "%s Sparse-NJ (rp-forest): n_trees=%d, leaf_size=%d, K=%d, K_QUERY=%d, rebuild_interval=%d, distance=%s, hyp_scale=%g, rowsum=%s, sym=%s.\n%!"
           prefix n_trees leaf_size k_nn k_query rebuild_interval
-          (Distance.to_string distance)
+          (Distance.to_string distance) hyp_scale
           (RowSum.to_string row_sum) (Symmetry.to_string symmetry);
       (* Per-cluster cached mean K-NN distance r̂(v).  Used to compute
          row sums on the fly (r(v) = (n_act - 1) * r̂(v)) and as part
@@ -1327,7 +1346,7 @@ include (
     let compute ?(verbose = false)
         ?(mode = Mode.Dense)
         ?(index_type = Interfaiss.Type.of_string "hnsw(32)")
-        ?(k_nn = 10) ?(k_query_factor = 3) ?(hyp_scale = 1.0)
+        ?(k_nn = 10) ?(k_query_factor = 3) ?(hyp_scale = 0.)
         ?(distance = Distance.SaitouNei)
         ?(row_sum = RowSum.Knn) ?(symmetry = Symmetry.One)
         names data =
@@ -1391,7 +1410,8 @@ include (
        (PeriodicRebuild); [k_query_factor] sets the K-NN over-fetch
        factor; [distance] selects the rp-forest Q-distance model;
        [hyp_scale] sets the radial scale s for the hyperboloid lift
-       (empirically s in [0.5, 1.0]; default 1.0); [row_sum] and
+       (default auto, s <= 0: derive s = 1 / RMS(leaf norm), invariant to
+       the embedding magnitude; a positive value overrides); [row_sum] and
        [symmetry] tune the NJ row-sum estimator and the K-NN candidate
        symmetry. *)
     val compute:
