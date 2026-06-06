@@ -23,9 +23,11 @@
 
    Usage:
      HypBench.exe <emb_file> <mode> <K> <K_QUERY_factor> <hyp_scale>
-                  [<rowsum>] [<symmetry>]
+                  [<distance>] [<rowsum>] [<symmetry>]
 
-   where <mode> is one of "dense" | "subquadratic" | "hyperbolic". *)
+   where <mode> is one of "dense" | "periodic-rebuild" | "rp-forest" and
+   <distance> (only honoured by rp-forest) is one of "saitou-nei" |
+   "centroid" | "hyperbolic". *)
 
 open BiOCamLib.Better
 module Trees = BiOCamLib.Trees
@@ -60,11 +62,14 @@ let () =
   let k_nn = int_of_string Sys.argv.(3) in
   let k_query_factor = int_of_string Sys.argv.(4) in
   let hyp_scale = float_of_string Sys.argv.(5) in
+  let distance =
+    if Array.length Sys.argv >= 7 then SparseNJ.Distance.of_string Sys.argv.(6)
+    else SparseNJ.Distance.SaitouNei in
   let row_sum =
-    if Array.length Sys.argv >= 7 then SparseNJ.RowSum.of_string Sys.argv.(6)
+    if Array.length Sys.argv >= 8 then SparseNJ.RowSum.of_string Sys.argv.(7)
     else SparseNJ.RowSum.Knn in
   let symmetry =
-    if Array.length Sys.argv >= 8 then SparseNJ.Symmetry.of_string Sys.argv.(7)
+    if Array.length Sys.argv >= 9 then SparseNJ.Symmetry.of_string Sys.argv.(8)
     else SparseNJ.Symmetry.One in
   let names, data = load_embeddings emb_path in
   Printf.eprintf "Loaded %d leaves in %d-D embedding.\n%!"
@@ -74,7 +79,7 @@ let () =
     SparseNJ.compute
       ~verbose:false ~mode
       ~index_type:(Interfaiss.Type.of_string "flat")
-      ~k_nn ~k_query_factor ~hyp_scale ~row_sum ~symmetry
+      ~k_nn ~k_query_factor ~hyp_scale ~distance ~row_sum ~symmetry
       names data in
   print_string (Trees.Newick.to_string tree);
   print_newline ()

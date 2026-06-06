@@ -183,11 +183,24 @@ def write_embeddings(path, names, P):
             f.write(f"{nm}\t{row}\n")
 
 
-def run_hypbench(emb_path, mode, k_nn, k_query_factor, hyp_scale):
+def run_hypbench(emb_path, mode, k_nn, k_query_factor, hyp_scale, distance="saitou-nei"):
     out = subprocess.run(
-        [HYPBENCH, emb_path, mode, str(k_nn), str(k_query_factor), str(hyp_scale)],
+        [HYPBENCH, emb_path, mode, str(k_nn), str(k_query_factor),
+         str(hyp_scale), distance],
         check=True, capture_output=True, text=True)
     return out.stdout.strip()
+
+
+# Surviving sparse-NJ candidate engines, benchmarked against the dense
+# reference.  (label, mode, distance, hyp_scale):
+#   rp-forest + saitou-nei  = exact, quadratic-time best
+#   rp-forest + hyperbolic  = sub-quadratic-memory proxy (radial scale ~0.08)
+#   periodic-rebuild        = recommended exact engine (persistent FAISS)
+CANDIDATES = [
+    ("rpf-saitou", "rp-forest", "saitou-nei", 1.0),
+    ("rpf-hyper", "rp-forest", "hyperbolic", 0.08),
+    ("periodic", "periodic-rebuild", "saitou-nei", 1.0),
+]
 
 
 _jacc_re = re.compile(r"^\s*\S+\s+(\d+)\s+(\d+|—)\s+(\d+|—)\s+([\d.]+|—)\s+([\d.]+|—)\s*$",
@@ -235,15 +248,15 @@ def sweep_real_subsamples():
         dense_nwk_path = emb_path + ".dense.nwk"
         write_nwk(dense_nwk_path, dense_nwk)
         print(f"{n:>4} {'dense':<14} {'--':>7} {1.000:>12.3f} {dt:>8.2f}")
-        for mode in ["subquadratic", "hyperbolic"]:
+        for label, mode, dist, hs in CANDIDATES:
             for f in factors:
                 t0 = time.time()
-                cand_nwk = run_hypbench(emb_path, mode, K, f, 0.7 if mode == "hyperbolic" else 1.0)
+                cand_nwk = run_hypbench(emb_path, mode, K, f, hs, dist)
                 ct = time.time() - t0
-                cand_path = emb_path + f".{mode}.f{f}.nwk"
+                cand_path = emb_path + f".{label}.f{f}.nwk"
                 write_nwk(cand_path, cand_nwk)
                 j = jaccard_via_tree_rf(dense_nwk_path, cand_path)
-                print(f"{n:>4} {mode:<14} {f:>7} {j:>12.3f} {ct:>8.2f}")
+                print(f"{n:>4} {label:<14} {f:>7} {j:>12.3f} {ct:>8.2f}")
                 os.unlink(cand_path)
         os.unlink(dense_nwk_path)
         os.unlink(emb_path)
@@ -280,16 +293,16 @@ def sweep_synthetic():
         write_nwk(dense_path, dense_nwk)
         j_truth = jaccard_via_tree_rf(true_path, dense_path)
         print(f"{n:>5} {'dense':<14} {'--':>7} {1.000:>12.3f} {j_truth:>12.3f} {dt:>8.2f}")
-        for mode in ["subquadratic", "hyperbolic"]:
+        for label, mode, dist, hs in CANDIDATES:
             for f in factors:
                 t0 = time.time()
-                cand_nwk = run_hypbench(emb_path, mode, K, f, 0.7 if mode == "hyperbolic" else 1.0)
+                cand_nwk = run_hypbench(emb_path, mode, K, f, hs, dist)
                 ct = time.time() - t0
-                cand_path = emb_path + f".{mode}.f{f}.nwk"
+                cand_path = emb_path + f".{label}.f{f}.nwk"
                 write_nwk(cand_path, cand_nwk)
                 j_dense = jaccard_via_tree_rf(dense_path, cand_path)
                 j_truth_cand = jaccard_via_tree_rf(true_path, cand_path)
-                print(f"{n:>5} {mode:<14} {f:>7} {j_dense:>12.3f} {j_truth_cand:>12.3f} {ct:>8.2f}")
+                print(f"{n:>5} {label:<14} {f:>7} {j_dense:>12.3f} {j_truth_cand:>12.3f} {ct:>8.2f}")
                 os.unlink(cand_path)
         os.unlink(true_path)
         os.unlink(dense_path)
