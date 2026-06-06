@@ -21,17 +21,35 @@ if [[ "${1:-}" == "README.pdf" ]]; then
   # Private profile dir so this Chrome never blocks on the default-profile
   # singleton lock held by an unrelated Chrome already running on the host.
   UDD="$(mktemp -d)"
-  trap 'rm -rf "$HTML" "$UDD"' EXIT
+  # Render to a temp PDF; only move it into place once it is a valid PDF,
+  # so a Chrome crash never leaves a stale README.pdf looking like success.
+  PDF="$(mktemp --suffix=.pdf)"
+  LOG="$(mktemp)"
+  trap 'rm -rf "$HTML" "$UDD" "$PDF" "$LOG"' EXIT
   # --embed-resources (pandoc >= 2.19) supersedes the older --self-contained;
   # use whichever this pandoc advertises so the build also works on older installs.
   EMBED=--embed-resources
   pandoc --help 2>/dev/null | grep -q -- --embed-resources || EMBED=--self-contained
   pandoc README.md -f gfm -t html5 --standalone "$EMBED" --mathml \
          --css README.css --metadata title="KPop" -o "$HTML"
-  "$CHROME" --headless=new --no-sandbox --disable-gpu --no-pdf-header-footer \
-            --user-data-dir="$UDD" \
-            --print-to-pdf=README.pdf "$HTML" 2>/dev/null
-  echo "BUILD: wrote README.pdf"
+  # --disable-background-networking is essential: the GCM/SSL phone-home it
+  # otherwise attempts stalls — and on this Chrome crashes (dangling raw_ptr)
+  # — the headless render of a large image-heavy page.  The rest are headless
+  # hygiene so the render is fully self-contained.
+  if "$CHROME" --headless=new --no-sandbox --disable-gpu \
+       --disable-dev-shm-usage --disable-background-networking \
+       --disable-default-apps --disable-extensions --disable-sync \
+       --disable-component-update --no-first-run --metrics-recording-only \
+       --user-data-dir="$UDD" --no-pdf-header-footer \
+       --print-to-pdf="$PDF" "$HTML" 2>"$LOG" \
+     && [[ -s "$PDF" ]] && [[ "$(head -c4 "$PDF")" == "%PDF" ]]; then
+    mv "$PDF" README.pdf
+    echo "BUILD: wrote README.pdf"
+  else
+    echo "BUILD: README.pdf FAILED — pandoc or headless Chrome error:" >&2
+    sed 's/^/    /' "$LOG" >&2
+    exit 1
+  fi
   exit 0
 fi
 
