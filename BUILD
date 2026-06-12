@@ -216,7 +216,7 @@ fi
 # around for testing.  Test targets leave _build intact for repeat runs.
 if [[ -z "$DO_TESTS" ]] && \
    [[ "$PROFILE" == "release" || "$PROFILE" == "release-static" ]]; then
-  strip build/{KPopCount,KPopCountDB,KPopTwist,KPopTwistDB}
+  strip build/KPop{Count,CountDB,Twist,TwistDB,Phylo}
   rm -rf _build
 fi
 
