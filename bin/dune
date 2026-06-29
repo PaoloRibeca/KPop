@@ -9,8 +9,8 @@
   (ocamlopt_flags (:standard -O3 -fPIC -ccopt -O3 -ccopt -fPIC -ccopt -fopenmp -ccopt -static))))
 
 (executables
- (public_names KPopCount KPopCountDB KPopTwist KPopTwistDB KPopPhylo)
- (names KPopCount KPopCountDB KPopTwist KPopTwistDB KPopPhylo)
+ (public_names KPopCount KPopCountDB KPopTwist KPopTwistDB KPopPhylo KPop-hash2kmer)
+ (names KPopCount KPopCountDB KPopTwist KPopTwistDB KPopPhylo KPop_hash2kmer)
  (libraries str unix zarith BiOCamLib KPop)
 ; (link_flags (-verbose -cclib -lgfortran -cclib -lquadmath -cclib -lstdc++))
  (link_flags (-cclib -lgfortran -cclib -lquadmath -cclib -lstdc++)))
