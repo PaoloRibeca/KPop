@@ -369,6 +369,7 @@ let () =
   end;
   if !Parameters.verbose then
     TA.header ();
+  CPU.warn_if_slow ~verbose:!Parameters.verbose ();
   Random.self_init ();
   (* Dry run: validate that the requested workflow is runnable. *)
   let has_spectra = ref false and has_twisted = ref false and has_tree = ref false

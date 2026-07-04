@@ -551,6 +551,7 @@ let () =
   end;
   if !Parameters.verbose then
     TA.header ();
+  CPU.warn_if_slow ~verbose:!Parameters.verbose ();
   Random.self_init ();
   (* We perform a dry run of the program to detect possible errors *)
   let twister_loaded = ref false

@@ -106,31 +106,80 @@ rm -f lib/libopenblas.a
 rm -f lib/libfaiss.a
 rm -f lib/libinterfaiss.a
 
-# Build OpenBLAS
+# Build OpenBLAS.  DYNAMIC_ARCH bundles every x86-64 kernel and selects one at
+# run time from CPUID (Nehalem..SapphireRapids/Zen), while a PRESCOTT baseline
+# keeps the common code portable -- so the binaries run on old/VM CPU models
+# without AVX yet still reach AVX-512 speed on modern hardware.
 ( if [[ -f OpenBLAS/libopenblas.a ]]; then
     cp OpenBLAS/libopenblas.a lib/
   else
     cd OpenBLAS
-    make -j "$(nproc)" CC="$(realpath ../compilers/cc)" FC="$(realpath ../compilers/fortran)" HOSTCC="$(realpath ../compilers/cc)" TARGET="$BLAS_TARGET" CROSS=1
+    make -j "$(nproc)" CC="$(realpath ../compilers/cc)" FC="$(realpath ../compilers/fortran)" HOSTCC="$(realpath ../compilers/cc)" DYNAMIC_ARCH=1 DYNAMIC_OLDER=1 TARGET=PRESCOTT CROSS=1 NO_SHARED=1
     cp libopenblas.a ../lib/
   fi )
 
-# Build faiss
-( if [[ -f build/faiss/faiss/libfaiss_avx2.a ]]; then
-    cp build/faiss/faiss/libfaiss_avx2.a lib/libfaiss.a
+# Build faiss in three ISA variants (generic + avx2 + avx512).  FAISS itself does
+# not dispatch inside a single static library (its Python packaging selects a
+# per-ISA shared object at import), so we build all three and dispatch ourselves
+# below.  OPT_LEVEL=avx512 un-excludes the generic and avx2 targets too.
+( if [[ -f build/faiss/faiss/libfaiss.a && -f build/faiss/faiss/libfaiss_avx2.a && -f build/faiss/faiss/libfaiss_avx512.a ]]; then
+    :
   else
+    # faiss requires cmake >= 3.24; fail early and clearly if the cmake on PATH is
+    # too old (providing a suitable cmake is the user's responsibility, not ours)
+    v=$(cmake --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+' | head -1)
+    if [[ -z "$v" ]] || (( 10#${v%%.*} * 100 + 10#${v##*.} < 324 )); then
+      echo "BUILD: faiss requires cmake >= 3.24 (found '${v:-none}' on PATH)" >&2
+      exit 1
+    fi
     cd faiss
-    cmake -D CMAKE_VERBOSE_MAKEFILE=true -D CMAKE_CXX_COMPILER="$(realpath ../compilers/cxx)" -D BLAS_LIBRARIES="$(realpath ../OpenBLAS/libopenblas.a)" -D FAISS_ENABLE_GPU=false -D FAISS_ENABLE_PYTHON=false -D BUILD_TESTING=false -D CMAKE_BUILD_TYPE=Release -D FAISS_OPT_LEVEL=avx2 -B ../build/faiss .
+    cmake -D CMAKE_VERBOSE_MAKEFILE=true -D CMAKE_CXX_COMPILER="$(realpath ../compilers/cxx)" -D BLAS_LIBRARIES="$(realpath ../OpenBLAS/libopenblas.a)" -D FAISS_ENABLE_GPU=false -D FAISS_ENABLE_PYTHON=false -D BUILD_TESTING=false -D CMAKE_BUILD_TYPE=Release -D FAISS_OPT_LEVEL=avx512 -B ../build/faiss .
     cd ../build/faiss
-    make -j "$(nproc)" faiss_avx2
-    cp faiss/libfaiss_avx2.a ../../lib/libfaiss.a
+    # avx512 translation units are memory-heavy; we halve the number of workers
+    # to cap peak RAM
+    make -j "$(( ( $(nproc) + 1 ) / 2 ))" faiss faiss_avx2 faiss_avx512
   fi )
+cp build/faiss/faiss/libfaiss.a        lib/libfaiss_generic.a
+cp build/faiss/faiss/libfaiss_avx2.a   lib/libfaiss_avx2.a
+cp build/faiss/faiss/libfaiss_avx512.a lib/libfaiss_avx512.a
 
-# Build interfaiss
+# Build interfaiss.  Compile the FAISS shim once per ISA (entry points suffixed
+# via -include interfaiss_variant.h) and bundle each with its matching FAISS variant
+# into one relocatable object, so the three coexist and are picked at run time by
+# interfaiss_dispatch.c.  Two things make this safe in a single static binary:
+#   1. each bundle's ISA CODE (strong .text functions) is localised, keeping only the
+#      7 suffixed entry points global, so the variants don't clash;
+#   2. the specialised (avx2/avx512) variants would otherwise SIGILL at startup, because
+#      C++ static initialisers run unconditionally before main and carry their variant's
+#      ISA.  So we DATA-share: the variants' strong data globals are weakened (the generic
+#      copy wins) and their .init_array/.fini_array are stripped -- only the SSE2 generic
+#      constructors run, initialising the one shared set of globals that the dispatched
+#      kernels then use.  The generic path stays AVX2-free, so it runs on any x86-64.
 ( cd lib
-  ../compilers/cxx -I ../faiss/ -O3 -fPIC -fopenmp -c -o libinterfaiss.o interfaiss.cpp
-  ar rcs libinterfaiss.a libinterfaiss.o
-  rm -f libinterfaiss.o )
+  CXX="$(realpath ../compilers/cxx)"
+  CC="$(realpath ../compilers/cc)"
+  ENTRIES="interfaiss_create_flat_index interfaiss_create_PQ_index interfaiss_create_HNSW_index interfaiss_query_index interfaiss_add_data_to_index interfaiss_train_index interfaiss_free_index"
+  for v in generic avx2 avx512; do
+    case "$v" in
+      generic) ISA="" ;;
+      avx2)    ISA="-mavx2 -mfma -mf16c -mpopcnt" ;;
+      avx512)  ISA="-mavx2 -mfma -mf16c -mavx512f -mavx512cd -mavx512vl -mavx512dq -mavx512bw -mpopcnt" ;;
+    esac
+    "$CXX" -I ../faiss/ -O3 -fPIC -fopenmp $ISA -include interfaiss_variant.h -DIFSUF=_$v -c interfaiss.cpp -o if_$v.o
+    ld -r -o bundle_$v.o if_$v.o libfaiss_$v.a
+    : > keep_$v.txt; for e in $ENTRIES; do echo "${e}_$v" >> keep_$v.txt; done
+    nm --defined-only -g bundle_$v.o | awk '$2 == "T" {print $NF}' | grep -vxFf keep_$v.txt > localize_$v.txt
+    objcopy --localize-symbols=localize_$v.txt bundle_$v.o bundle_${v}_loc.o
+    if [ "$v" != generic ]; then
+      nm --defined-only -g bundle_${v}_loc.o | awk '$2 ~ /^[BDGRS]$/ {print $NF}' > weaken_$v.txt
+      objcopy --weaken-symbols=weaken_$v.txt bundle_${v}_loc.o
+      objcopy --wildcard --remove-section '.init_array*' --remove-section '.fini_array*' --remove-section '.ctors*' --remove-section '.dtors*' bundle_${v}_loc.o
+    fi
+  done
+  "$CC" -I ../faiss/ -O3 -fPIC -c interfaiss_dispatch.c -o interfaiss_dispatch.o
+  rm -f libinterfaiss.a
+  ar rcs libinterfaiss.a interfaiss_dispatch.o bundle_generic_loc.o bundle_avx2_loc.o bundle_avx512_loc.o
+  rm -f if_*.o bundle_*.o keep_*.txt localize_*.txt weaken_*.txt interfaiss_dispatch.o libfaiss_generic.a libfaiss_avx2.a libfaiss_avx512.a )
 
 # Build everything else
 

@@ -170,6 +170,7 @@ let () =
   ];
   if !Parameters.verbose then
     TA.header ();
+  CPU.warn_if_slow ~verbose:!Parameters.verbose ();
   (* Seed the random number generator for k-mer subsampling *)
   Random.self_init ();
   (* Load the k-mer database *)
