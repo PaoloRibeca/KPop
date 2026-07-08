@@ -5,13 +5,13 @@
 # into a Newick (.nwk) tree.
 #
 # Run from the project root.  Assumes:
-#   - build/KPopTwistDB exists (from `bash BUILD release-static`)
+#   - .build/KPopTwistDB exists (from `bash BUILD release-static`)
 #
 # Exits 0 on full success, 1 on any failure.
 
 set -u
 
-BIN="build/KPopTwistDB"
+BIN=".build/KPopTwistDB"
 DATA="test/Primer/Classes-5"
 
 if [[ ! -x "$BIN" ]]; then

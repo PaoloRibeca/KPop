@@ -6,17 +6,17 @@
 # narrower splits-subsystem tests wouldn't surface.
 #
 # Run from the project root.  Assumes:
-#   - build/{KPopCount,KPopCountDB,KPopTwist,KPopTwistDB} exist
+#   - .build/{KPopCount,KPopCountDB,KPopTwist,KPopTwistDB} exist
 #     (from `bash BUILD release-static`)
 #
 # Exits 0 on success, 1 on any failure.
 
 set -u
 
-COUNT="build/KPopCount"
-COUNTDB="build/KPopCountDB"
-TWIST="build/KPopTwist"
-TWISTDB="build/KPopTwistDB"
+COUNT=".build/KPopCount"
+COUNTDB=".build/KPopCountDB"
+TWIST=".build/KPopTwist"
+TWISTDB=".build/KPopTwistDB"
 PRIMER="test/Primer"
 
 for bin in "$COUNT" "$COUNTDB" "$TWIST" "$TWISTDB"; do

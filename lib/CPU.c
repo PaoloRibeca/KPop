@@ -38,11 +38,19 @@
    what OpenBLAS's DYNAMIC_ARCH dispatch and interfaiss_dispatch.c select. */
 CAMLprim value kpop_isa_tier(value unit) {
   (void)unit;
+#if defined(__x86_64__) || defined(__i386__)
   __builtin_cpu_init();
   if (__builtin_cpu_supports("avx512f"))
     return Val_int(2);
   if (__builtin_cpu_supports("avx2"))
     return Val_int(1);
   return Val_int(0);
+#else
+  /* Non-x86 (e.g. arm64/NEON): the __builtin_cpu_* helpers and the AVX feature
+     names are x86-only, and there is no "slow sub-AVX2 fallback" to warn about --
+     the numeric routines run on the architecture's native SIMD path. Report the
+     fast tier so no spurious warning fires. */
+  return Val_int(1);
+#endif
 }
 

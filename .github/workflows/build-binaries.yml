@@ -1,0 +1,161 @@
+name: Build macOS binaries
+
+# Cross-build the macOS KPop binaries that cannot be produced on the Linux
+# development machine, and upload them as artifacts.  On the dev machine,
+# 'bash BUILD mac-end' downloads them and hands each directory to the BUILD
+# script's 'package' target to assemble the release archive locally:
+#
+#   PACKAGE_PLATFORM=Darwin-arm64 PACKAGE_BINDIR=./KPop-Darwin-arm64 \
+#     bash BUILD package 1.99.1
+#
+# Only the binaries are built here; everything else in a release (LICENSE,
+# README.pdf, versioning, archive naming) is platform-independent and stays in
+# the local BUILD script.
+#
+# macOS cannot reproduce the Linux build's in-binary ISA dispatch (the interfaiss
+# objcopy/ld -r trickery is ELF + GNU-binutils only, and arm64 has no AVX), so
+# BUILD's Darwin branch compiles a SINGLE faiss variant per architecture.
+
+on:
+  # Manual runs and version tags only — never on every push, so the metered
+  # macOS runner minutes (10x multiplier on private repos) are spent sparingly.
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+# One run per ref; a newer push of the same ref cancels an in-flight build.
+concurrency:
+  group: build-binaries-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: macOS ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      # arm64 builds on macOS 14 (Apple Silicon).  Intel uses macos-15-intel
+      # because it is a STANDARD 4-core runner, eligible for the free plan's
+      # included minutes — unlike macos-14-large, a paid 12-core runner.
+      matrix:
+        include:
+          - runner: macos-14        # macOS 14, Apple Silicon (arm64)
+            arch: arm64
+            blas_target: ARMV8
+            no_avx: "1"
+          - runner: macos-15-intel  # macOS 15, Intel (x86_64)
+            arch: x86_64
+            blas_target: HASWELL
+            no_avx: "0"
+    steps:
+      - name: Check out (full history + submodules)
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+          # Full history for the repo AND the BiOCamLib submodule: BUILD derives
+          # the version string from the commit-file count, so a shallow clone
+          # would stamp the binaries with a bogus version.
+          fetch-depth: 0
+
+      - name: Install system dependencies
+        # cmake (faiss), gcc (gfortran for OpenBLAS), llvm (clang++ with OpenMP),
+        # libomp (the OpenMP runtime faiss/interfaiss link), coreutils (GNU CLI).
+        run: brew install cmake gcc coreutils llvm libomp
+
+      - name: Set up OCaml
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: "4.14"
+
+      - name: Install OCaml dependencies
+        run: opam install --yes dune menhir zarith
+
+      - name: Patch dune files and BiOCamLib for macOS
+        # dune cannot express OS-conditional C flags cleanly, so the CI checkout
+        # is patched in place (following Ryan Morrison's proven fork): drop the
+        # GCC-only -fopenmp / -static from the OCaml + C flags, link libomp.a
+        # explicitly, and give nproc a sysctl fallback.  The tracked dune files
+        # stay Linux-correct; only this ephemeral checkout is edited.
+        run: |
+          LIBOMP_A="$(brew --prefix libomp)/lib/libomp.a"
+          sed -i '' \
+            -e 's/(:standard -g -fPIC -ccopt -fPIC -ccopt -fopenmp)/(:standard -g -ccopt -fPIC)/g' \
+            -e 's/(:standard -g -fPIC -ccopt -fPIC -ccopt -fopenmp -ccopt -static)/(:standard -g -ccopt -fPIC -ccopt -static)/g' \
+            -e 's/(:standard -O3 -fPIC -ccopt -O3 -ccopt -fPIC -ccopt -fopenmp)/(:standard -O3 -ccopt -O3 -ccopt -fPIC)/g' \
+            -e 's/(:standard -O3 -fPIC -ccopt -O3 -ccopt -fPIC -ccopt -fopenmp -ccopt -static)/(:standard -O3 -ccopt -O3 -ccopt -fPIC -ccopt -static)/g' \
+            bin/dune
+          sed -i '' \
+            "s|(-cclib -lgfortran -cclib -lquadmath -cclib -lstdc++)|(-cclib -lgfortran -cclib -lquadmath -cclib -lstdc++ -cclib $LIBOMP_A)|g" \
+            bin/dune
+          sed -i '' \
+            -e 's/(c_flags :standard -fopenmp)/(c_flags :standard)/g' \
+            -e 's/(c_flags :standard -O3 -fomit-frame-pointer -fopenmp)/(c_flags :standard -O3 -fomit-frame-pointer)/g' \
+            lib/dune
+          sed -i '' \
+            "s|spawn_and_read_single_line \"nproc\"|spawn_and_read_single_line \"sh -c 'nproc 2>/dev/null || sysctl -n hw.ncpu'\"|g" \
+            BiOCamLib/lib/Processes.ml
+          echo "=== patched bin/dune ==="; cat bin/dune
+
+      - name: Configure compilers and OpenMP
+        # AppleClang for C (most compatible for OpenBLAS on both arches — Ryan's
+        # choice on Intel), brew llvm clang++ for C++ (native OpenMP), brew
+        # gfortran for OpenBLAS's Fortran.  LIBRARY_PATH exposes libgfortran /
+        # libquadmath / libstdc++ (from brew gcc) and libomp to the final link.
+        run: |
+          LLVM_PREFIX="$(brew --prefix llvm)"
+          LIBOMP_PREFIX="$(brew --prefix libomp)"
+          BREW_PREFIX="$(brew --prefix)"
+          GFORTRAN="$(ls "$BREW_PREFIX"/bin/gfortran-* 2>/dev/null | sort -V | tail -1)"
+          GCC_VER="$(echo "$GFORTRAN" | grep -oE '[0-9]+$')"
+          GFORTRAN_LIB="$BREW_PREFIX/lib/gcc/$GCC_VER"
+          if [[ "${{ matrix.arch }}" == "arm64" ]]; then
+            CC_BIN="$LLVM_PREFIX/bin/clang"
+          else
+            CC_BIN="/usr/bin/clang"
+          fi
+          {
+            echo "FC=$GFORTRAN"
+            echo "CC=$CC_BIN"
+            echo "CXX=$LLVM_PREFIX/bin/clang++"
+            echo "LIBRARY_PATH=$GFORTRAN_LIB:$LIBOMP_PREFIX/lib:${LIBRARY_PATH:-}"
+          } >> "$GITHUB_ENV"
+          echo "Using FC=$GFORTRAN CC=$CC_BIN CXX=$LLVM_PREFIX/bin/clang++"
+
+      - name: Build binaries
+        # Plain 'release', not 'release-static': macOS has no static libSystem,
+        # so -ccopt -static won't link.  BLAS_TARGET / NO_AVX pin the single
+        # OpenBLAS + faiss variant for this arch; USE_OPENMP=0 keeps OpenMP out
+        # of the BLAS itself (faiss still uses libomp).
+        env:
+          BLAS_TARGET: ${{ matrix.blas_target }}
+          NO_AVX: ${{ matrix.no_avx }}
+          USE_OPENMP: "0"
+        run: opam exec -- bash BUILD release
+
+      - name: Stage binaries
+        # The five packaged binaries (KPopPhylo is still experimental — excluded
+        # from the release, matching releases/MANIFEST).
+        run: |
+          mkdir -p dist
+          cp .build/KPopCount .build/KPopCountDB .build/KPopTwist \
+             .build/KPopTwistDB .build/KPop-hash2kmer dist/
+
+      - name: Smoke-check binaries (non-blocking)
+        # Confirm each binary at least loads (dyld resolves its libraries).
+        # Informational only — never fails the job.
+        run: |
+          for b in KPopCount KPopCountDB KPopTwist KPopTwistDB KPop-hash2kmer; do
+            echo "=== otool -L dist/$b ==="; otool -L "dist/$b" || true
+            echo "=== dist/$b --help ==="; ./dist/"$b" --help 2>&1 | head -3 || true
+          done
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: KPop-Darwin-${{ matrix.arch }}
+          path: dist/
+          if-no-files-found: error

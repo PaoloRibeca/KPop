@@ -36,6 +36,7 @@ And finally, the awesome `KPop` logo was created by [Emily Fotopoulou](https://g
 &emsp; [4.2. `KPopCountDB`](#42-kpopcountdb)<br>
 &emsp; [4.3. `KPopTwist`](#43-kpoptwist)<br>
 &emsp; [4.4. `KPopTwistDB`](#44-kpoptwistdb)<br>
+&emsp; [4.5. `KPop-hash2kmer`](#45-kpop-hash2kmer)<br>
 [5. Examples](#5-examples)<br>
 &emsp; [5.1. Sequence classification](#51-sequence-classification)<br>
 &emsp; &emsp; [5.1.1. Classifier for simulated *M.tuberculosis* sequencing reads](#511-classifier-for-simulated-mtuberculosis-sequencing-reads)<br>
@@ -297,6 +298,9 @@ If you still think that all this is too complicated for you, do not despair! Som
 * [`KPopTwist`](#43-kpoptwist). It implements the unsupervised generation of coordinate transformations (or "twisters") from databases of *k*-mer spectra. Each transformation is optimised for the database at hand, and turns ("twists") *k*-mer spectra into numerical vectors of a typically very much reduced dimensionality. Both the transformation and the resulting twisted spectra can be stored as a binary object for future use
 * [`KPopTwistDB`](#44-kpoptwistdb). It implements a number of operations on twisted spectra. It can: use an existing twister to twist *k*-mer spectra; generate databases of twisted spectra and output/input them as binary files or text tables; compute and summarise distances between twisted spectra; and more.
 
+In addition, a small helper program is provided:
+* [`KPop-hash2kmer`](#45-kpop-hash2kmer). It performs the inverse of `KPopCount`'s hashing: it reads *k*-mer hashes (one per line) &mdash; such as the ones appearing as row names in the spectra and databases produced by the other programs &mdash; and back-translates them into the corresponding sequences. This is useful, for instance, to find out which *k*-mers have been selected, or are most relevant, after an analysis.
+
 ### 3.1. General design
 
 While `KPopTwist` implements a one-shot operation (generating a twister), `KPopCount`, `KPopCountDB` and `KPopTwistDB` need to be versatile and perform a number of complex tasks, ranging from householding management of spectra and twisted spectra to complex operations that are an essential component of larger workflows.
@@ -438,9 +442,9 @@ Actions on the database register &mdash; Other operations:
 
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
-| `--combination-criterion`<br>`--spectrum-combination-criterion` | `mean` _&#124;_ `median` |  set the criterion used to combine the *k*\-mer frequencies of selected spectra\.<br>To avoid rounding issues, each *k*\-mer frequency is also rescaled by the largest normalization across spectra  (`mean` averages frequencies across spectra; `median` computes the median across spectra) | <ins>default=<mark>_mean_</mark></ins> |
+| `--combination-criterion`<br>`--spectrum-combination-criterion` | `mean` _&#124;_ `median` |  set the criterion used to combine the *k*\-mer frequencies of spectra\.<br>To avoid rounding issues, each *k*\-mer frequency is also rescaled by the largest normalization across spectra  (`mean` averages frequencies across spectra; `median` computes the median across spectra) | <ins>default=<mark>_mean_</mark></ins> |
 | `-c`<br>`--combine`<br>`--combine-by-class`<br>`--combine-spectra-by-class` | _&lt;classes\_metadata\_field\_name&gt;_ |  split the database into classes according to the labels contained in the specified metadata field and combine the spectra belonging to each class into a separate vector named as the class label\. Delete original spectra\.<br>Class label cannot be the same as the name of an existing spectrum |  |
-| `--transform` | _TRANSFORMATION_ |  replace the database with the one obtained from the specified transformation\.<br>Transformations are defined as follows:<br>&nbsp;  _TRANSFORMATION :=_<br>&nbsp;&nbsp;_&#124;_&nbsp;`threshold(`_non\-negative\_float_`)`<br>&nbsp;&nbsp;_&#124;_&nbsp;`power(`_float_`)`<br>&nbsp;&nbsp;_&#124;_&nbsp;`binary`<br>&nbsp;&nbsp;_&#124;_&nbsp;`clr`<br>&nbsp;&nbsp;_&#124;_&nbsp;`pseudocounts(`_POWER_`,`_QUANTIZE_`)`<br>&nbsp;_POWER := non\-negative\_float_<br>&nbsp;_QUANTIZE :=_`false`_&#124;_`true`<br>A value such that 0. &leq; _THRESHOLD_ &lt; 1. is interpreted as a fraction relative to the sum of all the counts in the spectrum; values such that _THRESHOLD_ &geq; 1\. are considered absolute thresholds; `binary` is an alias for `power(0)`.<br>For the exact definition of transformations `clr` and `pseudocounts`, see  [https://doi\.org/10\.1186/s13059\-025\-03585\-8](https://doi\.org/10\.1186/s13059\-025\-03585\-8) | <ins>default=<mark>`power(1)`</mark></ins> |
+| `--transform` | _TRANSFORMATION_ |  replace the database with the one obtained from the specified transformation\.<br>Transformations are defined as follows:<br>&nbsp;  _TRANSFORMATION :=_<br>&nbsp;&nbsp;_&#124;_&nbsp;`threshold(`_non\-negative\_float_`)`<br>&nbsp;&nbsp;_&#124;_&nbsp;`power(`_float_`)`<br>&nbsp;&nbsp;_&#124;_&nbsp;`binary`<br>&nbsp;&nbsp;_&#124;_&nbsp;`clr`<br>&nbsp;&nbsp;_&#124;_&nbsp;`pseudocounts(`_POWER_`,`_QUANTIZE_`)`<br>&nbsp;_POWER := non\-negative\_float_<br>&nbsp;_QUANTIZE :=_`false`_&#124;_`true`<br>A value such that 0. &leq; _THRESHOLD_ &lt; 1. is interpreted as a fraction relative to the sum of all the counts in the spectrum; values such that _THRESHOLD_ &geq; 1\. are considered absolute thresholds; `binary` is an alias for `power(0)`.<br>For the exact definition of transformations `clr` and `pseudocounts`, see  [https://github\.com/PaoloRibeca/KPop](https://github\.com/PaoloRibeca/KPop) or  [https://doi\.org/10\.1186/s13059\-025\-03585\-8](https://doi\.org/10\.1186/s13059\-025\-03585\-8) | <ins>default=<mark>`power(1)`</mark></ins> |
 | `-d`<br>`--distill`<br>`--distill-kmers` | _classes\_metadata\_field\_name summary\_file\_prefix_ |  optimize *k*-mers by identifying which ones are most informative according to the labels contained in the specified metadata field and by re-sorting *k*-mers in decreasing order accordingly\.<br>The labels must identify at least two equivalence classes, and fewer classes than the number of *k*-mers\.<br>Details of the procedure will be written to the specified summary file  (which will be given extension `.KPopDistill.txt` unless file is `/dev/*`) |  |
 | `--distance`<br>`--distance-function` | `euclidean` _&#124;_ `minkowski(`_non-negative\_float_`)` |  set the function to be used when computing distances\.<br>The parameter for `minkowski()` is the power | <ins>default=<mark>`euclidean`</mark></ins> |
 | `--distance-normalize`<br>`--distance-normalization` | `true` _&#124;_ `false` |  whether spectra should be normalized prior to computing distances | <ins>default=<mark>_true_</mark></ins> |
@@ -490,9 +494,11 @@ KPopTwist -i|--input <binary_input_prefix> -o|--output <binary_output_prefix> [O
 
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
+| `-d`<br>`--dimensions` | _positive\_integer_ |  number of CA dimensions to compute using the randomised SVD (Halko, Martinsson & Tropp 2011)\.<br>When not set, all min(*k*-mers, samples) - 1 dimensions are computed using the full LAPACK SVD, which is more accurate but slower | <ins>default=<mark>_all dimensions (full SVD)_</mark></ins> |
 | `--keep`<br>`--keep-kmers`<br>`--kmers-keep` | _kmer\_list\_file_ |  discard the *k*-mers not listed in this file before twisting the table\.<br>The file must contain one *k*-mer label per line and no header | <ins>default=<mark>_keep all_</mark></ins> |
 | `--sample`<br>`--sample-kmers`<br>`--kmers-sample` | _fractional\_float_ |  fraction of the *k*-mers to be randomly resampled and kept after parameter `-k` has been applied and before twisting | <ins>default=<mark>_1._</mark></ins> |
-| `--kmers-threshold` | _non\-negative\_integer_ |  compute the sum of all transformed (and possibly normalized) counts for each *k*-mer, and eliminate *k*-mers such that the corresponding sum is less than the largest sum rescaled by this threshold\.<br>This filters out *k*-mers having low frequencies across all spectra | <ins>default=<mark>_0._</mark></ins> |
+| `--kmers-threshold` | `off` _&#124;_ `auto` _&#124;_ _non\-negative\_float_ |  compute the sum of all counts for each *k*-mer, and eliminate *k*-mers such that the corresponding sum is less than a cutoff\.<br>`off` (or `0`) disables the filter; _float_ sets the cutoff to the largest row sum rescaled by that fraction (legacy semantics); `auto` picks the cutoff at the Kneedle elbow of the sorted-ascending row-sum distribution, removing the noise tail of rare and singleton *k*-mers without a user-supplied magic number\.<br>This filters out *k*-mers having low frequencies across all spectra | <ins>default=<mark>_auto_</mark></ins> |
+| `--kmers-condition-number` | `off` _&#124;_ `auto` _&#124;_ _positive\_float_ |  compute the row contribution to total inertia CTR\_i = &#124;&#124;S\[i,:\]&#124;&#124;^2 for each *k*-mer, and eliminate *k*-mers whose CTR\_i is below a cutoff\.<br>`off` (or `0`) disables the filter; _float_ sets the cutoff to max(CTR) / parameter (legacy semantics: a larger value retains more *k*-mers); `auto` picks the cutoff at the Kneedle elbow of the sorted-ascending CTR distribution, removing nearly-uniform *k*-mers in the noise tail\.<br>This filters out *k*-mers that are nearly uniform across all spectra | <ins>default=<mark>_off_</mark></ins> |
 
 **Input/Output**
 
@@ -507,7 +513,6 @@ KPopTwist -i|--input <binary_input_prefix> -o|--output <binary_output_prefix> [O
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
 | `-T`<br>`--threads` | _computing\_threads_ |  number of concurrent computing threads to be spawned  (default automatically detected from your configuration) | <ins>default=<mark>_nproc_</mark></ins> |
-| `--keep-temporaries` |  |  keep temporary files rather than deleting them in the end | <ins>default=<mark>_do\_not\_keep_</mark></ins> |
 | `-v`<br>`--verbose` |  |  set verbose execution | <ins>default=<mark>_quiet\_execution_</mark></ins> |
 | `-V`<br>`--version` |  |  print version and exit |  |
 | `-h`<br>`--help` |  |  print syntax and exit |  |
@@ -574,21 +579,12 @@ Actions on the database register &mdash; Clustering operations:
 | `--clusters-greedy-order` | `inertia` _&#124;_ `firstNN` _&#124;_ `density` |  order in which points are processed by the greedy\-leader clusterer\.<br>`inertia`: decreasing row inertia proxy (most informative points first); `firstNN`: increasing 1\-NN distance (densest regions first); `density`: increasing _dist\_star_ (densest regions first, _O(n²)_)\.<br>Ignored unless `--clusters-method greedy` is in effect, or when `--clusters-greedy-epsilon adaptive` (which forces ascending _dist\_star_ order)\. | <ins>default=<mark>`inertia`</mark></ins> |
 | `--clusters-greedy-density-sample-number` | _positive\_integer_ |  number of points randomly sampled for _dist\_star_ estimation when `--clusters-greedy-epsilon density` and `--clusters-greedy-order` is `inertia` or `firstNN`\.<br>When `--clusters-greedy-order density` is also set, all _n_ points are used\.<br>Ignored unless `--clusters-method greedy` is in effect\. | <ins>default=<mark>_200_</mark></ins> |
 | `--clusters-greedy-index-type` | `flat` _&#124;_ `hnsw(`_positive\_integer_`)` |  FAISS index type used for 1\-NN estimation and greedy\-leader clustering\.<br>Ignored unless `--clusters-method greedy` is in effect\. | <ins>default=<mark>`hnsw(32)`</mark></ins> |
-| `--clusters-hdbscan-min-cluster-size` | _positive\_integer_ |  minimum cluster size for the `hdbscan` clustering algorithm: smaller groups are absorbed as noise during top\-down condensation\.<br>Settable independently of `--splits-hdbscan-min-cluster-size`\.<br>Ignored unless `--clusters-method hdbscan` is in effect\. | <ins>default=<mark>_5_</mark></ins> |
+| `--clusters-hdbscan-min-cluster-size` | _positive\_integer_ |  minimum cluster size for the `hdbscan` clustering algorithm: smaller groups are absorbed as noise during top\-down condensation\.<br>Same semantics as `KPopPhylo`'s `--hdbscan-min-cluster-size`, but settable independently for the clusters consumer of the HDBSCAN core\.<br>Ignored unless `--clusters-method hdbscan` is in effect\. | <ins>default=<mark>_1_</mark></ins> |
 | `--clusters-hdbscan-min-samples` | _positive\_integer_ |  _k_ for the core\-distance neighbourhood of the `hdbscan` clustering algorithm\.<br>When unset, _k_ is taken equal to `--clusters-hdbscan-min-cluster-size`, matching the reference HDBSCAN one\-knob ergonomic\.<br>Ignored unless `--clusters-method hdbscan` is in effect\. | <ins>default=<mark>_same as `--clusters-hdbscan-min-cluster-size`_</mark></ins> |
-| `--clusters-hdbscan-mst-mode` | `auto` _&#124;_ `sparse` _&#124;_ `dense` |  minimum\-spanning\-tree construction strategy for the `hdbscan` clustering algorithm\. Same three\-mode semantics as `--splits-hdbscan-mst-mode` but settable independently\.<br>Ignored unless `--clusters-method hdbscan` is in effect\. | <ins>default=<mark>`auto`</mark></ins> |
+| `--clusters-hdbscan-mst-mode` | `auto` _&#124;_ `sparse` _&#124;_ `dense` |  minimum\-spanning\-tree construction strategy for the `hdbscan` clustering algorithm\. Same semantics as `KPopPhylo`'s `--hdbscan-mst-mode` but settable independently\.<br>Ignored unless `--clusters-method hdbscan` is in effect\. | <ins>default=<mark>`auto`</mark></ins> |
 | `--clusters-hdbscan-num-neighbors` | _positive\_integer_ |  number of nearest neighbours per point used to build the FAISS k\-NN candidate graph for the sparse `hdbscan` MST\.<br>When unset, auto\-computed as _max(`min_samples` + 1, min(n − 1, 30))_\.<br>Ignored unless `--clusters-method hdbscan` and `--clusters-hdbscan-mst-mode sparse` are in effect\. | <ins>default=<mark>_auto_</mark></ins> |
 | `--clusters-hdbscan-index-type` | `flat` _&#124;_ `pq(`_PQ\_PARAMETERS_`)` _&#124;_ `hnsw(`_positive\_integer_`)` |  FAISS index type used by the sparse `hdbscan` MST when used as the clustering algorithm\.<br>Ignored unless `--clusters-method hdbscan` and `--clusters-hdbscan-mst-mode sparse` are in effect\. | <ins>default=<mark>`hnsw(32)`</mark></ins> |
-| `-c`<br>`--clusters` | `T` _kmer\_list\_file_ _&#124;_ `t` _class\_file_ |  apply clustering to the contents of the specified register (`T`=twister, clusters k\-mers; `t`=twisted, clusters samples)\.<br>The algorithm is selected by `--clusters-method` (default `greedy`; see also `hdbscan`)\.<br>Uses the current metric, distance, and normalization settings\.<br>The cluster assignment table is written to stdout\.<br>For `T`: the names of representative k\-mers are written to _kmer\_list\_file_, one per line and with no header, ready to be passed to `KPopTwist --keep`\. Greedy writes the cluster representatives; HDBSCAN writes one representative k\-mer per cluster plus every noise k\-mer\.<br>For `t`: a two\-line tab\-separated class file is written to _class\_file_ (header line of sample names; `CLASS` line of class labels), ready to be passed to `KPopCountDB -m -c CLASS`\. Greedy labels each sample as `C@`_representative\_name_; HDBSCAN labels assigned samples as `C@`_integer_ (cluster id) and outlier samples as `noise`\. |  |
-
-Experimental actions &mdash; They may be removed from future versions:
-
-| Option | Argument(s) | Effect | Note(s) |
-|-|-|-|-|
-| `--precision-for-splits` | _positive\_integer_ |  set how many precision digits should be used when outputting splits in plain\-text format | <ins>default=<mark>_10_</mark></ins> |
-| `--splits-method` | `gaps` _&#124;_ `centroids` _&#124;_ `hdbscan` |  algorithm to use when computing splits from embeddings\.<br>`gaps`: per\-CA\-dimension gap candidates, optionally Kneedle\-pre\-filtered (see `--splits-gaps-kneedle`)\.<br>`centroids`: _K_\-seed bootstrap of inter\-centroid bipartitions (see `--splits-centroids-*`)\.<br>`hdbscan`: condensed HDBSCAN\* clusters emitted as nested splits with persistence\-weighted branch lengths (see `--splits-hdbscan-*`)\. | <ins>default=<mark>`centroids`</mark></ins> |
-| `--splits-at-most`<br>`--splits-keep-at-most` | _positive\_integer_ _&#124;_ `all` |  set the maximum number of phylogenetic splits to be kept when generating them from embeddings | <ins>default=<mark>_10000_</mark></ins> |
-| `-S`<br>`--splits`<br>`--compute-splits`<br>`--twisted-to-splits` | _phylosplits\_tabular\_file\_prefix_ |  compute phylogenetic splits from the vectors present in the twisted register using the current metric function, distance function and normalization\.<br>The result will be written to the specified tabular file\.<br>File extension is automatically assigned  (will be `.PhyloSplits` unless file is `/dev/*`) |  |
+| `-c`<br>`--clusters` | `T` _kmer\_list\_file_ _&#124;_ `t` _class\_file_ |  apply clustering to the contents of the specified register (`T`=twister, clusters k\-mers; `t`=twisted, clusters samples)\.<br>The algorithm is selected by `--clusters-method` (default `greedy`; see also `hdbscan`)\.<br>Uses the current metric, distance, and normalization settings\.<br>The cluster assignment table is written to stdout\.<br>For `T`: the *k*-mer standard coordinates are recovered from the twister as _Twister\[d,i\] \* sqrt(inertia\[d\])_ and clustered, and the names of representative k\-mers are written to _kmer\_list\_file_, one per line and with no header, ready to be passed to `KPopTwist --keep`\. Greedy writes the cluster representatives; HDBSCAN writes one representative k\-mer per cluster plus every noise k\-mer\.<br>For `t`: a two\-line tab\-separated class file is written to _class\_file_ (header line of sample names; `CLASS` line of class labels), ready to be passed to `KPopCountDB -m -c CLASS`\. Greedy labels each sample as `C@`_representative\_name_; HDBSCAN labels assigned samples as `C@`_integer_ (cluster id) and outlier samples as `noise`\. |  |
 
 **Miscellaneous options\.**
 They are set immediately
@@ -596,6 +592,41 @@ They are set immediately
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
 | `-T`<br>`--threads` | _computing\_threads_ |  number of concurrent computing threads to be spawned  (default automatically detected from your configuration) | <ins>default=<mark>_nproc_</mark></ins> |
+| `-v`<br>`--verbose` |  |  set verbose execution | <ins>default=<mark>_quiet execution_</mark></ins> |
+| `-V`<br>`--version` |  |  print version and exit |  |
+| `-h`<br>`--help` |  |  print syntax and exit |  |
+
+### 4.5. `KPop-hash2kmer`
+
+This is the list of command line options available for the program `KPop-hash2kmer`. You can visualise the list by typing
+```bash
+KPop-hash2kmer -h
+```
+in your terminal. You will see a header containing information about the version:
+```
+This is KPop-hash2kmer version 1 [29-Jun-2026]
+ compiled against: BiOCamLib version 562 [30-Jun-2026];
+                   KPop version 943 [12-Jun-2026]
+ (c) 2026 Paolo Ribeca <paolo.ribeca@gmail.com>
+```
+followed by detailed information. The program reads *k*-mer hashes (one per line) from its standard input and writes the back-translated sequences (one per line) to its standard output, which is flushed after each line; the hashing parameters specified on the command line must match those that were used to produce the hashes. The general form the command can be used is:
+```
+KPop-hash2kmer [OPTIONS]
+```
+
+Algorithmic parameters:
+
+| Option | Argument(s) | Effect | Note(s) |
+|-|-|-|-|
+| `-k`<br>`--k-mer-size`<br>`--k-mer-length` | _positive\_integer_ |  set the hashing strategy to iteration over regular *k*-mers and specify the *k*-mer length that was used to produce the hashes\.<br>Options `-k` and `-g` are mutually exclusive; if multiple are specified, the last one will take effect | <ins>default=<mark>_continuous *k*-mers of size 12_</mark></ins> |
+| `-g`<br>`--gapped-k-mer-sizes`<br>`--gapped-k-mer-lengths` | _BLOCK\_SIZE GAP\_SIZE_ |  where<br>&nbsp;_BLOCK\-SIZE := positive\_integer_<br>&nbsp;_GAP\-SIZE := positive\_integer_<br>set the hashing strategy to iteration over symmetrical gapped *k*-mers (having a _BLOCK_-_GAP_-_BLOCK_ structure, with _BLOCK_-s of the same size) and specify their geometry in terms of _BLOCK_ and _GAP_ sizes, respectively\.<br>The _GAP_ residues are not hashed; option `-G` sets how they are rendered\.<br>Options `-k` and `-g` are mutually exclusive; if multiple are specified, the last one will take effect | <ins>default=<mark>_not used_</mark></ins> |
+| `-c`<br>`--content` | `ss-DNA` _&#124;_ `single-stranded-DNA` _&#124;_ `ds-DNA` _&#124;_ `double-stranded-DNA` _&#124;_ `protein` _&#124;_ _FULL_ |  set how the hashes should be interpreted, i\.e\. which alphabet is used to back-translate them\. Note that for `ds-DNA` the hashes are strand-canonical, and hence are back-translated to the smaller of each *k*-mer and its reverse complement; `ss-DNA` and `ds-DNA` are otherwise equivalent here, as are the strandedness and unknown-character settings of the full form, which do not affect back-translation\.<br>These are shortcuts for the full form of this option, which is defined as<br>&nbsp;_FULL :=_<br>&nbsp;&nbsp;_&#124;_&nbsp;`DNA(`_STRANDEDNESS_`,`_CASE\_SENSITIVITY_`,`_UNKNOWN\_CHAR\_ACTION_`)`<br>&nbsp;&nbsp;_&#124;_&nbsp;`protein(`_UNKNOWN\_CHAR\_ACTION_`)`<br>&nbsp;&nbsp;_&#124;_&nbsp;`text(`_CASE\_SENSITIVITY_`,`_UNKNOWN\_CHAR\_ACTION_`,`_dictionary\_file\_name_`)`<br>where<br>&nbsp;_STRANDEDNESS :=_`ss`_&#124;_`single-stranded`_&#124;_`ds`_&#124;_`double-stranded`<br>&nbsp;_CASE\_SENSITIVITY :=_`ci`_&#124;_`case-insensitive`_&#124;_`cs`_&#124;_`case-sensitive`<br>&nbsp;_UNKNOWN\_CHAR\_ACTION :=_`split`_&#124;_`ignore`_&#124;_`error`<br>If a dictionary file is specified, each of its lines is interpreted as a different dictionary entry/token | <ins>default=<mark>`DNA(double-stranded,case-insensitive,split)`</mark></ins> |
+| `-G`<br>`--gap`<br>`--gap-character` | _character_ |  set the single character used to render each unhashed gap position when back-translating gapped *k*-mers produced with option `-g`; it has no effect otherwise | <ins>default=<mark>`-`</mark></ins> |
+
+Miscellaneous options:
+
+| Option | Argument(s) | Effect | Note(s) |
+|-|-|-|-|
 | `-v`<br>`--verbose` |  |  set verbose execution | <ins>default=<mark>_quiet execution_</mark></ins> |
 | `-V`<br>`--version` |  |  print version and exit |  |
 | `-h`<br>`--help` |  |  print syntax and exit |  |

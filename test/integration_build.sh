@@ -9,9 +9,9 @@
 set -eu
 
 PRIMER="test/Primer"
-COUNT="build/KPopCount"
-COUNTDB="build/KPopCountDB"
-TWIST="build/KPopTwist"
+COUNT=".build/KPopCount"
+COUNTDB=".build/KPopCountDB"
+TWIST=".build/KPopTwist"
 K=5
 
 if [[ -s "$PRIMER/Train-$K.KPopSpectra" \
