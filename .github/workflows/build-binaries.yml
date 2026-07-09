@@ -95,8 +95,10 @@ jobs:
             -e 's/(c_flags :standard -fopenmp)/(c_flags :standard)/g' \
             -e 's/(c_flags :standard -O3 -fomit-frame-pointer -fopenmp)/(c_flags :standard -O3 -fomit-frame-pointer)/g' \
             lib/dune
+          # '@' delimiter (not '|'): the replacement contains '||', which would
+          # collide with a '|' delimiter (BSD sed: "bad flag in substitute command").
           sed -i '' \
-            "s|spawn_and_read_single_line \"nproc\"|spawn_and_read_single_line \"sh -c 'nproc 2>/dev/null || sysctl -n hw.ncpu'\"|g" \
+            "s@spawn_and_read_single_line \"nproc\"@spawn_and_read_single_line \"sh -c 'nproc 2>/dev/null || sysctl -n hw.ncpu'\"@g" \
             BiOCamLib/lib/Processes.ml
           echo "=== patched bin/dune ==="; cat bin/dune
 
@@ -109,7 +111,9 @@ jobs:
           LLVM_PREFIX="$(brew --prefix llvm)"
           LIBOMP_PREFIX="$(brew --prefix libomp)"
           BREW_PREFIX="$(brew --prefix)"
-          GFORTRAN="$(ls "$BREW_PREFIX"/bin/gfortran-* 2>/dev/null | sort -V | tail -1)"
+          # Plain 'sort' (BSD macOS sort has no -V); picks the highest gfortran-NN
+          # (gcc versions are two-digit, so lexical order == numeric here).
+          GFORTRAN="$(ls "$BREW_PREFIX"/bin/gfortran-* 2>/dev/null | sort | tail -1)"
           GCC_VER="$(echo "$GFORTRAN" | grep -oE '[0-9]+$')"
           GFORTRAN_LIB="$BREW_PREFIX/lib/gcc/$GCC_VER"
           if [[ "${{ matrix.arch }}" == "arm64" ]]; then
