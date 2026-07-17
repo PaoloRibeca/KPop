@@ -639,7 +639,7 @@ By using the programs just described, it is possible to implement a number of in
 
 One can implement a sequence classifier, starting from either a set of genomic sequences or a deep-sequencing dataset containing multiple samples, by using the following strategy:
 
-![KPop-based classifier](images/KPop-Classifier-RR.png)
+<p align="center"><img src="images/KPop-Classifier-RR.png" width="508" alt="KPop-based classifier"></p>
 
 Shortly, one first generates a collection of spectra that describe the "classes" understood by the classifier; from the classes a "twister", i.e. a specialised transformation, is derived; the twister is then used to transform new sequences; and distances are computed and summarised between the twisted spectra for the classes and the twisted spectra for the sequences in order to understand what is the class closest to each sequence (possibly with some additional statistical refinement).
 
@@ -808,7 +808,7 @@ This example requires a large sequencing dataset available from the [Short Read 
 
 As described in our [Genome Biology paper](https://doi.org/10.1186/s13059-025-03585-8), one of the advantages offered by `KPop` is its versatility. In particular, by pre-processing reads one can easily have the method focus on particular regions or features of the genome of interest, as shown in the following figure:
 
-![Preprocessing for KPop-based deep-sequencing classifiers](images/KPop-Preprocessing-RR.png)
+<p align="center"><img src="images/KPop-Preprocessing-RR.png" width="585" alt="Preprocessing for KPop-based deep-sequencing classifiers"></p>
 
 For this example, we are mainly interested in performing a pre-processing step to discard contaminations &mdash; i.e., we want to only keep sequencing reads that are likely to originate from *Mycobacterium*. In order to do so, we process each set of sequencing reads through the following script (here we assume to be operating on sample `ERR275184`, which comes as the two paired-end FASTQ files `ERR275184_1.fastq.gz` and `ERR275184_2.fastq.gz`):
 
@@ -1212,7 +1212,7 @@ The previous examples have all showcased `KPop`'s capability to encode sequences
 
 The overall strategy is illustrated in the following figure, which assumes that we have already generated a classifying twister (purple box) and a database of twisted sequences (second box from the top on the right) to start with:
 
-![KPop-based relatedness engine](images/KPop-RelatednessEngine-RR.png)
+<p align="center"><img src="images/KPop-RelatednessEngine-RR.png" width="540" alt="KPop-based relatedness engine"></p>
 
 Briefly, we can generate and twist new spectra (top left), find out their nearest neighbours in the database of twisted sequences (central line and bottom left), and add the new twisted spectra to the database (bottom right).
 
