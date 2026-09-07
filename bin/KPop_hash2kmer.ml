@@ -66,11 +66,8 @@ module Parameters =
     let verbose = ref Defaults.verbose
   end
 
-let info = {
-  Tools.Argv.name = "KPop-hash2kmer";
-  version = "1";
-  date = "29-Jun-2026"
-} and authors = [
+let info = { Tools.Argv.name = "KPop-hash2kmer"; version = Info.version; date = Info.date }
+and authors = [
   "2026", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
 

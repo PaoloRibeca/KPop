@@ -77,11 +77,7 @@ module Parameters =
     let verbose = ref Defaults.verbose
   end
 
-let info = {
-  Tools.Argv.name = "KPopCountDB";
-  version = "55";
-  date = "10-Dec-2025"
-} and authors = [
+let info = Info.kpopcountdb and authors = [
   "2020-2025", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
 

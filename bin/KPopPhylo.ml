@@ -83,11 +83,7 @@ module RefitWith =
       | Mash Jaccard.Kind.Weighted -> "jaccard-weighted"
   end
 
-let info = {
-  Tools.Argv.name = "KPopPhylo";
-  version = "1";
-  date = "30-May-2026"
-} and authors = [
+let info = Info.kpopphylo and authors = [
   "2026", "Paolo Ribeca", "paolo.ribeca@gmail.com"
 ]
 

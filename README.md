@@ -352,55 +352,59 @@ KPopCount -h
 ```
 in your terminal. You will see a header containing information about the version:
 ```
-This is KPopCount version 29 [10-Jan-2026]
- compiled against: BiOCamLib version 498 [10-Jan-2026];
-                   KPop version 767 [10-Jan-2026]
+This is KPopCount version 1.99.1-973 [17-Jul-2026]
+ compiled against: BiOCamLib version 1.3.3-971 [02-Sep-2026];
+                   KPop version 1.99.1-973 [17-Jul-2026]
  (c) 2017-2026 Paolo Ribeca <paolo.ribeca@gmail.com>
 ```
-followed by detailed information. The general form the command can be used is:
+*Usage:*
 ```
 KPopCount [ACTIONS]
 ```
 
-**Actions.**
-They are executed delayed and in order of specification.
+**Actions\.**
+
+They are executed delayed and in order of specification\.
+
 
 Input/Output of spectra databases:
 
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
 | `-0`<br>`--zero`<br>`--empty` |  |  load an empty database into the register |  |
-| `-i`<br>`--input` | _binary\_file\_prefix_ |  load into the register the database present in the specified file  (which must have extension `.KPopSpectra` unless file is `/dev/*`) |  |
-| `-o`<br>`--output` | _binary\_file\_prefix_ |  save the database present in the register to the specified file  (which will be given extension `.KPopSpectra` unless file is `/dev/*`) |  |
+| `-i`<br>`--input` | _binary\_file\_prefix_ |  load into the register the database present in the specified file  \(which must have extension `.KPopSpectra` unless file is `/dev/*`\) |  |
+| `-o`<br>`--output` | _binary\_file\_prefix_ |  save the database present in the register to the specified file  \(which will be given extension `.KPopSpectra` unless file is `/dev/*`\) |  |
+
 
 Algorithmic parameters:
 
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
-| `-k`<br>`--k-mer-size`<br>`--k-mer-length` | _positive\_integer_ |  set the hashing strategy to iteration over regular *k*-mers and specify the *k*-mer length to be used\.<br>Options `-k` and `-g` are mutually exclusive; if multiple are specified, the last one will take effect | <ins>default=<mark>_continuous *k*-mers of size 12_</mark></ins> |
-| `-g`<br>`--gapped-k-mer-sizes`<br>`--gapped-k-mer-lengths` | _BLOCK\_SIZE GAP\_SIZE_ |  where<br>&nbsp;_BLOCK\-SIZE := positive\_integer_<br>&nbsp;_GAP\-SIZE := positive\_integer_<br>Set the hashing strategy to iteration over symmetrical gapped *k*-mers (having a _BLOCK_-_GAP_-_BLOCK_ structure, with _BLOCK_-s of the same size) and specify their geometry in terms of _BLOCK_ and _GAP_ sizes, respectively\.<br>For instance, option `-g 5 1` will iterate on all existing *k*-mers of size 11 (5+1+5) and not take the central nucleotide into account for the purpose of computing the hash\.<br>Options `-k` and `-g` are mutually exclusive; if multiple are specified, the last one will take effect | <ins>default=<mark>_not\_used_</mark></ins> |
-| `-c`<br>`--content` | `ss-DNA` _&#124;_ `single-stranded-DNA` _&#124;_ `ds-DNA` _&#124;_`double-stranded-DNA` _&#124;_ `protein` _&#124;_ _FULL_ |  set how contents of following input files should be interpreted\.<br>When content is `ss-DNA`, `protein` or `text`, only the sequence is hashed; when content is `ds-DNA`, both sequence and reverse complement are hashed\.<br>`ss-DNA` prevents automatic matching of reverse\-complemented sequences; use it only when comparing a set of single, homogeneus sequences\.<br>These are shortcuts for the full form of this option, which is defined as<br>&nbsp;_FULL :=_<br>&nbsp;&nbsp;_&#124;_&nbsp;`DNA(`_STRANDEDNESS_`,`_CASE\_SENSITIVITY_`,`_UNKNOWN\_CHAR\_ACTION_`)`<br>&nbsp;&nbsp;_&#124;_&nbsp;`protein(`_UNKNOWN\_CHAR\_ACTION_`)`<br>&nbsp;&nbsp;_&#124;_&nbsp;`text(`_CASE\_SENSITIVITY_`,`_UNKNOWN\_CHAR\_ACTION_`,`_dictionary\_file\_name_`)`<br>where<br>&nbsp;_STRANDEDNESS :=_`ss`_&#124;_`single-stranded`_&#124;_`ds`_&#124;_`double-stranded`<br>&nbsp;_CASE\_SENSITIVITY :=_`ci`_&#124;_`case-insensitive`_&#124;_`cs`_&#124;_`case-sensitive`<br>&nbsp;_UNKNOWN\_CHAR\_ACTION :=_`split`_&#124;_`ignore`_&#124;_`error`<br>If `case-insensitive` is specified, DNA/protein sequences are converted to uppercase characters, while text sequences (and dictionary entries) are converted to lowercase characters\.<br>_UNKNOWN\_CHAR\_ACTION_ decides what happens when an unknown character is found in the input\. Option `split` (the default for DNA/protein sequences) splits the input sequence and skips unknown characters (for instance `N`/`X`) whenever they are encountered; option `ignore` (the default for text) silently skips unknown characters (for instance whitespace); option `error` causes the program to abort\.<br>If a dictionary file is specified, each of its lines is interpreted as a different dictionary entry/token | <ins>default=<mark>`DNA(double-stranded,case-insensitive,split)`</mark></ins> |
-| `-w`<br>`--weights`<br>`--weights-from-sequence-names` | _non\_negative\_integer_ |  given the index _n_ specified as a parameter, extract the _n_-th number from each sequence name and weigh the corresponding sequence accordingly\.<br>Indices are 1\-based; a value of `0` disables weighting\.<br>If no such field exists, the program will fail\.<br>If the weight is a float number, the ceiling of such number will be used | <ins>default=<mark>_do not weigh_</mark></ins> |
+| `-k`<br>`--k-mer-size`<br>`--k-mer-length` | _positive\_integer_ |  set the hashing strategy to iteration over regular k-mers and specify the k-mer length to be used\.<br>Options `-k` and `-g` are mutually exclusive; if multiple are specified, the last one will take effect | <ins>default=<mark>_continuous k-mers of size 12_</mark></ins> |
+| `-g`<br>`--gapped-k-mer-sizes`<br>`--gapped-k-mer-lengths` | _BLOCK\_SIZE GAP\_SIZE_ |  where  BLOCK-SIZE := _positive\_integer_  GAP-SIZE := _positive\_integer_ Set the hashing strategy to iteration over symmetrical gapped k-mers \(having a BLOCK-GAP-BLOCK structure, with BLOCKs of the same size\) and specify their geometry in terms of BLOCK and GAP sizes, respectively\.<br>For instance, option  `-g 5 1` will iterate on all existing k-mers of size 11 \(5\+1\+5\) and not take the central nucleotide into account for the purpose of computing the hash\.<br>Options `-k` and `-g` are mutually exclusive; if multiple are specified, the last one will take effect | <ins>default=<mark>_not\_used_</mark></ins> |
+| `-c`<br>`--content` | `ss-DNA` _&#124;_ `single-stranded-DNA` _&#124;_ `ds-DNA` _&#124;_ `double-stranded-DNA` _&#124;_ `protein` _&#124;FULL_ |  set how contents of following input files should be interpreted\.<br>When content is `ss-DNA`, `protein` or `text`, only the sequence is hashed; when content is `ds-DNA`, both sequence and reverse complement are hashed\.<br>`ss-DNA` prevents automatic matching of reverse-complemented sequences; use it only when comparing a set of single, homogeneus sequences\.<br>These are shortcuts for the full form of this option, which is defined as  FULL := `DNA('STRANDEDNESS`,`CASE_SENSITIVITY`,`UNKNOWN_CHAR_ACTION`\)'        &#124; `protein('UNKNOWN_CHAR_ACTION`\)'        &#124; `text('CASE_SENSITIVITY`,`UNKNOWN_CHAR_ACTION`,                `<dictionary_file_name>`\)' where  STRANDEDNESS := `ss`&#124;`single-stranded`&#124;`ds`&#124;`double-stranded`  CASE\_SENSITIVITY := `ci`&#124;`case-insensitive`&#124;`cs`&#124;`case-sensitive`  UNKNOWN\_CHAR\_ACTION := `split`&#124;`ignore`&#124;`error` If `case-insensitive` is specified, DNA/protein sequences are converted to uppercase characters, while text sequences \(and dictionary entries\) are converted to lowercase characters\.<br>UNKNOWN\_CHAR\_ACTION decides what happens when an unknown character is found in the input\. Option `split` \(the default for DNA/protein sequences\) splits the input sequence and skips unknown characters \(for instance N/X\) whenever they are encountered; option `ignore` \(the default for text\) silently skips unknown characters \(for instance whitespace\); option `error` causes the program to abort\.<br>If a dictionary file is specified, each of its lines is interpreted as a different dictionary entry/token | <ins>default=<mark>_DNA\(double-stranded,case-insensitive,split\)_</mark></ins> |
+| `-w`<br>`--weights`<br>`--weights-from-sequence-names` | _non\_negative\_integer_ |  given the index n specified as a parameter, extract the n-th number from each sequence name and weigh the corresponding sequence accordingly\.<br>Indices are 1-based; a value of 0 disables weighting\.<br>If no such field exists, the program will fail\.<br>If the weight is a float number, the ceiling of such number will be used | <ins>default=<mark>_do not weigh_</mark></ins> |
+
 
 Input/Output of sequences for processing:
 
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
-| `-f`<br>`--fasta` | _label fasta\_file\_name_ |  process the sequences contained in the specified FASTA input file\.<br>If a label is specified, the hashes extracted from all the sequences are collected into one spectrum having the label as name; if the label is empty, each sequence is turned into one separate spectrum and the sequence name is used as label\. Label and sequence names must not contain double quote `"` characters\.<br>While you can specify several inputs possibly having different formats, contents are expected to be homogeneous across inputs |  |
-| `-s`<br>`--single-end` | _label fastq\_file\_name_ |  process the sequences contained in the specified FASTQ input file containing single\-end sequencing reads\.<br>If a label is specified, the hashes extracted from all the sequences are collected into one spectrum having the label as name; if the label is empty, each sequence is turned into one separate spectrum and the sequence name is used as label\. Label and sequence names must not contain double quote `"` characters\.<br>While you can specify several inputs possibly having different formats, contents are expected to be homogeneous across inputs |  |
-| `-p`<br>`--paired-end` | _label fastq\_file\_name1 fastq\_file\_name2_ |  process the sequences contained in the specified FASTQ input file containing paired\-end sequencing reads\.<br>If a label is specified, the hashes extracted from all the sequences are collected into one spectrum having the label as name; if the label is empty, each sequence is turned into one separate spectrum and the sequence name is used as label\. Label and sequence names must not contain double quote `"` characters\.<br>While you can specify several inputs possibly having different formats, contents are expected to be homogeneous across inputs |  |
-| `-t`<br>`--tabular` | _label tabular\_file\_name_ |  process the sequences contained in the specified tabular input file\.<br>If a label is specified, the hashes extracted from all the sequences are collected into one spectrum having the label as name; if the label is empty, each sequence is turned into one separate spectrum and the sequence name is used as label\. Label and sequence names must not contain double quote `"` characters\.<br>While you can specify several inputs possibly having different formats, contents are expected to be homogeneous across inputs |  |
+| `-f`<br>`--fasta` | _label_ _fasta\_file\_name_ |  process the sequences contained in the specified FASTA input file\.<br>If a label is specified, the hashes extracted from all the sequences are collected into one spectrum having the label as name; if the label is empty, each sequence is turned into one separate spectrum and the sequence name is used as label\. Label and sequence names must not contain double quote `"` characters\.<br>While you can specify several inputs possibly having different formats, contents are expected to be homogeneous across inputs |  |
+| `-s`<br>`--single-end` | _label_ _fastq\_file\_name_ |  process the sequences contained in the specified FASTQ input file containing single-end sequencing reads\.<br>If a label is specified, the hashes extracted from all the sequences are collected into one spectrum having the label as name; if the label is empty, each sequence is turned into one separate spectrum and the sequence name is used as label\. Label and sequence names must not contain double quote `"` characters\.<br>While you can specify several inputs possibly having different formats, contents are expected to be homogeneous across inputs |  |
+| `-p`<br>`--paired-end` | _label_ _fastq\_file\_name1_ _fastq\_file\_name2_ |  process the sequences contained in the specified FASTQ input file containing paired-end sequencing reads\.<br>If a label is specified, the hashes extracted from all the sequences are collected into one spectrum having the label as name; if the label is empty, each sequence is turned into one separate spectrum and the sequence name is used as label\. Label and sequence names must not contain double quote `"` characters\.<br>While you can specify several inputs possibly having different formats, contents are expected to be homogeneous across inputs |  |
+| `-t`<br>`--tabular` | _label_ _tabular\_file\_name_ |  process the sequences contained in the specified tabular input file\.<br>If a label is specified, the hashes extracted from all the sequences are collected into one spectrum having the label as name; if the label is empty, each sequence is turned into one separate spectrum and the sequence name is used as label\. Label and sequence names must not contain double quote `"` characters\.<br>While you can specify several inputs possibly having different formats, contents are expected to be homogeneous across inputs |  |
 
-**Miscellaneous options.**
+**Miscellaneous options\.**
+
 They are set immediately
 
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
-| `-T`<br>`--threads` | _computing\_threads_ |  number of concurrent computing threads to be spawned  (default automatically detected from your configuration) | <ins>default=<mark>_4_</mark></ins> |
+| `-T`<br>`--threads` | _computing\_threads_ |  number of concurrent computing threads to be spawned  \(default automatically detected from your configuration\) | <ins>default=<mark>_4_</mark></ins> |
 | `-v`<br>`--verbose` |  |  set verbose execution | <ins>default=<mark>_quiet execution_</mark></ins> |
 | `-V`<br>`--version` |  |  print version and exit |  |
 | `-h`<br>`--help` |  |  print syntax and exit |  |
-
 ### 4.2. `KPopCountDB`
 
 This is the list of command line options available for the program `KPopCountDB`. You can visualise the list by typing
@@ -409,69 +413,73 @@ KPopCountDB -h
 ```
 in your terminal. You will see a header containing information about the version:
 ```
-This is KPopCountDB version 55 [10-Dec-2025]
- compiled against: BiOCamLib version 498 [10-Jan-2026];
-                   KPop version 767 [10-Jan-2026]
+This is KPopCountDB version 1.99.1-973 [17-Jul-2026]
+ compiled against: BiOCamLib version 1.3.3-971 [02-Sep-2026];
+                   KPop version 1.99.1-973 [17-Jul-2026]
  (c) 2020-2025 Paolo Ribeca <paolo.ribeca@gmail.com>
 ```
-followed by detailed information. The general form the command can be used is:
+*Usage:*
 ```
 KPopCountDB [ACTIONS]
 ```
 
-**Actions.**
-They are executed delayed and in order of specification.
+**Actions\.**
 
-Actions on the database register &mdash; Input/Output operations:
+They are executed delayed and in order of specification\.
+
+
+Actions on the database register - Input/Output operations:
 
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
 | `-0`<br>`--zero`<br>`--empty` |  |  load an empty database into the register |  |
-| `-i`<br>`--input` | _binary\_file\_prefix_ |  load into the register the database present in the specified binary file  (which must have extension `.KPopSpectra` unless file is `/dev/*`) |  |
-| `-I`<br>`--Input` | _tabular\_file\_prefix_ |  load into the register the database present in the specified tabular files  (which must have extensions `.KPopKMatrix.txt` and `.KPopMMatrix.txt`   unless file is `/dev/*`) |  |
-| `--addition-criterion`<br>`--database-addition-criterion` | `first` _&#124;_ `second` _&#124;_ `union` _&#124;_ `intersect` |  set the criterion used to combine databases of spectra\.<br>Possibilities are:<dl><dt>`first`</dt><dd>The resulting database will have the same *k*-mer and metadata labels   as the first database</dd><dt>`second`</dt><dd>The resulting database will have the same *k*-mer and metadata labels   as the second database</dd><dt>`union`</dt><dd>The resulting database will have as *k*-mer and metadata labels the   union of the *k*-mer and metadata labels of the two databases</dd><dt>`intersect`</dt><dd>The resulting database will have as *k*-mer and metadata labels the   intersection of the *k*-mer and metadata labels of the two databases\.</dd></dl>For criteria `first`, `second`, and `union`, missing data will be set to zero in the case of *k*-mer counts, and to the empty string in the case of metadata entries | <ins>default=<mark>`union`</mark></ins> |
-| `-a`<br>`--add`<br>`--add-database` | _binary\_file\_prefix_ |  add to the register the database present in the specified binary file  (which must have extension `.KPopSpectra` unless file is `/dev/*`) |  |
-| `-m`<br>`--metadata`<br>`--add-metadata` | _metadata\_table\_file\_name_ |  add to the register metadata from the specified tabular file\.<br>Metadata should be presented as a tab\-separated text table, with a header containing spectrum labels and with row names being metadata fields labels\.<br>Spectrum labels, metadata field names and metadata values must not contain double quote `"` characters |  |
+| `-i`<br>`--input` | _binary\_file\_prefix_ |  load into the register the database present in the specified binary file  \(which must have extension `.KPopSpectra` unless file is `/dev/*`\) |  |
+| `-I`<br>`--Input` | _tabular\_file\_prefix_ |  load into the register the database present in the specified tabular files  \(which must have extensions `.KPopKMatrix.txt` and `.KPopMMatrix.txt`   unless file is `/dev/*`\) |  |
+| `--addition-criterion`<br>`--database-addition-criterion` | `first` _&#124;_ `second` _&#124;_ `union` _&#124;_ `intersect` |  set the criterion used to combine databases of spectra\.<br>Possibilities are:  `first`   The resulting database will have the same k-mer and metadata labels   as the first database  `second`   The resulting database will have the same k-mer and metadata labels   as the second database  `union`   The resulting database will have as k-mer and metadata labels the   union of the k-mer and metadata labels of the two databases  `intersect`   The resulting database will have as k-mer and metadata labels the   intersection of the k-mer and metadata labels of the two databases\.<br>For criteria `first`, `second`, and `union`, missing data will be set to zero in the case of k-mer counts, and to the empty string in the case of metadata entries | <ins>default=<mark>_union_</mark></ins> |
+| `-a`<br>`--add`<br>`--add-database` | _binary\_file\_prefix_ |  add to the register the database present in the specified binary file  \(which must have extension `.KPopSpectra` unless file is `/dev/*`\) |  |
+| `-m`<br>`--metadata`<br>`--add-metadata` | _metadata\_table\_file\_name_ |  add to the register metadata from the specified tabular file\.<br>Metadata should be presented as a tab-separated text table, with a header containing spectrum labels and with row names being metadata fields labels\.<br>Spectrum labels, metadata field names and metadata values must not contain double quote `"` characters |  |
 | `--summary` |  |  print a summary of the database present in the register |  |
-| `-o`<br>`--output` | _binary\_file\_prefix_ |  save the database present in the register to the specified file  (which will be given extension `.KPopSpectra` unless file is `/dev/*`) |  |
+| `-o`<br>`--output` | _binary\_file\_prefix_ |  save the database present in the register to the specified file  \(which will be given extension `.KPopSpectra` unless file is `/dev/*`\) |  |
 | `--precision` | _positive\_integer_ |  set the number of precision digits to be used for tabular output | <ins>default=<mark>_15_</mark></ins> |
-| `--Output-zero-kmers`<br>`--Output-zero-k-mers` | `true` _&#124;_ `false` |  whether to output *k*-mers whose frequencies are all zero when writing the database as tabular files | <ins>default=<mark>`true`</mark></ins> |
-| `-O`<br>`--Output` | _tabular\_file\_prefix_ |  write the database present in the register as tab\-separated files\.<br>File extensions are automatically assigned  (will be `.KPopKMatrix.txt` and `.KPopMMatrix.txt`,   unless file is `/dev/*`) |  |
+| `--Output-zero-kmers`<br>`--Output-zero-k-mers` | `true` _&#124;_ `false` |  whether to output k-mers whose frequencies are all zero when writing the database as tabular files | <ins>default=<mark>_true_</mark></ins> |
+| `-O`<br>`--Output` | _tabular\_file\_prefix_ |  write the database present in the register as tab-separated files\.<br>File extensions are automatically assigned  \(will be `.KPopKMatrix.txt` and `.KPopMMatrix.txt`,   unless file is `/dev/*`\) |  |
 
-Actions on the database register &mdash; Other operations:
+
+Actions on the database register - Other operations:
 
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
-| `--combination-criterion`<br>`--spectrum-combination-criterion` | `mean` _&#124;_ `median` |  set the criterion used to combine the *k*\-mer frequencies of spectra\.<br>To avoid rounding issues, each *k*\-mer frequency is also rescaled by the largest normalization across spectra  (`mean` averages frequencies across spectra; `median` computes the median across spectra) | <ins>default=<mark>_mean_</mark></ins> |
-| `-c`<br>`--combine`<br>`--combine-by-class`<br>`--combine-spectra-by-class` | _&lt;classes\_metadata\_field\_name&gt;_ |  split the database into classes according to the labels contained in the specified metadata field and combine the spectra belonging to each class into a separate vector named as the class label\. Delete original spectra\.<br>Class label cannot be the same as the name of an existing spectrum |  |
-| `--transform` | _TRANSFORMATION_ |  replace the database with the one obtained from the specified transformation\.<br>Transformations are defined as follows:<br>&nbsp;  _TRANSFORMATION :=_<br>&nbsp;&nbsp;_&#124;_&nbsp;`threshold(`_non\-negative\_float_`)`<br>&nbsp;&nbsp;_&#124;_&nbsp;`power(`_float_`)`<br>&nbsp;&nbsp;_&#124;_&nbsp;`binary`<br>&nbsp;&nbsp;_&#124;_&nbsp;`clr`<br>&nbsp;&nbsp;_&#124;_&nbsp;`pseudocounts(`_POWER_`,`_QUANTIZE_`)`<br>&nbsp;_POWER := non\-negative\_float_<br>&nbsp;_QUANTIZE :=_`false`_&#124;_`true`<br>A value such that 0. &leq; _THRESHOLD_ &lt; 1. is interpreted as a fraction relative to the sum of all the counts in the spectrum; values such that _THRESHOLD_ &geq; 1\. are considered absolute thresholds; `binary` is an alias for `power(0)`.<br>For the exact definition of transformations `clr` and `pseudocounts`, see  [https://github\.com/PaoloRibeca/KPop](https://github\.com/PaoloRibeca/KPop) or  [https://doi\.org/10\.1186/s13059\-025\-03585\-8](https://doi\.org/10\.1186/s13059\-025\-03585\-8) | <ins>default=<mark>`power(1)`</mark></ins> |
-| `-d`<br>`--distill`<br>`--distill-kmers` | _classes\_metadata\_field\_name summary\_file\_prefix_ |  optimize *k*-mers by identifying which ones are most informative according to the labels contained in the specified metadata field and by re-sorting *k*-mers in decreasing order accordingly\.<br>The labels must identify at least two equivalence classes, and fewer classes than the number of *k*-mers\.<br>Details of the procedure will be written to the specified summary file  (which will be given extension `.KPopDistill.txt` unless file is `/dev/*`) |  |
-| `--distance`<br>`--distance-function` | `euclidean` _&#124;_ `minkowski(`_non-negative\_float_`)` |  set the function to be used when computing distances\.<br>The parameter for `minkowski()` is the power | <ins>default=<mark>`euclidean`</mark></ins> |
+| `--combination-criterion`<br>`--spectrum-combination-criterion` | `mean` _&#124;_ `median` |  set the criterion used to combine the k-mer frequencies of spectra\.<br>To avoid rounding issues, each k-mer frequency is also rescaled by the largest normalization across spectra  \(`mean` averages frequencies across spectra;   `median` computes the median across spectra\) | <ins>default=<mark>_mean_</mark></ins> |
+| `-c`<br>`--combine`<br>`--combine-by-class`<br>`--combine-spectra-by-class` | _classes\_metadata\_field\_name_ |  split the database into classes according to the labels contained in the specified metadata field and combine the spectra belonging to each class into a separate vector named as the class label\. Delete original spectra\.<br>Class label cannot be the same as the name of an existing spectrum |  |
+| `--transform` | _TRANSFORMATION_ |  replace the database with the one obtained from the specified transformation\.<br>Transformations are defined as follows:  TRANSFORMATION := `threshold(` _non-negative\_float_`)`                  &#124; `power(<float>)`                  &#124; `binary`                  &#124; `clr`                  &#124; `pseudocounts('POWER`,`QUANTIZE`\)'  POWER := _non-negative\_float_  QUANTIZE := `false`&#124;`true` A value such that 0\. &lt;= THRESHOLD &lt; 1\. is interpreted as a fraction relative to the sum of all the counts in the spectrum; values such that THRESHOLD &gt;= 1\. are considered absolute thresholds; `binary` is an alias for `power(0)`\.<br>For the exact definition of transformations `clr` and `pseudocounts`, see  https://github\.com/PaoloRibeca/KPop or  https://doi\.org/10\.1186/s13059-025-03585-8 | <ins>default=<mark>_power\(1\)_</mark></ins> |
+| `-d`<br>`--distill`<br>`--distill-kmers` | _classes\_metadata\_field\_name_ _summary\_file\_prefix_ |  optimize k-mers by identifying which ones are most informative according to the labels contained in the specified metadata field and by re-sorting k-mers in decreasing order accordingly\.<br>The labels must identify at least two equivalence classes, and fewer classes than the number of k-mers\.<br>Details of the procedure will be written to the specified summary file  \(which will be given extension `.KPopDistill.txt` unless file is `/dev/*`\) |  |
+| `--distance`<br>`--distance-function` | `euclidean` _&#124;_ `minkowski(<non-negative_float>)` |  set the function to be used when computing distances\.<br>The parameter for `minkowski()` is the power | <ins>default=<mark>_euclidean_</mark></ins> |
 | `--distance-normalize`<br>`--distance-normalization` | `true` _&#124;_ `false` |  whether spectra should be normalized prior to computing distances | <ins>default=<mark>_true_</mark></ins> |
-| `--distances`<br>`--compute-distances`<br>`--compute-spectral-distances` | _REGEXP\_SELECTOR REGEXP\_SELECTOR binary\_file\_prefix_ |  where<br>&nbsp;_REGEXP\_SELECTOR :=  metadata\_field_`~`_regexp\[_`,`_\.\.\._`,`_metadata\_field_`~`_regexp\]_<br>and regexps are defined according to [https://ocaml.org/api/Str.html](https://ocaml.org/api/Str.html):<br>select two sets of spectra from the register and compute and output distances between all possible pairs<br>(metadata fields must match the regexps specified in the selector;<br>   an empty metadata field makes the regexp match labels\.<br>  The result will be given extension `.KPopDMatrix` unless file is `/dev/*`) |  |
+| `--distances`<br>`--compute-distances`<br>`--compute-spectral-distances` | _REGEXP\_SELECTOR REGEXP\_SELECTOR_ _binary\_file\_prefix_ |  where REGEXP\_SELECTOR :=  _metadata\_field_`~`_regexp_\[`,`\.\.\.`,`_metadata\_field_`~`_regexp_\] and regexps are defined according to [https://ocaml.org/api/Str.html](https://ocaml.org/api/Str.html): select two sets of spectra from the register and compute and output distances between all possible pairs  \(metadata fields must match the regexps specified in the selector;   an empty metadata field makes the regexp match labels\.<br>  The result will be given extension `.KPopDMatrix` unless file is `/dev/*`\) |  |
+
 
 Actions involving the selection register:
 
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
-| `-L`<br>`--labels`<br>`--selection-from-labels` | _spectrum\_label\[_`,`_\.\.\._`,`_spectrum\_label\]_ |  put into the selection register the specified labels |  |
-| `-R`<br>`--regexps`<br>`--selection-from-regexps` | _metadata\_field_`~`_regexp\[_`,`_\.\.\._`,`_metadata\_field_`~`_regexp\]_ |  put into the selection register the labels of the spectra whose metadata fields match the specified regexps and where regexps are defined according to [https://ocaml.org/api/Str.html](https://ocaml.org/api/Str.html)\.<br>An empty metadata field makes the regexp match labels |  |
-| `-A`<br>`--add-combined-selection`<br>`--selection-combine-and-add` | _spectrum\_label_ |  combine the spectra whose labels are in the selection register and add the result (or replace it if a spectrum named _spectrum\_label_ already exists) to the database present in the database register |  |
+| `-L`<br>`--labels`<br>`--selection-from-labels` | _spectrum\_label_ _\[_ `,` _\.\.\._ `,` _spectrum\_label_ _\]_ |  put into the selection register the specified labels |  |
+| `-R`<br>`--regexps`<br>`--selection-from-regexps` | _metadata\_field_ `~` _regexp_ _\[_ `,` _\.\.\._ `,` _metadata\_field_ `~` _regexp_ _\]_ |  put into the selection register the labels of the spectra whose metadata fields match the specified regexps and where regexps are defined according to [https://ocaml.org/api/Str.html](https://ocaml.org/api/Str.html)\.<br>An empty metadata field makes the regexp match labels |  |
+| `-A`<br>`--add-combined-selection`<br>`--selection-combine-and-add` | _spectrum\_label_ |  combine the spectra whose labels are in the selection register  and add the result \(or replace it if a spectrum named _spectrum\_label_ already exists\) to the database present in the database register |  |
 | `-D`<br>`--delete`<br>`--selection-delete` |  |  drop the spectra whose labels are in the selection register from the database present in the register |  |
 | `-N`<br>`--selection-negate` |  |  negate the labels that are present in the selection register |  |
 | `-P`<br>`--selection-print` |  |  print the labels that are present in the selection register |  |
 | `-C`<br>`--selection-clear` |  |  purge the selection register |  |
 
-**Miscellaneous options.**
+**Miscellaneous options\.**
+
 They are set immediately
 
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
-| `-T`<br>`--threads` | _computing\_threads_ |  number of concurrent computing threads to be spawned  (default automatically detected from your configuration) | <ins>default=<mark>_nproc_</mark></ins> |
+| `-T`<br>`--threads` | _computing\_threads_ |  number of concurrent computing threads to be spawned  \(default automatically detected from your configuration\) | <ins>default=<mark>_4_</mark></ins> |
 | `-v`<br>`--verbose` |  |  set verbose execution | <ins>default=<mark>_quiet execution_</mark></ins> |
 | `-V`<br>`--version` |  |  print version and exit |  |
 | `-h`<br>`--help` |  |  print syntax and exit |  |
-
 ### 4.3. `KPopTwist`
 
 This is the list of command line options available for the program `KPopTwist`. You can visualise the list by typing
@@ -480,12 +488,12 @@ KPopTwist -h
 ```
 in your terminal. You will see a header containing information about the version:
 ```
-This is KPopTwist version 30 [24-Oct-2025]
- compiled against: BiOCamLib version 481 [10-Dec-2025];
-                   KPop version 740 [11-Dec-2025]
- (c) 2022-2025 Paolo Ribeca <paolo.ribeca@gmail.com>
+This is KPopTwist version 1.99.1-973 [17-Jul-2026]
+ compiled against: BiOCamLib version 1.3.3-971 [02-Sep-2026];
+                   KPop version 1.99.1-973 [17-Jul-2026]
+ (c) 2022-2026 Paolo Ribeca <paolo.ribeca@gmail.com>
 ```
-followed by detailed information. The general form the command can be used is:
+*Usage:*
 ```
 KPopTwist -i|--input <binary_input_prefix> -o|--output <binary_output_prefix> [OPTIONS]
 ```
@@ -494,29 +502,28 @@ KPopTwist -i|--input <binary_input_prefix> -o|--output <binary_output_prefix> [O
 
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
-| `-d`<br>`--dimensions` | _positive\_integer_ |  number of CA dimensions to compute using the randomised SVD (Halko, Martinsson & Tropp 2011)\.<br>When not set, all min(*k*-mers, samples) - 1 dimensions are computed using the full LAPACK SVD, which is more accurate but slower | <ins>default=<mark>_all dimensions (full SVD)_</mark></ins> |
-| `--keep`<br>`--keep-kmers`<br>`--kmers-keep` | _kmer\_list\_file_ |  discard the *k*-mers not listed in this file before twisting the table\.<br>The file must contain one *k*-mer label per line and no header | <ins>default=<mark>_keep all_</mark></ins> |
-| `--sample`<br>`--sample-kmers`<br>`--kmers-sample` | _fractional\_float_ |  fraction of the *k*-mers to be randomly resampled and kept after parameter `-k` has been applied and before twisting | <ins>default=<mark>_1._</mark></ins> |
-| `--kmers-threshold` | `off` _&#124;_ `auto` _&#124;_ _non\-negative\_float_ |  compute the sum of all counts for each *k*-mer, and eliminate *k*-mers such that the corresponding sum is less than a cutoff\.<br>`off` (or `0`) disables the filter; _float_ sets the cutoff to the largest row sum rescaled by that fraction (legacy semantics); `auto` picks the cutoff at the Kneedle elbow of the sorted-ascending row-sum distribution, removing the noise tail of rare and singleton *k*-mers without a user-supplied magic number\.<br>This filters out *k*-mers having low frequencies across all spectra | <ins>default=<mark>_auto_</mark></ins> |
-| `--kmers-condition-number` | `off` _&#124;_ `auto` _&#124;_ _positive\_float_ |  compute the row contribution to total inertia CTR\_i = &#124;&#124;S\[i,:\]&#124;&#124;^2 for each *k*-mer, and eliminate *k*-mers whose CTR\_i is below a cutoff\.<br>`off` (or `0`) disables the filter; _float_ sets the cutoff to max(CTR) / parameter (legacy semantics: a larger value retains more *k*-mers); `auto` picks the cutoff at the Kneedle elbow of the sorted-ascending CTR distribution, removing nearly-uniform *k*-mers in the noise tail\.<br>This filters out *k*-mers that are nearly uniform across all spectra | <ins>default=<mark>_off_</mark></ins> |
+| `-d`<br>`--dimensions` | _positive\_integer_ |  number of CA dimensions to compute using the randomised SVD \(Halko, Martinsson & Tropp 2011\)\.<br>When not set, all min\(k-mers, samples\) - 1 dimensions are computed using the full LAPACK SVD, which is more accurate but slower | <ins>default=<mark>_all dimensions \(full SVD\)_</mark></ins> |
+| `--keep`<br>`--keep-kmers`<br>`--kmers-keep` | _kmer\_list\_file_ |  discard the k-mers not listed in this file before twisting the table\.<br>The file must contain one k-mer label per line and no header | <ins>default=<mark>_keep all_</mark></ins> |
+| `--sample`<br>`--sample-kmers`<br>`--kmers-sample` | _fractional\_float_ |  fraction of the k-mers to be randomly resampled and kept after parameter -k has been applied and before twisting | <ins>default=<mark>_1\._</mark></ins> |
+| `--kmers-threshold` | `off` _&#124;_ `auto` _&#124;_ _non-negative\_float_ |  compute the sum of all counts for each k-mer, and eliminate k-mers such that the corresponding sum is less than a cutoff\.<br>`off` \(or `0`\) disables the filter; _float_ sets the cutoff to the largest row sum rescaled by that fraction \(legacy semantics\); `auto` picks the cutoff at the Kneedle elbow of the sorted-ascending row-sum distribution, removing the noise tail of rare and singleton k-mers without a user-supplied magic number\.<br>This filters out k-mers having low frequencies across all spectra | <ins>default=<mark>_auto_</mark></ins> |
+| `--kmers-condition-number` | `off` _&#124;_ `auto` _&#124;_ _positive\_float_ |  compute the row contribution to total inertia CTR\_i = &#124;&#124;S\[i,:\]&#124;&#124;^2 for each k-mer, and eliminate k-mers whose CTR\_i is below a cutoff\.<br>`off` \(or `0`\) disables the filter; _float_ sets the cutoff to max\(CTR\) / parameter \(legacy semantics: a larger value retains more k-mers\); `auto` picks the cutoff at the Kneedle elbow of the sorted-ascending CTR distribution, removing nearly-uniform k-mers in the noise tail\.<br>This filters out k-mers that are nearly uniform across all spectra | <ins>default=<mark>_off_</mark></ins> |
 
 **Input/Output**
 
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
-| `-i`<br>`--input` | _binary\_file\_prefix_ |  load the specified *k*-mer database in the register and twist it\.<br>File extension is automatically determined  (will be `.KPopSpectra` unless file is `/dev/*`) | *(mandatory)* |
-| `-o`<br>`--output` | _binary\_file\_prefix_ |  use this prefix when saving generated twister and twisted sequences\.<br>File extensions are automatically determined  (will be `.KPopTwister` and `.KPopTwisted` unless file is `/dev/*`) | *(mandatory)* |
-| `-k`<br>`--output-kmers`<br>`--output-twisted-kmers` | _binary\_file\_prefix_ |  use this prefix when saving generated twisted *k*-mers\.<br>File extension is automatically determined  (will be `.KPopTwisted` unless file is `/dev/*`) | <ins>default=<mark>_do not output_</mark></ins> |
+| `-i`<br>`--input` | _binary\_file\_prefix_ |  load the specified k-mer database in binary format and twist it\.<br>File extension is automatically determined  \(will be `.KPopSpectra` unless file is `/dev/*`\) | <ins><mark>mandatory</mark></ins> |
+| `-o`<br>`--output` | _binary\_file\_prefix_ |  use this prefix when saving the generated twister and twisted sequences\.<br>File extensions are automatically determined  \(will be `.KPopTwister` and `.KPopTwisted` unless file is `/dev/*`\) | <ins><mark>mandatory</mark></ins> |
+| `-k`<br>`--output-kmers`<br>`--output-twisted-kmers` | _binary\_file\_prefix_ |  use this prefix when saving the generated twisted k-mers\.<br>File extension is automatically determined  \(will be `.KPopTwisted` unless file is `/dev/*`\) | <ins>default=<mark>_do not output_</mark></ins> |
 
 **Miscellaneous**
 
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
-| `-T`<br>`--threads` | _computing\_threads_ |  number of concurrent computing threads to be spawned  (default automatically detected from your configuration) | <ins>default=<mark>_nproc_</mark></ins> |
-| `-v`<br>`--verbose` |  |  set verbose execution | <ins>default=<mark>_quiet\_execution_</mark></ins> |
+| `-T`<br>`--threads` | _computing\_threads_ |  number of concurrent computing threads to be spawned  \(default automatically detected from your configuration\) | <ins>default=<mark>_4_</mark></ins> |
+| `-v`<br>`--verbose` |  |  set verbose execution | <ins>default=<mark>_quiet execution_</mark></ins> |
 | `-V`<br>`--version` |  |  print version and exit |  |
 | `-h`<br>`--help` |  |  print syntax and exit |  |
-
 ### 4.4. `KPopTwistDB`
 
 This is the list of command line options available for the program `KPopTwistDB`. You can visualise the list by typing
@@ -525,77 +532,86 @@ KPopTwistDB -h
 ```
 in your terminal. You will see a header containing information about the version:
 ```
-This is KPopTwistDB version 47 [09-Nov-2025]
- compiled against: BiOCamLib version 481 [10-Dec-2025];
-                   KPop version 740 [11-Dec-2025]
- (c) 2022-2025 Paolo Ribeca <paolo.ribeca@gmail.com>
+This is KPopTwistDB version 1.99.1-973 [17-Jul-2026]
+ compiled against: BiOCamLib version 1.3.3-971 [02-Sep-2026];
+                   KPop version 1.99.1-973 [17-Jul-2026]
+ (c) 2022-2026 Paolo Ribeca <paolo.ribeca@gmail.com>
      2024      Ünsal Öztürk <uensal.oeztuerk@gmail.com>
 ```
-followed by detailed information. The general form the command can be used is:
+*Usage:*
 ```
 KPopTwistDB [ACTIONS]
 ```
 
 **Actions\.**
+
 They are executed delayed and in order of specification\.
 
-Actions on the database registers &mdash; Input/Output operations:
+
+Actions on the database registers - Input/Output operations:
 
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
-| `-0`<br>`--zero`<br>`--empty` | `T` _&#124;_ `t` |  load an empty database into the specified register  (`T`=twister; `t`=twisted) |  |
-| `-i`<br>`--input` | `T` _&#124;_ `t` |  load the specified binary database into the specified register  (`T`=twister; `t`=twisted).<br>File extension is automatically determined depending on database type  (will be `.KPopTwister` or `.KPopTwisted`, respectively,   unless file is `/dev/*`) |  |
-| `-I`<br>`--Input` | `T` _&#124;_ `t` |  load the specified tabular database\(s\) into the specified register  (`T`=twister; `t`=twisted)\.<br>File extension is automatically determined depending on database type  (will be: `.KPopTwister.txt` and `.KPopInertia.txt`; or: `.KPopInertia.txt` and `.KPopTwisted.txt`, respectively,   unless file is `/dev/*`) |  |
-| `-a`<br>`--add`<br>`--add-to-twisted` | _binary\_file\_prefix_ |  add the contents of the specified binary database to the twisted register\.<br>File extension is automatically determined  (will be `.KPopTwisted`, unless file is `/dev/*`) |  |
-| `-o`<br>`--output` | `T` _&#124;_ `t` |  save the database present in the specified register  (`T`=twister; `t`=twisted) to the specified binary file\.<br>File extension is automatically assigned depending on database type  (will be `.KPopTwister` or `.KPopTwisted`, respectively,   unless file is `/dev/*`) |  |
+| `-0`<br>`--zero`<br>`--empty` | `T` _&#124;_ `t` |  load an empty database into the specified register  \(`T`=twister; `t`=twisted\) |  |
+| `-i`<br>`--input` | `T` _&#124;_ `t` _binary\_file\_prefix_ |  load the specified binary database into the specified register  \(`T`=twister; `t`=twisted\)\.<br>File extension is automatically determined depending on database type  \(will be `.KPopTwister` or `.KPopTwisted`, respectively,   unless file is `/dev/*`\) |  |
+| `-I`<br>`--Input` | `T` _&#124;_ `t` _tabular\_file\_prefix_ |  load the specified tabular database\(s\) into the specified register  \(`T`=twister; `t`=twisted\)\.<br>File extension is automatically determined depending on database type  \(will be: `.KPopTwister.txt` and `.KPopInertia.txt;`;
+                or: `.KPopInertia.txt` and `.KPopTwisted.txt`, respectively,   unless file is `/dev/*`\) |  |
+| `-a`<br>`--add`<br>`--add-to-twisted` | _binary\_file\_prefix_ |  add the contents of the specified binary database to the twisted register\.<br>File extension is automatically determined  \(will be `.KPopTwisted`, unless file is `/dev/*`\) |  |
+| `-o`<br>`--output` | `T` _&#124;_ `t` _binary\_file\_prefix_ |  save the database present in the specified register  \(`T`=twister; `t`=twisted\) to the specified binary file\.<br>File extension is automatically assigned depending on database type  \(will be `.KPopTwister` or `.KPopTwisted`, respectively,   unless file is `/dev/*`\) |  |
 | `--precision-for-tables` | _positive\_integer_ |  set how many precision digits should be used when outputting numbers in tabular formats | <ins>default=<mark>_15_</mark></ins> |
-| `-O`<br>`--Output` | `T` _&#124;_ `t` |  save the database present in the specified register  (`T`=twister; `t`=twisted) to the specified tabular files\.<br>File extensions are automatically assigned depending on database type  (will be: `.KPopTwister.txt` and `.KPopInertia.txt`;        or: `.KPopInertia.txt` and `.KPopTwisted.txt`, respectively,   unless file is `/dev/*`) |  |
+| `-O`<br>`--Output` | `T` _&#124;_ `t` _tabular\_file\_prefix_ |  save the database present in the specified register  \(`T`=twister; `t`=twisted\) to the specified tabular files\.<br>File extensions are automatically assigned depending on database type  \(will be: `.KPopTwister.txt` and `.KPopInertia.txt`;        or: `.KPopInertia.txt` and `.KPopTwisted.txt`, respectively,   unless file is `/dev/*`\) |  |
 
-Actions on the database register &mdash; Other operations:
+
+Actions on the database registers - Other operations:
 
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
-| `-t`<br>`--twist`<br>`--twist-kmers`<br>`--twist-spectra` | _binary\_file\_prefix_ |  twist the *k*-mer spectra contained in the specified binary database according to the transformation present in the twister register, and add the results to the database loaded in the twisted register |  |
-| `-m`<br>`--metric`<br>`--metric-function` | `flat` _&#124;_ `powers(`_POWERS\_PARAMETERS_`)` |  where <br>&nbsp;_POWERS\_PARAMETERS := INTERNAL\_POWER_`,`_FRACTIONAL\_ACCUMULATIVE\_THRESHOLD_`,`_EXTERNAL\_POWER_<br>&nbsp;_INTERNAL\_POWER := non\-negative\_float_<br>&nbsp;_FRACTIONAL\_ACCUMULATIVE\_THRESHOLD := fractional\_float_<br>&nbsp;_EXTERNAL\_POWER := non\-negative\_float_<br>Set the metric function to be used when computing distances\.<br>The `power` transformation is computed as follows:<ol><li>the inertia vector is raised to _INTERNAL\_POWER_ and normalized;</li><li>elements are summed in order until _FRACTIONAL\_ACCUMULATIVE\_THRESHOLD_  (a number between 0. and 1.) is reached, while the elements above the threshold are set to zero</li><li>the resulting vector is raised to _EXTERNAL\_POWER_ and normalized.</li></ol>Note that  `flat` (which is equivalent to `power(0,1,1)` or `power(1,1,0)`) disregards inertia, i\.e\. it is the same as standard coordinates, while  `power(1,1,1)` leaves inertia unchanged, i\.e\. it is the same as principal coordinates | <ins>default=<mark>`powers(1,1,1)`</mark></ins> |
-| `--distance`<br>`--distance-function` | `euclidean` _&#124;_ `cosine` _&#124;_ `angle` _&#124;_ `minkowski(`_non\-negative\_float_`)` |  set the function to be used when computing distances\.<br>The parameter for `minkowski` is the power\.<br>Note that:<ul><li>`euclidean` is the same as `minkowski(2)`;</li><li>`cosine` is the same as (`euclidean`^2)/2, or 1 - cos(theta);</li><li>`angle` is the same as arccos(1 - (`euclidean`^2)/2), or theta,</li></ul>where theta is the relative angle between the two embeddings | <ins>default=<mark>`euclidean`</mark></ins> |
-| `--distance-normalize`<br>`--distance-normalization` | `true` _&#124;_ `false` |  whether to normalize twisted vectors before computing distances\.<br>It must be `true` when the distance function is `cosine` or `angle` | <ins>default=<mark>`false`</mark></ins> |
-| `-e`<br>`--embeddings`<br>`--compute-embeddings`<br>`--twisted-to-embeddings` | _tabular\_file\_prefix_ |  compute embeddings from the vectors present in the twisted register using the current metric function, distance function and normalization\.<br>The result will be written to the specified tabular file\.<br>File extension is automatically assigned  (will be `.KPopVectors.txt` unless file is `/dev/*`) |  |
+| `-t`<br>`--twist`<br>`--twist-kmers`<br>`--twist-spectra` | _binary\_file\_prefix_ |  twist the k-mer spectra contained in the specified binary database according to the transformation present in the twister register, and add the results to the database loaded in the twisted register |  |
+| `-m`<br>`--metric`<br>`--metric-function` | `flat` _&#124;_ `powers('POWERS_PARAMETERS` _\)'_ |  where POWERS\_PARAMETERS :=          INTERNAL\_POWER',`FRACTIONAL_ACCUMULATIVE_THRESHOLD`,'EXTERNAL\_POWER       INTERNAL\_POWER := _non-negative\_float_       FRACTIONAL\_ACCUMULATIVE\_THRESHOLD := _fractional\_float_       EXTERNAL\_POWER := _non-negative\_float_ Set the metric function to be used when computing distances\.<br>The `power` transformation is computed as follows:  \(1\) the inertia vector is raised to INTERNAL\_POWER and normalized;  \(2\) elements are summed in order until FRACTIONAL\_ACCUMULATIVE\_THRESHOLD      \(a number between 0\. and 1\.\) is reached, while the elements      above the threshold are set to zero  \(3\) the resulting vector is raised to EXTERNAL\_POWER and normalized\.<br>Note that  `flat` \(which is equivalent to `power(0,1,1)` or `power(1,1,0)`\) disregards inertia, i\.e\. it is the same as standard coordinates, while  `power(1,1,1)` leaves inertia unchanged, i\.e\. it is the same as principal coordinates | <ins>default=<mark>_powers\(1,1,1\)_</mark></ins> |
+| `--distance`<br>`--distance-function` | `euclidean` _&#124;_ `cosine` _&#124;_ `angle` _&#124;_ `minkowski(` _non-negative\_float_ `)` |  set the function to be used when computing distances\.<br>The parameter for `minkowski` is the power\.<br>Note that:  `euclidean` is the same as `minkowski(2)`;  `cosine` is the same as \(`euclidean`^2\)/2, or 1 - cos\(theta\);  `angle` is the same as arccos\(1 - \(`euclidean`^2\)/2\), or theta, where theta is the relative angle between the two embeddings | <ins>default=<mark>_euclidean_</mark></ins> |
+| `--distance-normalize`<br>`--distance-normalization` | `true` _&#124;_ `false` |  whether to normalize twisted vectors before computing distances\.<br>It must be `true` when the distance function is `cosine` or `angle` | <ins>default=<mark>_false_</mark></ins> |
+| `-e`<br>`--embeddings`<br>`--compute-embeddings`<br>`--twisted-to-embeddings` | _tabular\_file\_prefix_ |  compute embeddings from the vectors present in the twisted register using the current metric function, distance function and normalization\.<br>The result will be written to the specified tabular file\.<br>File extension is automatically assigned  \(will be `.KPopVectors.txt` unless file is `/dev/*`\) |  |
 | `--distances-summarize-at-most`<br>`--distances-in-summary` | _positive\_integer_ _&#124;_ `all` |  set the maximum number of closest sequences to be printed when summarizing distances\.<br>Note that more might be printed anyway in case of ties\.<br>The statistics in the summary will be computed on all sequences | <ins>default=<mark>_2_</mark></ins> |
-| `-d`<br>`--summarize-distances`<br>`--compute-and-summarize-distances` | _twisted\_binary\_file\_prefix summary\_file\_prefix_ |  for each vector present in the twisted register, compute distances to all vectors present in the specified twisted binary file  (which must have extension `.KPopTwisted` unless file is `/dev/*`) using the current metric function, distance function and normalization; summarize them and write the result to the specified tabular file\.<br>File extension is automatically assigned  (will be `.KPopSummary.txt` unless file is `/dev/*`) |  |
-| `-D`<br>`--summarize-and-output-distances`<br>`--compute-summarize-and-output-distances` | _twisted\_binary\_file\_prefix summary\_file\_prefix_ |  same as option `-d`, but additionally output the distance matrix in tabular form\.<br>File extensions are automatically assigned  (will be `.KPopSummary.txt` and `.KPopDMatrix.txt`,   unless file is `/dev/*`) |  |
-| `--neighbors-index-type`<br>`--neighbors-faiss-index-type` | `flat` _&#124;_ `pq(`_PQ\_PARAMETERS_`)` _&#124;_ `hnsw(`_positive\_integer_`)` |  where<br>&nbsp;_PQ\_PARAMETERS :=  positive\_integer_`,`_positive\_integer_<br>Set the type of Faiss index used to compute nearest neighbors\.<br>Parameters for `pq` are:  number of subquantizers; bits per subquantizer\.<br>Note that the product of the two must be less than or equal to the number of dimensions of the twisted vectors\.<br>The parameter for `hnsw` is  hyperparameter M\.<br>Note that some indices may not be able to return all the existing nearest neighbors | <ins>default=<mark>`hnsw(32)`</mark></ins> |
+| `-d`<br>`--summarize-distances`<br>`--compute-and-summarize-distances` | _twisted\_binary\_file\_prefix_ _summary\_file\_prefix_ |  for each vector present in the twisted register, compute distances to all vectors present in the specified twisted binary file  \(which must have extension `.KPopTwisted` unless file is `/dev/*`\) using the current metric function, distance function and normalization; summarize them and write the result to the specified tabular file\.<br>File extension is automatically assigned  \(will be `.KPopSummary.txt` unless file is `/dev/*`\) |  |
+| `-D`<br>`--summarize-and-output-distances`<br>`--compute-summarize-and-output-distances` | _twisted\_binary\_file\_prefix_ _summary\_file\_prefix_ |  same as option `-d`, but additionally output the distance matrix in tabular form\.<br>File extensions are automatically assigned  \(will be `.KPopSummary.txt` and `.KPopDMatrix.txt`,   unless file is `/dev/*`\) |  |
+| `--neighbors-index-type`<br>`--neighbors-faiss-index-type` | `flat` _&#124;_ `pq('PQ_PARAMETERS` _\)_ `\|'hnsw(` _positive\_integer_ `)` |  where PQ\_PARAMETERS :=  _positive\_integer_`,`_positive\_integer_' Set the type of Faiss index used to compute nearest neighbors\.<br>Parameters for `pq` are:  number of subquantizers; bits per subquantizer\.<br>Note that the product of the two must be less than or equal to the number of dimensions of the twisted vectors\.<br>The parameter for `hnsw` is  hyperparameter M\.<br>Note that some indices may not be able to return all the existing nearest neighbors | <ins>default=<mark>_hnsw\(32\)_</mark></ins> |
 | `--neighbors-summarize-at-most`<br>`--neighbors-in-summary` | _positive\_integer_ _&#124;_ `all` |  set the maximum number of closest sequences to be printed when summarizing nearest neighbors\.<br>Note that more might be printed anyway in case of ties\.<br>The statistics in the summary will be computed on all the neighbors explored according to the policy specified by option `--neighbors-guard-policy` | <ins>default=<mark>_6_</mark></ins> |
-| `--neighbors-guard-policy`<br>`--neighbors-exploration-policy` | `times(`_float\_no\_less\_than\_one`)` _&#124;_ `plus(`_non\-negative\_integer_`)` |  set the number of nearest neighbors to be explored when summarizing them\.<br>Note that this is greater than or equal to the number of neighbors specified with option `--neighbors-summarize-at-most`\.<br>Calling the latter _n_,  policy `times(`_m_`)` will explore _m\*n_ nearest neighbors, while  policy `plus(`_m_`)` will explore _m\+n_ nearest neighbors\.<br>The additional neighbors explored are not printed, but used to compute overall statistics | <ins>default=<mark>`times(2.)`</mark></ins> |
-| `-n`<br>`--summarize-neighbors`<br>`--find-and-summarize-neighbors` | _twisted\_binary\_file\_prefix summary\_file\_prefix_ |  for each vector present in the twisted register, find nearest neighbors among the vectors present in the specified twisted binary file  (which must have extension `.KPopTwisted` unless file is `/dev/*`) using the current metric function, distance function and normalization; summarize distances and write the result to the specified tabular file\.<br>File extension is automatically assigned  (will be `.KPopSummary.txt` unless file is `/dev/*`) |  |
+| `--neighbors-guard-policy`<br>`--neighbors-exploration-policy` | `times(` _float\_no\_less\_than\_one_ `)` _&#124;_ `plus(<non-negative_integer>)` |  set the number of nearest neighbors to be explored when summarizing them\.<br>Note that this is greater than or equal to the number of neighbors specified with option `--neighbors-summarize-at-most`\.<br>Calling the latter n,  policy `times('m`\)' will explore m\*n nearest neighbors, while  policy `plus('m`\)' will explore m\+n nearest neighbors\.<br>The additional neighbors explored are not printed, but used to compute overall statistics | <ins>default=<mark>_times\(2\.\)_</mark></ins> |
+| `-n`<br>`--summarize-neighbors`<br>`--find-and-summarize-neighbors` | _twisted\_binary\_file\_prefix_ _summary\_file\_prefix_ |  for each vector present in the twisted register, find nearest neighbors among the vectors present in the specified twisted binary file  \(which must have extension `.KPopTwisted` unless file is `/dev/*`\) using the current metric function, distance function and normalization; summarize distances and write the result to the specified tabular file\.<br>File extension is automatically assigned  \(will be `.KPopSummary.txt` unless file is `/dev/*`\) |  |
 
-Actions on the database register &mdash; Clustering operations:
 
-`KPopTwistDB` exposes two clustering algorithms over the twisted vectors --- greedy leader (the default) and HDBSCAN\* --- both selected by `--clusters-method` and configured by the algorithm\-specific `--clusters-greedy-*` / `--clusters-hdbscan-*` knob families\. The action itself is `-c`/`--clusters`, which clusters either the k\-mers (`T`) or the samples (`t`) in the current twister/twisted register\.
+Actions on the database registers - Clustering operations:
 
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
-| `--clusters-method` | `greedy` _&#124;_ `hdbscan` |  clustering algorithm\.<br>`greedy`: greedy\-leader clustering (see `--clusters-greedy-*` knobs)\.<br>`hdbscan`: HDBSCAN\* density\-based clustering (see `--clusters-hdbscan-*` knobs)\.  Same metric/distance/normalisation pre\-scaling as `greedy`\. | <ins>default=<mark>`greedy`</mark></ins> |
-| `--clusters-greedy-epsilon` | `firstNN` _&#124;_ `density` _&#124;_ `adaptive` |  epsilon\-estimation strategy for the greedy\-leader algorithm:<br>`firstNN`: Kneedle elbow in sorted FAISS 1\-NN distances (_O(n log n)_ with HNSW, _O(n²)_ with flat);<br>`density`: Kneedle elbow in sorted _dist\_star_ values, where _dist\_star_ is the distance maximising _k/V(d\_k,D)_ for each point (_O(n\_sample · n)_, or _O(n²)_ when `--clusters-greedy-order density` is also set);<br>`adaptive`: per\-point _dist\_star_ as the absorption threshold (no global epsilon); computes _dist\_star_ for all _n_ points (_O(n²)_) and forces the processing order to ascending _dist\_star_, so `--clusters-greedy-order` is ignored in this mode\. Handles multi\-scale cluster structure that a single global threshold cannot capture\.<br>Ignored unless `--clusters-method greedy` is in effect\. | <ins>default=<mark>`firstNN`</mark></ins> |
-| `--clusters-greedy-order` | `inertia` _&#124;_ `firstNN` _&#124;_ `density` |  order in which points are processed by the greedy\-leader clusterer\.<br>`inertia`: decreasing row inertia proxy (most informative points first); `firstNN`: increasing 1\-NN distance (densest regions first); `density`: increasing _dist\_star_ (densest regions first, _O(n²)_)\.<br>Ignored unless `--clusters-method greedy` is in effect, or when `--clusters-greedy-epsilon adaptive` (which forces ascending _dist\_star_ order)\. | <ins>default=<mark>`inertia`</mark></ins> |
-| `--clusters-greedy-density-sample-number` | _positive\_integer_ |  number of points randomly sampled for _dist\_star_ estimation when `--clusters-greedy-epsilon density` and `--clusters-greedy-order` is `inertia` or `firstNN`\.<br>When `--clusters-greedy-order density` is also set, all _n_ points are used\.<br>Ignored unless `--clusters-method greedy` is in effect\. | <ins>default=<mark>_200_</mark></ins> |
-| `--clusters-greedy-index-type` | `flat` _&#124;_ `hnsw(`_positive\_integer_`)` |  FAISS index type used for 1\-NN estimation and greedy\-leader clustering\.<br>Ignored unless `--clusters-method greedy` is in effect\. | <ins>default=<mark>`hnsw(32)`</mark></ins> |
-| `--clusters-hdbscan-min-cluster-size` | _positive\_integer_ |  minimum cluster size for the `hdbscan` clustering algorithm: smaller groups are absorbed as noise during top\-down condensation\.<br>Same semantics as `KPopPhylo`'s `--hdbscan-min-cluster-size`, but settable independently for the clusters consumer of the HDBSCAN core\.<br>Ignored unless `--clusters-method hdbscan` is in effect\. | <ins>default=<mark>_1_</mark></ins> |
-| `--clusters-hdbscan-min-samples` | _positive\_integer_ |  _k_ for the core\-distance neighbourhood of the `hdbscan` clustering algorithm\.<br>When unset, _k_ is taken equal to `--clusters-hdbscan-min-cluster-size`, matching the reference HDBSCAN one\-knob ergonomic\.<br>Ignored unless `--clusters-method hdbscan` is in effect\. | <ins>default=<mark>_same as `--clusters-hdbscan-min-cluster-size`_</mark></ins> |
-| `--clusters-hdbscan-mst-mode` | `auto` _&#124;_ `sparse` _&#124;_ `dense` |  minimum\-spanning\-tree construction strategy for the `hdbscan` clustering algorithm\. Same semantics as `KPopPhylo`'s `--hdbscan-mst-mode` but settable independently\.<br>Ignored unless `--clusters-method hdbscan` is in effect\. | <ins>default=<mark>`auto`</mark></ins> |
-| `--clusters-hdbscan-num-neighbors` | _positive\_integer_ |  number of nearest neighbours per point used to build the FAISS k\-NN candidate graph for the sparse `hdbscan` MST\.<br>When unset, auto\-computed as _max(`min_samples` + 1, min(n − 1, 30))_\.<br>Ignored unless `--clusters-method hdbscan` and `--clusters-hdbscan-mst-mode sparse` are in effect\. | <ins>default=<mark>_auto_</mark></ins> |
-| `--clusters-hdbscan-index-type` | `flat` _&#124;_ `pq(`_PQ\_PARAMETERS_`)` _&#124;_ `hnsw(`_positive\_integer_`)` |  FAISS index type used by the sparse `hdbscan` MST when used as the clustering algorithm\.<br>Ignored unless `--clusters-method hdbscan` and `--clusters-hdbscan-mst-mode sparse` are in effect\. | <ins>default=<mark>`hnsw(32)`</mark></ins> |
-| `-c`<br>`--clusters` | `T` _kmer\_list\_file_ _&#124;_ `t` _class\_file_ |  apply clustering to the contents of the specified register (`T`=twister, clusters k\-mers; `t`=twisted, clusters samples)\.<br>The algorithm is selected by `--clusters-method` (default `greedy`; see also `hdbscan`)\.<br>Uses the current metric, distance, and normalization settings\.<br>The cluster assignment table is written to stdout\.<br>For `T`: the *k*-mer standard coordinates are recovered from the twister as _Twister\[d,i\] \* sqrt(inertia\[d\])_ and clustered, and the names of representative k\-mers are written to _kmer\_list\_file_, one per line and with no header, ready to be passed to `KPopTwist --keep`\. Greedy writes the cluster representatives; HDBSCAN writes one representative k\-mer per cluster plus every noise k\-mer\.<br>For `t`: a two\-line tab\-separated class file is written to _class\_file_ (header line of sample names; `CLASS` line of class labels), ready to be passed to `KPopCountDB -m -c CLASS`\. Greedy labels each sample as `C@`_representative\_name_; HDBSCAN labels assigned samples as `C@`_integer_ (cluster id) and outlier samples as `noise`\. |  |
+| `--clusters-method` | `greedy` _&#124;_ `hdbscan` _&#124;_ `montecarlo` |  clustering algorithm\.<br>`greedy`: greedy-leader clustering \(see --clusters-greedy-\* knobs\)\.<br>`hdbscan`: HDBSCAN\* density-based clustering \(see --clusters-hdbscan-\*   knobs\)\.  Same metric/distance/normalisation pre-scaling as `greedy`\.<br>`montecarlo`: Metropolis search over partitions, scored by the   simplified silhouette \(see --clusters-montecarlo-\* knobs\)\.  Unlike the   other two it optimises a criterion rather than applying a rule, so it   can leave a partition that is too fine or too coarse; it starts from a   leader pass at the radius implied by the gap between the two modes of   the distance distribution\. | <ins>default=<mark>_greedy_</mark></ins> |
+| `--clusters-greedy-epsilon` | `firstNN` _&#124;_ `density` _&#124;_ `adaptive` |  epsilon-estimation strategy for the greedy-leader algorithm: `firstNN`: kneedle elbow in sorted FAISS 1-NN distances   \(O\(n log n\) with HNSW, O\(n^2\) with flat\); `density`: kneedle elbow in sorted dist\_star values, where dist\_star   is the distance maximising k/V\(d\_k,D\) for each point   \(O\(n\_sample \* n\), or O\(n^2\) when --clusters-greedy-order density is also set;   use --clusters-greedy-order firstNN for O\(n log n\) ordering instead\); `adaptive`: per-point dist\_star as the absorption threshold \(no global   epsilon\)\.  Computes dist\_star for all n points \(O\(n^2\)\) and forces the   processing order to ascending dist\_star, so --clusters-greedy-order   is ignored in this mode\.  Handles multi-scale cluster structure that   a single global threshold cannot capture\.<br>Ignored unless --clusters-method `greedy` is in effect\. | <ins>default=<mark>_firstNN_</mark></ins> |
+| `--clusters-greedy-order` | `inertia` _&#124;_ `firstNN` _&#124;_ `density` |  order in which points are processed by the greedy-leader clusterer: `inertia`: decreasing row inertia proxy sum\_d\(lambda\_d \* T\[i,d\]^2\),   so the most informative k-mers / most distinctive samples become   cluster representatives; `firstNN`: increasing FAISS 1-NN distance \(densest regions first, O\(n log n\)\);   when --clusters-greedy-epsilon firstNN is also set, the FAISS distances computed   for epsilon estimation are reused for ordering at no extra cost; `density`: increasing dist\_star \(densest regions first, O\(n^2\)\);   when --clusters-greedy-epsilon density is also set, the dist\_star values   computed for epsilon estimation are reused for ordering\.<br>Ignored unless --clusters-method `greedy` is in effect, or when \--clusters-greedy-epsilon `adaptive` \(which forces ascending-dist\_star order\)\. | <ins>default=<mark>_inertia_</mark></ins> |
+| `--clusters-greedy-density-sample-number` | _positive\_integer_ |  number of points randomly sampled for dist\_star estimation when --clusters-greedy-epsilon density and --clusters-greedy-order inertia or firstNN are set\.<br>When --clusters-greedy-order density is also set, all n points are used\.<br>Ignored unless --clusters-method `greedy` is in effect\. | <ins>default=<mark>_200_</mark></ins> |
+| `--clusters-greedy-index-type` | `flat` _&#124;_ `hnsw(` _positive\_integer_ `)` |  FAISS index type used for 1-NN estimation and greedy-leader clustering\.<br>Ignored unless --clusters-method `greedy` is in effect\. | <ins>default=<mark>_hnsw\(32\)_</mark></ins> |
+| `--clusters-montecarlo-replicas` | _positive\_integer_ |  number of parallel-tempering replicas for the `montecarlo` clustering algorithm\.  A single chain has to be cold enough to refine and hot enough to escape a local optimum, and cannot be both; replicas on a ladder of temperatures can, since a good partition found by a hot one migrates to a colder one at the exchanges\.  Replicas run one per thread, so this is also where -T buys anything: the chain itself is sequential\.<br>Ignored unless --clusters-method `montecarlo` is in effect\. | <ins>default=<mark>_1_</mark></ins> |
+| `--clusters-montecarlo-steps` | _positive\_integer_ |  number of Monte-Carlo moves attempted by the `montecarlo` clustering algorithm\.  Each move merges two classes or splits one, and is accepted or rejected by Metropolis on the simplified silhouette\.<br>Ignored unless --clusters-method `montecarlo` is in effect\. | <ins>default=<mark>_2000_</mark></ins> |
+| `--clusters-montecarlo-sample` | _positive\_integer_ |  number of points sampled to score a partition in the `montecarlo` clustering algorithm\.  The silhouette is computed against class centroids, so the cost of scoring a move is this number times the number of classes, and does not grow with how many points there are in total\.<br>Ignored unless --clusters-method `montecarlo` is in effect\. | <ins>default=<mark>_250_</mark></ins> |
+| `--clusters-montecarlo-temperature` | _positive\_float_ |  initial Metropolis temperature for the `montecarlo` clustering algorithm, and the coldest rung of the ladder when there is more than one replica\.<br>A move worsening the silhouette by d is accepted with probability exp\(-d/T\), so a temperature far below the range of the silhouette makes the search greedy, and it then settles into whichever local optimum a rule would have reached anyway\.  With replicas the ladder retunes itself and this is only where it starts\.<br>Ignored unless --clusters-method `montecarlo` is in effect\. | <ins>default=<mark>_0\.002_</mark></ins> |
+| `--clusters-montecarlo-decades` | _positive\_float_ |  number of decades of temperature spanned by the replica ladder of the `montecarlo` clustering algorithm\.  The rungs are equally spaced in the logarithm of the temperature, running upwards from \--clusters-montecarlo-temperature, because Metropolis weighs a score difference against T as a ratio and so it is the ratio between two rungs that makes them behave differently\.  The ladder then slides towards whichever end is earning the improvements, and the temperatures it settles on are reported\.<br>Ignored unless --clusters-method `montecarlo` is in effect with more than one replica\. | <ins>default=<mark>_3\._</mark></ins> |
+| `--clusters-montecarlo-cooling` | _fractional\_float_ |  factor by which the temperature is multiplied after each move of the `montecarlo` clustering algorithm\.  A value of 1 never cools and the chain keeps wandering; the default cools by about a factor of e over the default number of steps\.<br>Ignored unless --clusters-method `montecarlo` is in effect\. | <ins>default=<mark>_0\.999_</mark></ins> |
+| `--clusters-hdbscan-min-cluster-size` | _positive\_integer_ |  minimum cluster size for the `hdbscan` clustering algorithm\.<br>Same semantics as KPopPhylo's --hdbscan-min-cluster-size, but settable independently for the clusters consumer of the HDBSCAN core\.<br>Ignored unless --clusters-method `hdbscan` is in effect\. | <ins>default=<mark>_1_</mark></ins> |
+| `--clusters-hdbscan-min-samples` | _positive\_integer_ |  k for the core-distance neighbourhood of the `hdbscan` clustering algorithm\.  When unset \(default\), k is taken equal to \--clusters-hdbscan-min-cluster-size, matching the reference HDBSCAN one-knob ergonomic\.<br>Ignored unless --clusters-method `hdbscan` is in effect\. | <ins>default=<mark>_same as --clusters-hdbscan-min-cluster-size_</mark></ins> |
+| `--clusters-hdbscan-mst-mode` | `auto` _&#124;_ `sparse` _&#124;_ `dense` |  minimum-spanning-tree construction strategy for the `hdbscan` clustering algorithm\.  Same semantics as KPopPhylo's --hdbscan-mst-mode but settable independently\.<br>Ignored unless --clusters-method `hdbscan` is in effect\. | <ins>default=<mark>_auto_</mark></ins> |
+| `--clusters-hdbscan-num-neighbors` | _positive\_integer_ |  number of nearest neighbours per point used to build the FAISS k-NN candidate graph for the sparse `hdbscan` MST\.  When unset, auto-computed as max\(--clusters-hdbscan-min-samples \+ 1, min\(n - 1, 30\)\)\.<br>Ignored unless --clusters-method `hdbscan` and \--clusters-hdbscan-mst-mode `sparse` are in effect\. | <ins>default=<mark>_auto \(max\(min\_samples \+ 1, min\(n - 1, 30\)\)\)_</mark></ins> |
+| `--clusters-hdbscan-index-type` | `flat` _&#124;_ `pq('PQ_PARAMETERS` _\)_ `\|'hnsw(` _positive\_integer_ `)` |  FAISS index type used by the sparse `hdbscan` MST when used as the clustering algorithm\.  Same syntax as --neighbors-index-type\.<br>Ignored unless --clusters-method `hdbscan` and \--clusters-hdbscan-mst-mode `sparse` are in effect\. | <ins>default=<mark>_hnsw\(32\)_</mark></ins> |
+| `-c`<br>`--clusters` | `T` _kmer\_list\_file_ _&#124;_ `t` _class\_file_ |  apply clustering to the contents of the specified register  \(`T`=twister, clusters k-mers; `t`=twisted, clusters samples\)\.<br>The algorithm is selected by --clusters-method \(default `greedy`;   see also `hdbscan`\)\.<br>Uses the current metric, distance, and normalization settings\.<br>The cluster assignment table is written to stdout\.<br>For `T`: k-mer standard coordinates are recovered from the twister   as km\_std\[i\]\[d\] = Twister\[d,i\] \* sqrt\(inertia\[d\]\);   the names of representative k-mers are written to _kmer\_list\_file_,   one per line and with no header, ready to be passed to KPopTwist --keep\.<br>  Greedy writes the cluster representatives; HDBSCAN writes one   representative k-mer per cluster plus every noise k-mer\.<br>For `t`: a two-line tab-separated class file is written to _class\_file_   \(header line of sample names; `CLASS` line of class labels\),   ready to be passed to KPopCountDB -m _class\_file_ -c CLASS\.<br>  Greedy labels each sample as `C@<representative_name>`;   HDBSCAN labels assigned samples as `C@<integer>` \(cluster id\) and   outlier samples as `noise`\. |  |
 
 **Miscellaneous options\.**
+
 They are set immediately
 
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
-| `-T`<br>`--threads` | _computing\_threads_ |  number of concurrent computing threads to be spawned  (default automatically detected from your configuration) | <ins>default=<mark>_nproc_</mark></ins> |
+| `-T`<br>`--threads` | _computing\_threads_ |  number of concurrent computing threads to be spawned  \(default automatically detected from your configuration\) | <ins>default=<mark>_4_</mark></ins> |
 | `-v`<br>`--verbose` |  |  set verbose execution | <ins>default=<mark>_quiet execution_</mark></ins> |
 | `-V`<br>`--version` |  |  print version and exit |  |
 | `-h`<br>`--help` |  |  print syntax and exit |  |
-
 ### 4.5. `KPop-hash2kmer`
 
 This is the list of command line options available for the program `KPop-hash2kmer`. You can visualise the list by typing
@@ -604,33 +620,39 @@ KPop-hash2kmer -h
 ```
 in your terminal. You will see a header containing information about the version:
 ```
-This is KPop-hash2kmer version 1 [29-Jun-2026]
- compiled against: BiOCamLib version 562 [30-Jun-2026];
-                   KPop version 943 [12-Jun-2026]
+This is KPop-hash2kmer version 1.99.1-973 [17-Jul-2026]
+ compiled against: BiOCamLib version 1.3.3-971 [02-Sep-2026];
+                   KPop version 1.99.1-973 [17-Jul-2026]
  (c) 2026 Paolo Ribeca <paolo.ribeca@gmail.com>
 ```
-followed by detailed information. The program reads *k*-mer hashes (one per line) from its standard input and writes the back-translated sequences (one per line) to its standard output, which is flushed after each line; the hashing parameters specified on the command line must match those that were used to produce the hashes. The general form the command can be used is:
+*Usage:*
 ```
 KPop-hash2kmer [OPTIONS]
 ```
 
-Algorithmic parameters:
+**Back-translate into sequences the k-mer hashes produced by KPopCount\.**
+
+Hashes are read one per line from standard input \(they are the row names
+of a `.KPopSpectra` database\); the corresponding sequences are written
+one per line to standard output, which is flushed after each line\.
+The hashing parameters below must match those used to produce the hashes\.
+
+**Algorithmic parameters:**
 
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
-| `-k`<br>`--k-mer-size`<br>`--k-mer-length` | _positive\_integer_ |  set the hashing strategy to iteration over regular *k*-mers and specify the *k*-mer length that was used to produce the hashes\.<br>Options `-k` and `-g` are mutually exclusive; if multiple are specified, the last one will take effect | <ins>default=<mark>_continuous *k*-mers of size 12_</mark></ins> |
-| `-g`<br>`--gapped-k-mer-sizes`<br>`--gapped-k-mer-lengths` | _BLOCK\_SIZE GAP\_SIZE_ |  where<br>&nbsp;_BLOCK\-SIZE := positive\_integer_<br>&nbsp;_GAP\-SIZE := positive\_integer_<br>set the hashing strategy to iteration over symmetrical gapped *k*-mers (having a _BLOCK_-_GAP_-_BLOCK_ structure, with _BLOCK_-s of the same size) and specify their geometry in terms of _BLOCK_ and _GAP_ sizes, respectively\.<br>The _GAP_ residues are not hashed; option `-G` sets how they are rendered\.<br>Options `-k` and `-g` are mutually exclusive; if multiple are specified, the last one will take effect | <ins>default=<mark>_not used_</mark></ins> |
-| `-c`<br>`--content` | `ss-DNA` _&#124;_ `single-stranded-DNA` _&#124;_ `ds-DNA` _&#124;_ `double-stranded-DNA` _&#124;_ `protein` _&#124;_ _FULL_ |  set how the hashes should be interpreted, i\.e\. which alphabet is used to back-translate them\. Note that for `ds-DNA` the hashes are strand-canonical, and hence are back-translated to the smaller of each *k*-mer and its reverse complement; `ss-DNA` and `ds-DNA` are otherwise equivalent here, as are the strandedness and unknown-character settings of the full form, which do not affect back-translation\.<br>These are shortcuts for the full form of this option, which is defined as<br>&nbsp;_FULL :=_<br>&nbsp;&nbsp;_&#124;_&nbsp;`DNA(`_STRANDEDNESS_`,`_CASE\_SENSITIVITY_`,`_UNKNOWN\_CHAR\_ACTION_`)`<br>&nbsp;&nbsp;_&#124;_&nbsp;`protein(`_UNKNOWN\_CHAR\_ACTION_`)`<br>&nbsp;&nbsp;_&#124;_&nbsp;`text(`_CASE\_SENSITIVITY_`,`_UNKNOWN\_CHAR\_ACTION_`,`_dictionary\_file\_name_`)`<br>where<br>&nbsp;_STRANDEDNESS :=_`ss`_&#124;_`single-stranded`_&#124;_`ds`_&#124;_`double-stranded`<br>&nbsp;_CASE\_SENSITIVITY :=_`ci`_&#124;_`case-insensitive`_&#124;_`cs`_&#124;_`case-sensitive`<br>&nbsp;_UNKNOWN\_CHAR\_ACTION :=_`split`_&#124;_`ignore`_&#124;_`error`<br>If a dictionary file is specified, each of its lines is interpreted as a different dictionary entry/token | <ins>default=<mark>`DNA(double-stranded,case-insensitive,split)`</mark></ins> |
-| `-G`<br>`--gap`<br>`--gap-character` | _character_ |  set the single character used to render each unhashed gap position when back-translating gapped *k*-mers produced with option `-g`; it has no effect otherwise | <ins>default=<mark>`-`</mark></ins> |
+| `-k`<br>`--k-mer-size`<br>`--k-mer-length` | _positive\_integer_ |  set the hashing strategy to iteration over regular k-mers and specify the k-mer length that was used to produce the hashes\.<br>Options `-k` and `-g` are mutually exclusive; if multiple are specified, the last one will take effect | <ins>default=<mark>_continuous k-mers of size 12_</mark></ins> |
+| `-g`<br>`--gapped-k-mer-sizes`<br>`--gapped-k-mer-lengths` | _BLOCK\_SIZE GAP\_SIZE_ |  where  BLOCK-SIZE := _positive\_integer_  GAP-SIZE := _positive\_integer_ set the hashing strategy to iteration over symmetrical gapped k-mers \(having a BLOCK-GAP-BLOCK structure, with BLOCKs of the same size\) and specify their geometry in terms of BLOCK and GAP sizes, respectively\.<br>The GAP residues are not hashed; option `-G` sets how they are rendered\.<br>Options `-k` and `-g` are mutually exclusive; if multiple are specified, the last one will take effect | <ins>default=<mark>_not used_</mark></ins> |
+| `-c`<br>`--content` | `ss-DNA` _&#124;_ `single-stranded-DNA` _&#124;_ `ds-DNA` _&#124;_ `double-stranded-DNA` _&#124;_ `protein` _&#124;FULL_ |  set how the hashes should be interpreted, i\.e\. which alphabet is used to back-translate them\. Note that for `ds-DNA` the hashes are strand-canonical, and hence are back-translated to the smaller of each k-mer and its reverse complement; `ss-DNA` and `ds-DNA` are otherwise equivalent here, as are the strandedness and unknown-character settings of the full form, which do not affect back-translation\.<br>These are shortcuts for the full form of this option, which is defined as  FULL := `DNA('STRANDEDNESS`,`CASE_SENSITIVITY`,`UNKNOWN_CHAR_ACTION`\)'        &#124; `protein('UNKNOWN_CHAR_ACTION`\)'        &#124; `text('CASE_SENSITIVITY`,`UNKNOWN_CHAR_ACTION`,                `<dictionary_file_name>`\)' where  STRANDEDNESS := `ss`&#124;`single-stranded`&#124;`ds`&#124;`double-stranded`  CASE\_SENSITIVITY := `ci`&#124;`case-insensitive`&#124;`cs`&#124;`case-sensitive`  UNKNOWN\_CHAR\_ACTION := `split`&#124;`ignore`&#124;`error` If a dictionary file is specified, each of its lines is interpreted as a different dictionary entry/token | <ins>default=<mark>_DNA\(double-stranded,case-insensitive,split\)_</mark></ins> |
+| `-G`<br>`--gap`<br>`--gap-character` | _character_ |  set the single character used to render each unhashed gap position when back-translating gapped k-mers produced with option `-g`; it has no effect otherwise | <ins>default=<mark>_\-_</mark></ins> |
 
-Miscellaneous options:
+**Miscellaneous options:**
 
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
 | `-v`<br>`--verbose` |  |  set verbose execution | <ins>default=<mark>_quiet execution_</mark></ins> |
 | `-V`<br>`--version` |  |  print version and exit |  |
 | `-h`<br>`--help` |  |  print syntax and exit |  |
-
 ## 5. Examples
 
 By using the programs just described, it is possible to implement a number of interesting high-throughput workflows. We illustrate some examples here - for a more general description, please refer to our [Genome Biology paper](https://doi.org/10.1186/s13059-025-03585-8).
