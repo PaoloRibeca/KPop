@@ -56,14 +56,17 @@ include (
         type t =
           | Greedy
           | Hdbscan
+          | Montecarlo
         let of_string = function
           | "greedy" -> Greedy
           | "hdbscan" -> Hdbscan
+          | "montecarlo" -> Montecarlo
           | s ->
             Exception.raise_unrecognized_initializer __FUNCTION__ "clustering algorithm" s
         let to_string = function
           | Greedy -> "greedy"
           | Hdbscan -> "hdbscan"
+          | Montecarlo -> "montecarlo"
       end
     (* Strategy used to estimate the epsilon threshold for greedy leader clustering *)
     module GreedyEpsilon =
@@ -1289,12 +1292,475 @@ include (
           (String.pluralize_int "cluster" n_clusters) n_noise
           (100. *. float_of_int n_assigned /. float_of_int n);
       cluster_of
+    (* The radius the distances themselves imply.
+       Where a corpus is a set of groups separated by a divergence cutoff, the distances
+       between two randomly drawn points are bimodal -- a low mode of same-group pairs, a
+       high mode of different-group ones, and an empty band between -- and any radius in
+       that band recovers the groups, which is why the answer is insensitive to where in
+       the band it falls.  The band is a property of the distribution and needs no labels
+       to find.  Note that the 1-NN distances cannot show it: a point's nearest neighbour
+       belongs to its own group, so they lie wholly inside the low mode, which is why
+       [GreedyEpsilon.FirstNN] returns a radius an order of magnitude too small on a corpus
+       of this shape.  Returns the midpoint of the band, or [None] when the distances are
+       unimodal and no radius is implied *)
+    let valley_radius ?(pairs = 100000) ?(bins = 200) ?(smooth = 5) ?(floor_ = 0.05) state
+        embed_dist embeds =
+      let n = Array.length embeds in
+      if n < 50 then None
+      else begin
+        let sampled = Array.make pairs 0. and m = ref 0 in
+        for _ = 1 to pairs do
+          let a = Random.State.int state n and b = Random.State.int state n in
+          if a <> b then begin
+            sampled.(!m) <- embed_dist embeds.(a) embeds.(b); incr m
+          end
+        done;
+        let sampled = Array.sub sampled 0 !m in
+        Array.sort compare sampled;
+        let hi = sampled.(int_of_float (float_of_int !m *. 0.99)) in
+        if hi <= 0. then None
+        else begin
+          let w = hi /. float_of_int bins in
+          let hist = Array.make bins 0. in
+          Array.iter
+            (fun x ->
+              let b = int_of_float (x /. w) in
+              if b >= 0 && b < bins then hist.(b) <- hist.(b) +. 1.)
+            sampled;
+          (* A moving average, so that a ragged histogram does not invent extrema *)
+          let sm =
+            Array.init bins
+              (fun b ->
+                let s = ref 0. and c = ref 0 in
+                for j = b - smooth to b + smooth do
+                  if j >= 0 && j < bins then begin s := !s +. hist.(j); incr c end
+                done;
+                !s /. float_of_int !c) in
+          let top = ref 0 in
+          Array.iteri (fun b v -> if v > sm.(!top) then top := b) sm;
+          (* The tallest OTHER mode, accepted only when the lowest point between it and the
+             tallest is under half its height -- otherwise it is a shoulder, not a mode *)
+          let second = ref (-1) in
+          for b = 0 to bins - 1 do
+            if abs (b - !top) > 2 * smooth then begin
+              let lo = min b !top and hi = max b !top in
+              let v = ref sm.(lo) in
+              for j = lo to hi do if sm.(j) < !v then v := sm.(j) done;
+              if !v <= 0.5 *. sm.(b) && (!second < 0 || sm.(b) > sm.(!second)) then second := b
+            end
+          done;
+          if !second < 0 then None
+          else begin
+            let lo_b = min !second !top and hi_b = max !second !top in
+            let vb = ref lo_b in
+            for j = lo_b to hi_b do if sm.(j) < sm.(!vb) then vb := j done;
+            (* The midpoint of the band, not its lowest point.  Where the groups really are
+               separated the valley is not a dip but a gap, so its minimum is arbitrary
+               within it, and it sits nearer the low mode only because most random pairs are
+               between-group and their tail dominates *)
+            let lower = Float.min sm.(lo_b) sm.(hi_b) in
+            let lo_e = ref !vb and hi_e = ref !vb in
+            while !lo_e > lo_b && sm.(!lo_e - 1) <= floor_ *. lower do decr lo_e done;
+            while !hi_e < hi_b && sm.(!hi_e + 1) <= floor_ *. lower do incr hi_e done;
+            Some ((float_of_int (!lo_e + !hi_e) /. 2. +. 0.5) *. w)
+          end
+        end
+      end
+    (* Monte-Carlo search over partitions, scored by the simplified silhouette.
+       Greedy leader clustering and HDBSCAN both apply a rule and accept whatever partition
+       it yields; neither optimises anything, so neither can recover from a starting point
+       that is too fine or too coarse, and on a corpus whose groups differ wildly in size
+       both settle far from the answer.  This searches instead: merge and split moves are
+       proposed, scored, and accepted or rejected by Metropolis, so the chain can cross a
+       ridge that a rule cannot.
+       THE SCORE IS THE SIMPLIFIED SILHOUETTE -- each sampled point against class CENTROIDS
+       rather than against every other point, which costs O(sample * k * d) instead of
+       O(sample * n * d) -- and it is the rare unsupervised criterion that punishes BOTH
+       errors, since splitting a real cluster drives the nearest-other-class distance down
+       towards the own-class one while merging two drives the own-class distance up.  A
+       criterion rewarding only tightness, such as a separation ratio or the depth of the
+       valley above, is maximised by shattering the corpus and cannot be optimised directly.
+       THE STARTING PARTITION is one leader pass at [valley_radius], deliberately finer than
+       the answer since the search merges far more often than it splits; where the distances
+       imply no radius, every point starts on its own *)
+    let run_montecarlo
+        ?(verbose = false) ?(seed = 17) ?(threads = 1) ?(replicas = 1) ?(exchange_every = 250)
+        ?(decades = 3.) ~what_label ~steps ~sample ~temperature ~cooling ~metric ~distance
+        ~distance_normalize coords names inertia_vec =
+      let n = Array.length coords and d = Float.Array.length inertia_vec in
+      let open String.TermIO in
+      let prefix = grey (Printf.sprintf "(%s):" __FUNCTION__) in
+      let ( .@!() ) = Float.Array.( .@!() ) in
+      (* Embeddings exactly as the greedy clusterer builds them, so that a distance in
+         embedding space is the weighted generalised distance *)
+      let mw = Space.Distance.Metric.compute metric inertia_vec in
+      let flat = Float.Array.make d 1. in
+      let compute_embedding coord =
+        let v = Float.Array.init d (fun k -> coord.@!(k) *. sqrt mw.@!(k)) in
+        if distance_normalize then begin
+          let norm = Space.Distance.compute_norm distance flat v in
+          if norm > 0. then Float.Array.init d (fun k -> v.@!(k) /. norm) else v
+        end else v in
+      let embeds = Array.map compute_embedding coords in
+      let embed_dist a b = Space.Distance.compute distance flat a b in
+      let state = Random.State.make [| seed |] in
+      let radius = match valley_radius state embed_dist embeds with Some r -> r | None -> 0. in
+      let start = Array.make n (-1) and leaders = ref [] and n_lead = ref 0 in
+      for i = 0 to n - 1 do
+        let best = ref (-1) and best_d = ref infinity in
+        List.iter
+          (fun l ->
+            let dd = embed_dist embeds.(i) embeds.(l) in
+            if dd <= radius && dd < !best_d then begin best_d := dd; best := l end)
+          !leaders;
+        if !best >= 0 then start.(i) <- start.(!best)
+        else begin leaders := i :: !leaders; start.(i) <- !n_lead; incr n_lead end
+      done;
+      let n_start = !n_lead and n_samp = min sample n in
+      (* ONE CHAIN, run from [from_] at [temp0] for [nsteps], scoring on [samp].  Everything it
+         needs is allocated here rather than shared, so that a replica may run in a process of
+         its own: the embeddings are read-only and survive the fork, and only the assignment
+         travels back.  Returns the best partition the chain saw and the fraction of worsening
+         proposals it accepted, the score being left to the caller to recompute exactly -- the
+         silhouette of a partition is a different number on a different sample, and the samples
+         differ between epochs *)
+      let run_chain chain_state samp from_ temp0 nsteps =
+        let assign = Array.copy from_ in
+        let cent = Array.init n (fun _ -> Float.Array.make d 0.) and size = Array.make n 0 in
+        let live = Array.make n 0 and n_live = ref 0 in
+        let recentre () =
+          Array.fill size 0 n 0;
+          for c = 0 to n - 1 do Float.Array.fill cent.(c) 0 d 0. done;
+          for i = 0 to n - 1 do
+            let c = assign.(i) in
+            size.(c) <- size.(c) + 1;
+            for k = 0 to d - 1 do
+              Float.Array.unsafe_set cent.(c) k (cent.(c).@!(k) +. embeds.(i).@!(k))
+            done
+          done;
+          n_live := 0;
+          for c = 0 to n - 1 do
+            if size.(c) > 0 then begin
+              let f = float_of_int size.(c) in
+              for k = 0 to d - 1 do
+                Float.Array.unsafe_set cent.(c) k (cent.(c).@!(k) /. f)
+              done;
+              live.(!n_live) <- c; incr n_live
+            end
+          done in
+        let silhouette () =
+          let tot = ref 0. and cnt = ref 0 in
+          Array.iter
+            (fun i ->
+              let c = assign.(i) in
+              if size.(c) >= 2 then begin
+                let a = embed_dist embeds.(i) cent.(c) and b = ref infinity in
+                for li = 0 to !n_live - 1 do
+                  let cc = live.(li) in
+                  if cc <> c then begin
+                    let s = embed_dist embeds.(i) cent.(cc) in
+                    if s < !b then b := s
+                  end
+                done;
+                if !b < infinity then begin
+                  tot := !tot +. (!b -. a) /. Float.max a !b; incr cnt
+                end
+              end)
+            samp;
+          if !cnt > 0 then !tot /. float_of_int !cnt else -1. in
+        let merge () =
+          let ca = live.(Random.State.int chain_state !n_live) in
+          let cb = ref (-1) and best = ref infinity in
+          for li = 0 to !n_live - 1 do
+            let cc = live.(li) in
+            if cc <> ca then begin
+              let s = embed_dist cent.(ca) cent.(cc) in
+              if s < !best then begin best := s; cb := cc end
+            end
+          done;
+          if !cb >= 0 then
+            for i = 0 to n - 1 do if assign.(i) = ca then assign.(i) <- !cb done in
+        let split () =
+          let ca = live.(Random.State.int chain_state !n_live) in
+          if size.(ca) >= 6 then begin
+            let members = Array.make size.(ca) 0 and m = ref 0 in
+            for i = 0 to n - 1 do
+              if assign.(i) = ca then begin members.(!m) <- i; incr m end
+            done;
+            let k1 = members.(Random.State.int chain_state !m)
+            and k2 = members.(Random.State.int chain_state !m) in
+            if k1 <> k2 then begin
+              let fresh = ref 0 in
+              while size.(!fresh) > 0 do incr fresh done;
+              let m1 = Float.Array.make d 0. and m2 = Float.Array.make d 0. in
+              Float.Array.blit embeds.(k1) 0 m1 0 d;
+              Float.Array.blit embeds.(k2) 0 m2 0 d;
+              for _ = 1 to 5 do
+                let n1 = ref 0 and n2 = ref 0 in
+                for j = 0 to !m - 1 do
+                  let i = members.(j) in
+                  if embed_dist embeds.(i) m1 <= embed_dist embeds.(i) m2 then begin
+                    assign.(i) <- ca; incr n1
+                  end else begin assign.(i) <- !fresh; incr n2 end
+                done;
+                if !n1 > 0 && !n2 > 0 then begin
+                  Float.Array.fill m1 0 d 0.;
+                  Float.Array.fill m2 0 d 0.;
+                  for j = 0 to !m - 1 do
+                    let i = members.(j) in
+                    let t = if assign.(i) = ca then m1 else m2 in
+                    for k = 0 to d - 1 do
+                      Float.Array.unsafe_set t k (t.@!(k) +. embeds.(i).@!(k))
+                    done
+                  done;
+                  let f1 = float_of_int !n1 and f2 = float_of_int !n2 in
+                  for k = 0 to d - 1 do
+                    Float.Array.unsafe_set m1 k (m1.@!(k) /. f1);
+                    Float.Array.unsafe_set m2 k (m2.@!(k) /. f2)
+                  done
+                end
+              done
+            end
+          end in
+        recentre ();
+        let start_score = silhouette () in
+        let cur = ref start_score and temp = ref temp0 in
+        let best = Array.copy assign and best_score = ref start_score and saved = Array.make n 0 in
+        (* Proposals that would worsen the score, and how many of them were taken anyway.  This
+           ratio is what the temperature actually controls, and the caller tunes the ladder on
+           it *)
+        let worse = ref 0 and worse_taken = ref 0 in
+        for _ = 1 to nsteps do
+          Array.blit assign 0 saved 0 n;
+          if Random.State.float chain_state 1. < 0.5 && !n_live > 2 then merge () else split ();
+          recentre ();
+          let proposed = silhouette () in
+          let take =
+            if proposed > !cur then true
+            else begin
+              incr worse;
+              let ok = Random.State.float chain_state 1. < exp ((proposed -. !cur) /. !temp) in
+              if ok then incr worse_taken;
+              ok
+            end in
+          if take then begin
+            cur := proposed;
+            if proposed > !best_score then begin
+              best_score := proposed; Array.blit assign 0 best 0 n
+            end
+          end else begin
+            Array.blit saved 0 assign 0 n; recentre ()
+          end;
+          temp := !temp *. cooling
+        done;
+        best, if !worse > 0 then float_of_int !worse_taken /. float_of_int !worse else 0. in
+      (* A LADDER OF CHAINS, RESET TO THE BEST OF THEM AT EVERY EPOCH.  A single chain has to
+         be cold enough to refine and hot enough to escape, and cannot be both; a ladder of
+         temperatures can, the hot replicas wandering while the cold ones settle.  What
+         propagates a good partition between them is not the exchange of classical parallel
+         tempering but plain selection: every epoch, each replica restarts from the best
+         partition ANY of them has found, at its own temperature.  That abandons detailed
+         balance and with it any claim to be sampling a distribution -- which we do not want,
+         since the object here is the best partition and not the ensemble -- and in exchange
+         it propagates a good state to every replica in one epoch rather than diffusing it
+         along the ladder one neighbour at a time -- which matters because the run is a few
+         tens of epochs long and a diffusing state may not cross the ladder within it.
+         THE LADDER TUNES ITSELF ON THE ACCEPTANCE RATE, which is the fraction of WORSENING
+         proposals a chain takes anyway.  That is the quantity the temperature controls: a chain
+         taking none of them is greedy, one taking all of them is a random walk, and the useful
+         range lies between.  It is also monotone in T, so a ladder that brackets the target
+         band stops moving, and only a ladder entirely above or entirely below it slides.
+         Which rung won the epoch will not serve instead, however the wins are weighted: a chain
+         at T -> 0 takes only improving moves, so over a single epoch from a shared start it
+         out-climbs a chain that spends the same steps wandering, whatever the landscape.  That
+         bias is towards cold and it is unbounded -- a ladder following it descends until it is
+         doing greedy descent, at which point the temperature it reports is an estimate of
+         nothing.  Where this ladder stops is reported with the rates, so that the temperature
+         need not be guessed before the run that would measure it.  Each epoch is one parallel
+         map, and the only thing that travels back from a replica is an assignment.
+         THE RUNGS ARE SPACED IN THE LOGARITHM of the temperature and not in the temperature.
+         Metropolis compares a score difference to T as a ratio, so it is the ratio between two
+         rungs that decides how differently they behave: an arithmetic ladder crowds every rung
+         into one regime, a geometric one visits several.  Spanning [decades] decades over the
+         replicas puts the rungs at 0.1, 0.01, 0.001 and so on *)
+      let replicas = max 1 replicas in
+      let epochs = if replicas = 1 then 1 else max 1 (steps / exchange_every) in
+      let per_epoch = if replicas = 1 then steps else steps / epochs in
+      let rung = if replicas > 1 then 10. ** (decades /. float_of_int (replicas - 1)) else 1. in
+      let ladder = Array.init replicas (fun r -> temperature *. (rung ** float_of_int r)) in
+      (* The band the ladder is asked to straddle, in fraction of worsening proposals accepted.
+         It is wide because the ladder only has to bracket it, not to sit in it: a rung below
+         the floor is doing greedy descent and one above the ceiling is walking at random *)
+      let accept_min = 0.1 and accept_max = 0.5 in
+      let seeds = Array.init replicas (fun r -> seed + 1013 * (r + 1)) in
+      let wins = Array.make replicas 0 and rates = Array.make replicas 0. in
+      (* The silhouette over every point rather than over the sample the chains score on.
+         Selection between epochs is decided on this, because the sample moves from epoch to
+         epoch and the differences being judged are thousandths, well inside its noise: a
+         sampled comparison would discard the better partition about as often as it kept it.
+         One exact evaluation costs what a single Metropolis step costs, against the hundreds
+         of them each replica runs per epoch, so exactness here is free *)
+      let full_silhouette assign =
+        let cent = Array.init n (fun _ -> Float.Array.make d 0.) and size = Array.make n 0 in
+        for i = 0 to n - 1 do
+          let c = assign.(i) in
+          size.(c) <- size.(c) + 1;
+          for k = 0 to d - 1 do
+            Float.Array.unsafe_set cent.(c) k (cent.(c).@!(k) +. embeds.(i).@!(k))
+          done
+        done;
+        let live = Array.make n 0 and n_live = ref 0 in
+        for c = 0 to n - 1 do
+          if size.(c) > 0 then begin
+            let f = float_of_int size.(c) in
+            for k = 0 to d - 1 do Float.Array.unsafe_set cent.(c) k (cent.(c).@!(k) /. f) done;
+            live.(!n_live) <- c; incr n_live
+          end
+        done;
+        let tot = ref 0. and cnt = ref 0 in
+        for i = 0 to n - 1 do
+          let c = assign.(i) in
+          if size.(c) >= 2 then begin
+            let a = embed_dist embeds.(i) cent.(c) and b = ref infinity in
+            for li = 0 to !n_live - 1 do
+              let cc = live.(li) in
+              if cc <> c then begin
+                let s = embed_dist embeds.(i) cent.(cc) in
+                if s < !b then b := s
+              end
+            done;
+            if !b < infinity then begin
+              tot := !tot +. (!b -. a) /. Float.max a !b; incr cnt
+            end
+          end
+        done;
+        if !cnt > 0 then !tot /. float_of_int !cnt else -1. in
+      let best = ref (Array.copy start) and best_score = ref (full_silhouette start) in
+      if verbose then
+        Printf.eprintf "%s %s: starting from %d clusters, %d %s over %d %s of %d steps.\n%!"
+          prefix what_label n_start replicas (String.pluralize_int "replica" replicas)
+          epochs (String.pluralize_int "epoch" epochs) per_epoch;
+      for epoch = 1 to epochs do
+        (* Every replica starts the epoch from the best partition found so far, and differs
+           from its neighbours only in temperature.  The scoring sample is redrawn here and
+           shared by all of them: a chain scored on one fixed sample for thousands of steps
+           optimises that sample rather than the corpus, and the gap it opens between the two is
+           of the order of the improvements being chased -- four hundredths, where 250 points
+           stand for 3027 -- whereas a sample that moves under the chain cannot be learnt at
+           all.  It is redrawn per epoch rather than per step
+           because a chain needs a fixed yardstick over the run of moves it is comparing, and
+           shared across replicas so that they all face the same problem *)
+        let from_ = !best in
+        let samp = Array.init n_samp (fun _ -> Random.State.int state n) in
+        let cand = Array.make replicas from_ in
+        let take r chain_best rate = cand.(r) <- chain_best; rates.(r) <- rate in
+        if replicas = 1 then begin
+          let chain_best, rate =
+            run_chain (Random.State.make [| seeds.(0) + epoch |]) samp from_ ladder.(0)
+              per_epoch in
+          take 0 chain_best rate
+        end else begin
+          let next = ref 0 in
+          Processes.Parallel.process_stream_chunkwise
+            (fun () -> if !next < replicas then begin let r = !next in incr next; r end
+                       else raise End_of_file)
+            (fun r ->
+              let chain_best, rate =
+                run_chain (Random.State.make [| seeds.(r) + epoch |]) samp from_ ladder.(r)
+                  per_epoch in
+              r, chain_best, rate)
+            (fun (r, chain_best, rate) -> take r chain_best rate)
+            (max 1 (min threads replicas))
+        end;
+        (* Selection, on the exact score, so that [best_score] never falls *)
+        let exact = Array.map full_silhouette cand in
+        let arg = ref 0 in
+        Array.iteri (fun r s -> if s > exact.(!arg) then arg := r) exact;
+        if exact.(!arg) > !best_score then begin
+          best_score := exact.(!arg); best := cand.(!arg); wins.(!arg) <- wins.(!arg) + 1
+        end;
+        if verbose then
+          Printf.eprintf "%s %s: epoch %d/%d, best silhouette %.4f, epoch won at T=%.3g.\n%!"
+            prefix what_label epoch epochs !best_score ladder.(!arg);
+        (* The ladder slides only when it lies wholly outside the band, which cannot happen once
+           it brackets it, acceptance being monotone in the temperature.  Half a rung at a time,
+           so that where it comes to rest is not coarser than the spacing it came from *)
+        if replicas > 1 then begin
+          let lo = Array.fold_left Float.min infinity rates
+          and hi = Array.fold_left Float.max neg_infinity rates in
+          let shift =
+            if lo > accept_max then 1. /. sqrt rung
+            else if hi < accept_min then sqrt rung else 1. in
+          if shift <> 1. then
+            for r = 0 to replicas - 1 do ladder.(r) <- ladder.(r) *. shift done
+        end
+      done;
+      if verbose && replicas > 1 then begin
+        let acc = Buffer.create 64 in
+        Array.iteri
+          (fun r w ->
+            Buffer.add_string acc
+              (Printf.sprintf " T=%.3g:%.0f%%/%d" ladder.(r) (100. *. rates.(r)) w))
+          wins;
+        Printf.eprintf
+          "%s %s: ladder settled at, with the worsening moves each rung accepted and the epochs \
+           it won:%s.\n%!"
+          prefix what_label (Buffer.contents acc)
+      end;
+      let assign = !best in
+      (* The centroids of the partition being returned, for the representatives below *)
+      let cent = Array.init n (fun _ -> Float.Array.make d 0.) and size = Array.make n 0 in
+      Array.fill size 0 n 0;
+      for i = 0 to n - 1 do
+        let c = assign.(i) in
+        size.(c) <- size.(c) + 1;
+        for k = 0 to d - 1 do
+          Float.Array.unsafe_set cent.(c) k (cent.(c).@!(k) +. embeds.(i).@!(k))
+        done
+      done;
+      let n_live = ref 0 in
+      for c = 0 to n - 1 do
+        if size.(c) > 0 then begin
+          let f = float_of_int size.(c) in
+          for k = 0 to d - 1 do
+            Float.Array.unsafe_set cent.(c) k (cent.(c).@!(k) /. f)
+          done;
+          incr n_live
+        end
+      done;
+      let cur = best_score in
+      let rep = Array.make n (-1) and rep_d = Array.make n infinity in
+      for i = 0 to n - 1 do
+        let c = assign.(i) in
+        let dd = embed_dist embeds.(i) cent.(c) in
+        if dd < rep_d.(c) then begin rep_d.(c) <- dd; rep.(c) <- i end
+      done;
+      let rep_orig = Array.init n (fun i -> rep.(assign.(i))) in
+      let metric_str = Space.Distance.Metric.to_string metric
+      and distance_str = Space.Distance.to_string distance in
+      Printf.printf
+        "=== Clustering of %s: Monte-Carlo \
+         (steps=%d, sample=%d, temperature=%.15g, cooling=%.15g, metric=%s, distance=%s, \
+         D=%d) ===\n\
+         # n=%d n_clusters=%d silhouette=%.15g started_from=%d\n\
+         name\trepresentative\tstatus\n"
+        what_label steps (min sample n) temperature cooling metric_str distance_str d
+        n !n_live !cur n_start;
+      for i = 0 to n - 1 do
+        Printf.printf "%s\t%s\t%s\n"
+          names.(i) names.(rep_orig.(i)) (if rep_orig.(i) = i then "rep" else "abs")
+      done;
+      if verbose then
+        Printf.eprintf "%s Clustering of %s done. %d %s, silhouette %.4f.\n%!"
+          prefix what_label !n_live (String.pluralize_int "cluster" !n_live) !cur;
+      rep_orig
   end: sig
     module Algorithm:
       sig
         type t =
           | Greedy
           | Hdbscan
+          | Montecarlo
         val of_string: string -> t
         val to_string: t -> string
       end
@@ -1366,6 +1832,31 @@ include (
           min_cluster_size:int -> min_samples:int ->
           Float.Array.t array -> int array
       end
+    val valley_radius:
+      ?pairs:int -> ?bins:int -> ?smooth:int -> ?floor_:float ->
+      Random.State.t ->
+      (Float.Array.t -> Float.Array.t -> float) ->
+      Float.Array.t array ->
+      float option
+    val run_montecarlo:
+      ?verbose:bool ->
+      ?seed:int ->
+      ?threads:int ->
+      ?replicas:int ->
+      ?exchange_every:int ->
+      ?decades:float ->
+      what_label:string ->
+      steps:int ->
+      sample:int ->
+      temperature:float ->
+      cooling:float ->
+      metric:Space.Distance.Metric.t ->
+      distance:Space.Distance.t ->
+      distance_normalize:bool ->
+      Float.Array.t array ->
+      string array ->
+      Float.Array.t ->
+      int array
     val run_hdbscan:
       ?verbose:bool ->
       ?threads:int ->

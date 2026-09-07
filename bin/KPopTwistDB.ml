@@ -105,6 +105,12 @@ type to_do_t =
   | Set_clusters_greedy_order of Clustering.Order.t
   | Set_clusters_greedy_density_sample_number of int
   | Set_clusters_greedy_index_type of Interfaiss.Type.t
+  | Set_clusters_montecarlo_replicas of int
+  | Set_clusters_montecarlo_steps of int
+  | Set_clusters_montecarlo_sample of int
+  | Set_clusters_montecarlo_temperature of float
+  | Set_clusters_montecarlo_decades of float
+  | Set_clusters_montecarlo_cooling of float
   | Set_clusters_hdbscan_min_cluster_size of int
   | Set_clusters_hdbscan_min_samples of int option
   | Set_clusters_hdbscan_mst_mode of Clustering.HdbscanMstMode.t
@@ -129,6 +135,12 @@ module Defaults =
     let clusters_greedy_order = Clustering.Order.Inertia
     let clusters_greedy_density_sample_number = 200
     let clusters_greedy_index_type = Interfaiss.Type.of_string "hnsw(32)"
+    let clusters_montecarlo_replicas = 1
+    let clusters_montecarlo_steps = 2000
+    let clusters_montecarlo_sample = 250
+    let clusters_montecarlo_temperature = 0.002
+    let clusters_montecarlo_decades = 3.
+    let clusters_montecarlo_cooling = 0.999
     let clusters_hdbscan_min_cluster_size = 1
     let clusters_hdbscan_min_samples = (None : int option)
     let clusters_hdbscan_mst_mode = Clustering.HdbscanMstMode.of_string "auto"
@@ -380,11 +392,17 @@ let () =
         Summary_from_twisted_neighbors (twisted_prefix, TA.get_parameter ()) |> List.accum Parameters.program);
     TA.make_separator_multiline [ ""; "Actions on the database registers - Clustering operations:" ];
     [ "--clusters-method" ],
-      Some "'greedy'|'hdbscan'",
+      Some "'greedy'|'hdbscan'|'montecarlo'",
       [ "clustering algorithm.";
         "'greedy': greedy-leader clustering (see --clusters-greedy-* knobs).";
         "'hdbscan': HDBSCAN* density-based clustering (see --clusters-hdbscan-*";
-        "  knobs).  Same metric/distance/normalisation pre-scaling as 'greedy'." ],
+        "  knobs).  Same metric/distance/normalisation pre-scaling as 'greedy'.";
+        "'montecarlo': Metropolis search over partitions, scored by the";
+        "  simplified silhouette (see --clusters-montecarlo-* knobs).  Unlike the";
+        "  other two it optimises a criterion rather than applying a rule, so it";
+        "  can leave a partition that is too fine or too coarse; it starts from a";
+        "  leader pass at the radius implied by the gap between the two modes of";
+        "  the distance distribution." ],
       TA.Default (Clustering.Algorithm.to_string Defaults.clusters_method |> Fun.const),
       (fun _ ->
         Set_clusters_method (TA.get_parameter () |> Clustering.Algorithm.of_string) |> List.accum Parameters.program);
@@ -440,6 +458,81 @@ let () =
       TA.Default (Interfaiss.Type.to_string Defaults.clusters_greedy_index_type |> Fun.const),
       (fun _ ->
         Set_clusters_greedy_index_type (TA.get_parameter () |> Interfaiss.Type.of_string) |> List.accum Parameters.program);
+    [ "--clusters-montecarlo-replicas" ],
+      Some "<positive_integer>",
+      [ "number of parallel-tempering replicas for the 'montecarlo' clustering";
+        "algorithm.  A single chain has to be cold enough to refine and hot enough";
+        "to escape a local optimum, and cannot be both; replicas on a ladder of";
+        "temperatures can, since a good partition found by a hot one migrates to a";
+        "colder one at the exchanges.  Replicas run one per thread, so this is also";
+        "where -T buys anything: the chain itself is sequential.";
+        "Ignored unless --clusters-method 'montecarlo' is in effect." ],
+      TA.Default (string_of_int Defaults.clusters_montecarlo_replicas |> Fun.const),
+      (fun _ ->
+        Set_clusters_montecarlo_replicas (TA.get_parameter_int_pos ())
+        |> List.accum Parameters.program);
+    [ "--clusters-montecarlo-steps" ],
+      Some "<positive_integer>",
+      [ "number of Monte-Carlo moves attempted by the 'montecarlo' clustering";
+        "algorithm.  Each move merges two classes or splits one, and is accepted";
+        "or rejected by Metropolis on the simplified silhouette.";
+        "Ignored unless --clusters-method 'montecarlo' is in effect." ],
+      TA.Default (string_of_int Defaults.clusters_montecarlo_steps |> Fun.const),
+      (fun _ ->
+        Set_clusters_montecarlo_steps (TA.get_parameter_int_pos ())
+        |> List.accum Parameters.program);
+    [ "--clusters-montecarlo-sample" ],
+      Some "<positive_integer>",
+      [ "number of points sampled to score a partition in the 'montecarlo'";
+        "clustering algorithm.  The silhouette is computed against class centroids,";
+        "so the cost of scoring a move is this number times the number of classes,";
+        "and does not grow with how many points there are in total.";
+        "Ignored unless --clusters-method 'montecarlo' is in effect." ],
+      TA.Default (string_of_int Defaults.clusters_montecarlo_sample |> Fun.const),
+      (fun _ ->
+        Set_clusters_montecarlo_sample (TA.get_parameter_int_pos ())
+        |> List.accum Parameters.program);
+    [ "--clusters-montecarlo-temperature" ],
+      Some "<positive_float>",
+      [ "initial Metropolis temperature for the 'montecarlo' clustering algorithm,";
+        "and the coldest rung of the ladder when there is more than one replica.";
+        "A move worsening the silhouette by d is accepted with probability";
+        "exp(-d/T), so a temperature far below the range of the silhouette makes";
+        "the search greedy, and it then settles into whichever local optimum a rule";
+        "would have reached anyway.  With replicas the ladder retunes itself and";
+        "this is only where it starts.";
+        "Ignored unless --clusters-method 'montecarlo' is in effect." ],
+      TA.Default (string_of_float Defaults.clusters_montecarlo_temperature |> Fun.const),
+      (fun _ ->
+        Set_clusters_montecarlo_temperature (TA.get_parameter_float_pos ())
+        |> List.accum Parameters.program);
+    [ "--clusters-montecarlo-decades" ],
+      Some "<positive_float>",
+      [ "number of decades of temperature spanned by the replica ladder of the";
+        "'montecarlo' clustering algorithm.  The rungs are equally spaced in the";
+        "logarithm of the temperature, running upwards from";
+        "--clusters-montecarlo-temperature, because Metropolis weighs a score";
+        "difference against T as a ratio and so it is the ratio between two rungs";
+        "that makes them behave differently.  The ladder then slides towards";
+        "whichever end is earning the improvements, and the temperatures it settles";
+        "on are reported.";
+        "Ignored unless --clusters-method 'montecarlo' is in effect with more than";
+        "one replica." ],
+      TA.Default (string_of_float Defaults.clusters_montecarlo_decades |> Fun.const),
+      (fun _ ->
+        Set_clusters_montecarlo_decades (TA.get_parameter_float_pos ())
+        |> List.accum Parameters.program);
+    [ "--clusters-montecarlo-cooling" ],
+      Some "<fractional_float>",
+      [ "factor by which the temperature is multiplied after each move of the";
+        "'montecarlo' clustering algorithm.  A value of 1 never cools and the chain";
+        "keeps wandering; the default cools by about a factor of e over the default";
+        "number of steps.";
+        "Ignored unless --clusters-method 'montecarlo' is in effect." ],
+      TA.Default (string_of_float Defaults.clusters_montecarlo_cooling |> Fun.const),
+      (fun _ ->
+        Set_clusters_montecarlo_cooling (TA.get_parameter_float_fraction ())
+        |> List.accum Parameters.program);
     [ "--clusters-hdbscan-min-cluster-size" ],
       Some "<positive_integer>",
       [ "minimum cluster size for the 'hdbscan' clustering algorithm.";
@@ -591,6 +684,10 @@ let () =
       | Set_clusters_method _
       | Set_clusters_greedy_epsilon _ | Set_clusters_greedy_order _ | Set_clusters_greedy_density_sample_number _
       | Set_clusters_greedy_index_type _
+      | Set_clusters_montecarlo_replicas _
+      | Set_clusters_montecarlo_steps _ | Set_clusters_montecarlo_sample _
+      | Set_clusters_montecarlo_temperature _ | Set_clusters_montecarlo_decades _
+      | Set_clusters_montecarlo_cooling _
       | Set_clusters_hdbscan_min_cluster_size _ | Set_clusters_hdbscan_min_samples _
       | Set_clusters_hdbscan_mst_mode _ | Set_clusters_hdbscan_num_neighbors _ | Set_clusters_hdbscan_index_type _ ->
         ()
@@ -624,6 +721,12 @@ let () =
   and clusters_greedy_epsilon = ref Defaults.clusters_greedy_epsilon and clusters_greedy_order = ref Defaults.clusters_greedy_order
   and clusters_greedy_density_sample_number = ref Defaults.clusters_greedy_density_sample_number
   and clusters_greedy_index_type = ref Defaults.clusters_greedy_index_type
+  and clusters_montecarlo_replicas = ref Defaults.clusters_montecarlo_replicas
+  and clusters_montecarlo_steps = ref Defaults.clusters_montecarlo_steps
+  and clusters_montecarlo_sample = ref Defaults.clusters_montecarlo_sample
+  and clusters_montecarlo_temperature = ref Defaults.clusters_montecarlo_temperature
+  and clusters_montecarlo_decades = ref Defaults.clusters_montecarlo_decades
+  and clusters_montecarlo_cooling = ref Defaults.clusters_montecarlo_cooling
   and clusters_hdbscan_min_cluster_size = ref Defaults.clusters_hdbscan_min_cluster_size
   and clusters_hdbscan_min_samples = ref Defaults.clusters_hdbscan_min_samples
   and clusters_hdbscan_mst_mode = ref Defaults.clusters_hdbscan_mst_mode
@@ -722,6 +825,18 @@ let () =
           clusters_greedy_density_sample_number := n
         | Set_clusters_greedy_index_type it ->
           clusters_greedy_index_type := it
+        | Set_clusters_montecarlo_replicas n ->
+          clusters_montecarlo_replicas := n
+        | Set_clusters_montecarlo_steps n ->
+          clusters_montecarlo_steps := n
+        | Set_clusters_montecarlo_sample n ->
+          clusters_montecarlo_sample := n
+        | Set_clusters_montecarlo_temperature t ->
+          clusters_montecarlo_temperature := t
+        | Set_clusters_montecarlo_decades dd ->
+          clusters_montecarlo_decades := dd
+        | Set_clusters_montecarlo_cooling c ->
+          clusters_montecarlo_cooling := c
         | Set_clusters_hdbscan_min_cluster_size n ->
           clusters_hdbscan_min_cluster_size := n
         | Set_clusters_hdbscan_min_samples k ->
@@ -794,7 +909,27 @@ let () =
                       if cid >= 0 then Hashtbl.add seen_clusters cid ();
                       Printf.fprintf output "%s\n" twm.Matrix.Base.col_names.(i)
                     end)
-                  cluster_of);
+                  cluster_of
+              | Clustering.Algorithm.Montecarlo ->
+                let rep_orig =
+                  Clustering.run_montecarlo
+                    ~verbose:!Parameters.verbose ~threads:!Parameters.threads
+                    ~replicas:!clusters_montecarlo_replicas
+                    ~what_label:"k-mers"
+                    ~steps:!clusters_montecarlo_steps
+                    ~sample:!clusters_montecarlo_sample
+                    ~temperature:!clusters_montecarlo_temperature
+                    ~decades:!clusters_montecarlo_decades
+                    ~cooling:!clusters_montecarlo_cooling
+                    ~metric:!metric
+                    ~distance:!distance
+                    ~distance_normalize:!distance_normalize
+                    kc twm.Matrix.Base.col_names iv in
+                Array.iteri
+                  (fun i ri ->
+                    if ri = i then
+                      Printf.fprintf output "%s\n" twm.Matrix.Base.col_names.(i))
+                  rep_orig);
               close_out output);
           if !Parameters.verbose then
             Printf.eprintf "%s Representative k-mer list written to '%s'.\n%!"
@@ -857,6 +992,25 @@ let () =
                     output_string output ("C@" ^ string_of_int cluster_of.(i))
                   else
                     output_string output "noise"
+                done
+              | Clustering.Algorithm.Montecarlo ->
+                let rep_orig =
+                  Clustering.run_montecarlo
+                    ~verbose:!Parameters.verbose ~threads:!Parameters.threads
+                    ~replicas:!clusters_montecarlo_replicas
+                    ~what_label:"samples"
+                    ~steps:!clusters_montecarlo_steps
+                    ~sample:!clusters_montecarlo_sample
+                    ~temperature:!clusters_montecarlo_temperature
+                    ~decades:!clusters_montecarlo_decades
+                    ~cooling:!clusters_montecarlo_cooling
+                    ~metric:!metric
+                    ~distance:!distance
+                    ~distance_normalize:!distance_normalize
+                    mat.Matrix.Base.data mat.Matrix.Base.row_names iv in
+                for i = 0 to n - 1 do
+                  output_char output '\t';
+                  output_string output ("C@" ^ mat.Matrix.Base.row_names.(rep_orig.(i)))
                 done);
               output_char output '\n';
               close_out output);
