@@ -1383,16 +1383,13 @@ include (
        THE STARTING PARTITION is one leader pass at [valley_radius], deliberately finer than
        the answer since the search merges far more often than it splits; where the distances
        imply no radius, every point starts on its own *)
-    let run_montecarlo
-        ?(verbose = false) ?(seed = 17) ?(threads = 1) ?(replicas = 1) ?(exchange_every = 250)
-        ?(decades = 3.) ~what_label ~steps ~sample ~temperature ~cooling ~metric ~distance
-        ~distance_normalize coords names inertia_vec =
-      let n = Array.length coords and d = Float.Array.length inertia_vec in
-      let open String.TermIO in
-      let prefix = grey (Printf.sprintf "(%s):" __FUNCTION__) in
+    (* THE SPACE EVERY CLUSTERER HERE WORKS IN.  A twisted register stores standard
+       coordinates, so the metric has to be applied before a distance is taken: scaling each
+       axis by the square root of its weight makes a plain distance over the result the
+       weighted generalised distance the user asked for *)
+    let make_embeddings ~metric ~distance ~distance_normalize coords inertia_vec =
       let ( .@!() ) = Float.Array.( .@!() ) in
-      (* Embeddings exactly as the greedy clusterer builds them, so that a distance in
-         embedding space is the weighted generalised distance *)
+      let d = Float.Array.length inertia_vec in
       let mw = Space.Distance.Metric.compute metric inertia_vec in
       let flat = Float.Array.make d 1. in
       let compute_embedding coord =
@@ -1401,10 +1398,124 @@ include (
           let norm = Space.Distance.compute_norm distance flat v in
           if norm > 0. then Float.Array.init d (fun k -> v.@!(k) /. norm) else v
         end else v in
-      let embeds = Array.map compute_embedding coords in
-      let embed_dist a b = Space.Distance.compute distance flat a b in
+      Array.map compute_embedding coords,
+      fun a b -> Space.Distance.compute distance flat a b
+    (* THE DIMENSION THE DATA OCCUPIES, which is not the number of axes it is stored in, by the
+       two-nearest-neighbour estimator of Facco, d'Errico, Rodriguez and Laio (2017).  For each
+       point the ratio of the distances to its second and first neighbours is Pareto with the
+       dimension as its parameter, and -- this being the whole reason only two are used -- the
+       local density cancels, so one estimate holds over a set whose density varies from place
+       to place.  Read it as the dimension of a NEIGHBOURHOOD: on a set that clusters, both of
+       a point's neighbours are usually in its own group, so this measures the spread within a
+       group and not the arrangement of the groups, which is a larger number *)
+    let intrinsic_dimension ?(sample = 800) state embed_dist embeds =
+      let n = Array.length embeds in
+      let idx = Array.init (min sample n) (fun _ -> Random.State.int state n) in
+      let tot = ref 0. and cnt = ref 0 in
+      Array.iter
+        (fun i ->
+          let r1 = ref infinity and r2 = ref infinity in
+          Array.iter
+            (fun j ->
+              if i <> j then begin
+                let dd = embed_dist embeds.(i) embeds.(j) in
+                if dd < !r1 then begin r2 := !r1; r1 := dd end
+                else if dd < !r2 then r2 := dd
+              end)
+            idx;
+          if !r1 > 0. && !r2 < infinity then begin
+            tot := !tot +. log (!r2 /. !r1); incr cnt
+          end)
+        idx;
+      if !cnt > 0 && !tot > 0. then float_of_int !cnt /. !tot else 0.
+    (* WHETHER THERE IS ANYTHING HERE TO PARTITION AT ALL.  A set that falls into groups has two
+       modes in its pairwise-distance distribution -- one for pairs within a group, one for
+       pairs across -- with a valley between them, and a set that does not has one mode and no
+       valley.  The radius the search starts from is read off that valley, so its absence is
+       already known and is worth SAYING rather than swallowing, because the search returns a
+       partition either way: some partition always maximises the criterion, and over a set with
+       no groups in it that partition is an artefact of the criterion rather than a finding *)
+    let assess_structure ?(verbose = false) ?(seed = 17) ?sample ~what_label ~metric ~distance
+        ~distance_normalize coords inertia_vec =
+      let open String.TermIO in
+      let prefix = grey (Printf.sprintf "(%s):" __FUNCTION__) in
+      let embeds, embed_dist =
+        make_embeddings ~metric ~distance ~distance_normalize coords inertia_vec in
       let state = Random.State.make [| seed |] in
-      let radius = match valley_radius state embed_dist embeds with Some r -> r | None -> 0. in
+      let valley = valley_radius state embed_dist embeds in
+      let dim = intrinsic_dimension ?sample state embed_dist embeds in
+      (* A VALLEY OUTSIDE THE DATA IS NOT A VALLEY.  The detector reads a minimum off a smoothed
+         histogram and can put it below every distance there is, which is an empty left mode and
+         so no mode at all; the giveaway is that a radius like that admits nothing, the leader
+         clustering it seeds returning one cluster per sample.  Measuring the share of pairs
+         that actually fall below it is what tells a boundary between two modes from a dip in
+         the left tail, and only the first is evidence of groups *)
+      let below =
+        match valley with
+        | None -> 0.
+        | Some r ->
+          let n = Array.length embeds in
+          let hits = ref 0 and drawn = ref 0 in
+          for _ = 1 to 4000 do
+            let i = Random.State.int state n and j = Random.State.int state n in
+            if i <> j then begin
+              incr drawn;
+              if embed_dist embeds.(i) embeds.(j) <= r then incr hits
+            end
+          done;
+          if !drawn > 0 then float_of_int !hits /. float_of_int !drawn else 0. in
+      let structured = valley <> None && below >= 0.002 in
+      if verbose then begin
+        Printf.eprintf
+          "%s %s: a neighbourhood occupies about %.1f dimensions of the %d they are stored in.\n%!"
+          prefix what_label dim (Float.Array.length inertia_vec);
+        (* Said of THESE EMBEDDINGS and not of the data, the two being different claims: a
+           projection that does not span the corpus can hide groups that are really there *)
+        match valley with
+        | Some r when structured ->
+          Printf.eprintf
+            "%s %s: their distances are two-moded, the valley lying at %.4g with %.1f%% of \
+             pairs below it.\n%!"
+            prefix what_label r (100. *. below)
+        | Some r ->
+          Printf.eprintf
+            "%s %s: %s.\n%!" prefix what_label
+            (red
+               (Printf.sprintf
+                  "a valley was placed at %.4g but only %.2f%% of pairs lie below it, so there \
+                   is no left mode and this embedding shows no groups" r (100. *. below)))
+        | None ->
+          Printf.eprintf
+            "%s %s: %s.\n%!" prefix what_label
+            (red "their distances have a single mode, so this embedding shows no groups")
+      end;
+      structured, dim
+    let run_montecarlo
+        ?(verbose = false) ?(seed = 17) ?(threads = 1) ?(replicas = 1) ?(exchange_every = 250)
+        ?(decades = 3.) ~what_label ~steps ~sample ~temperature ~cooling ~metric ~distance
+        ~distance_normalize coords names inertia_vec =
+      let n = Array.length coords and d = Float.Array.length inertia_vec in
+      let open String.TermIO in
+      let prefix = grey (Printf.sprintf "(%s):" __FUNCTION__) in
+      let ( .@!() ) = Float.Array.( .@!() ) in
+      let embeds, embed_dist =
+        make_embeddings ~metric ~distance ~distance_normalize coords inertia_vec in
+      let state = Random.State.make [| seed |] in
+      (* NO VALLEY MEANS NO GROUPS, and the search is about to return a partition regardless,
+         so it is said here rather than left to be inferred from a starting point of one cluster
+         per sample.  A radius of zero is the honest consequence and not a fallback: nothing is
+         within it, so every sample leads its own cluster and the search begins from the
+         partition that assumes nothing *)
+      let radius =
+        match valley_radius state embed_dist embeds with
+        | Some r -> r
+        | None ->
+          if verbose then
+            Printf.eprintf "%s %s: %s.\n%!" prefix what_label
+              (String.TermIO.red
+                 "the distances have no valley, so there are no groups here to find -- what \
+                  follows maximises the criterion over a set that does not cluster");
+          0. in
       let start = Array.make n (-1) and leaders = ref [] and n_lead = ref 0 in
       for i = 0 to n - 1 do
         let best = ref (-1) and best_d = ref infinity in
@@ -1448,6 +1559,13 @@ include (
               live.(!n_live) <- c; incr n_live
             end
           done in
+        (* A POINT ALONE IN ITS CLUSTER SCORES ZERO, and is counted.  Its own centroid is itself,
+           so the quantity the others are scored by is undefined for it, and leaving it out of
+           the average instead is what makes shattering pay: every singleton removes a term, so
+           a partition of nothing but singletons is judged on the handful of points that are
+           not, and can be made to score almost anything.  Zero is the convention and it is the
+           right one here, being the value of a point equally close to its own cluster and the
+           next, which is what a cluster of one says about it *)
         let silhouette () =
           let tot = ref 0. and cnt = ref 0 in
           Array.iter
@@ -1465,7 +1583,8 @@ include (
                 if !b < infinity then begin
                   tot := !tot +. (!b -. a) /. Float.max a !b; incr cnt
                 end
-              end)
+              end else
+                incr cnt)
             samp;
           if !cnt > 0 then !tot /. float_of_int !cnt else -1. in
         let merge () =
@@ -1536,7 +1655,14 @@ include (
           recentre ();
           let proposed = silhouette () in
           let take =
-            if proposed > !cur then true
+            (* A PROPOSAL THAT CHANGES NOTHING IS NOT A WORSENING ONE, and counting it as one
+               corrupts the very rate the ladder is tuned on: exp(0/T) is 1 at every
+               temperature, so a tie is always taken, and a partition offering many of them --
+               which one made mostly of singletons does, the score being blind to where a
+               singleton moves -- reports an acceptance near 100% however cold the chain is.
+               The ladder then reads itself as far too hot and slides until it is not tuning
+               anything *)
+            if proposed >= !cur then true
             else begin
               incr worse;
               let ok = Random.State.float chain_state 1. < exp ((proposed -. !cur) /. !temp) in
@@ -1632,7 +1758,8 @@ include (
             if !b < infinity then begin
               tot := !tot +. (!b -. a) /. Float.max a !b; incr cnt
             end
-          end
+          end else
+            incr cnt
         done;
         if !cnt > 0 then !tot /. float_of_int !cnt else -1. in
       let best = ref (Array.copy start) and best_score = ref (full_silhouette start) in
@@ -1838,6 +1965,19 @@ include (
       (Float.Array.t -> Float.Array.t -> float) ->
       Float.Array.t array ->
       float option
+    (* Whether the pairwise distances are two-moded, which is to say whether there are groups
+       here at all, and the dimension a neighbourhood occupies *)
+    val assess_structure:
+      ?verbose:bool ->
+      ?seed:int ->
+      ?sample:int ->
+      what_label:string ->
+      metric:Space.Distance.Metric.t ->
+      distance:Space.Distance.t ->
+      distance_normalize:bool ->
+      Float.Array.t array ->
+      Float.Array.t ->
+      bool * float
     val run_montecarlo:
       ?verbose:bool ->
       ?seed:int ->

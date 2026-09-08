@@ -990,6 +990,14 @@ let () =
                     output_string output "noise"
                 done
               | Clustering.Algorithm.Montecarlo ->
+                (* Reported and not enforced, this being the lower-level tool: it says whether
+                   there are groups here to find before returning a partition either way, and
+                   leaves refusing to KPop-autotuner, which is the one asked for an answer
+                   rather than for a computation *)
+                ignore
+                  (Clustering.assess_structure ~verbose:!Parameters.verbose
+                     ~what_label:"samples" ~metric:!metric ~distance:!distance
+                     ~distance_normalize:!distance_normalize mat.Matrix.Base.data iv);
                 let rep_orig =
                   Clustering.run_montecarlo
                     ~verbose:!Parameters.verbose ~threads:!Parameters.threads
