@@ -37,6 +37,7 @@ And finally, the awesome `KPop` logo was created by [Emily Fotopoulou](https://g
 &emsp; [4.3. `KPopTwist`](#43-kpoptwist)<br>
 &emsp; [4.4. `KPopTwistDB`](#44-kpoptwistdb)<br>
 &emsp; [4.5. `KPop-hash2kmer`](#45-kpop-hash2kmer)<br>
+&emsp; [4.6. `KPop-autotuner`](#46-kpop-autotuner)<br>
 [5. Examples](#5-examples)<br>
 &emsp; [5.1. Sequence classification](#51-sequence-classification)<br>
 &emsp; &emsp; [5.1.1. Classifier for simulated *M.tuberculosis* sequencing reads](#511-classifier-for-simulated-mtuberculosis-sequencing-reads)<br>
@@ -300,6 +301,7 @@ If you still think that all this is too complicated for you, do not despair! Som
 
 In addition, a small helper program is provided:
 * [`KPop-hash2kmer`](#45-kpop-hash2kmer). It performs the inverse of `KPopCount`'s hashing: it reads *k*-mer hashes (one per line) &mdash; such as the ones appearing as row names in the spectra and databases produced by the other programs &mdash; and back-translates them into the corresponding sequences. This is useful, for instance, to find out which *k*-mers have been selected, or are most relevant, after an analysis.
+* [`KPop-autotuner`](#46-kpop-autotuner). It finds a partition of a database of spectra without being told what to look for, running the whole de-novo pipeline in one go: a projection to embed the spectra in, a Monte-Carlo search for the partition that best fits them, and then the loop that feeds the partition back to define the projection and searches again, until the two agree. It refuses to return a partition of a set that does not fall into groups, rather than returning one that would say more about the criterion than about the data.
 
 ### 3.1. General design
 
@@ -653,6 +655,69 @@ The hashing parameters below must match those used to produce the hashes\.
 | `-v`<br>`--verbose` |  |  set verbose execution | <ins>default=<mark>_quiet execution_</mark></ins> |
 | `-V`<br>`--version` |  |  print version and exit |  |
 | `-h`<br>`--help` |  |  print syntax and exit |  |
+### 4.6. `KPop-autotuner`
+
+This is the list of command line options available for the program `KPop-autotuner`. You can visualise the list by typing
+```bash
+KPop-autotuner -h
+```
+in your terminal. You will see a header containing information about the version:
+```
+This is KPop-autotuner version 1.99.1-987 [07-Sep-2026]
+ compiled against: BiOCamLib version 1.3.3-971 [02-Sep-2026];
+                   KPop version 1.99.1-987 [07-Sep-2026]
+ (c) 2026 Paolo Ribeca <paolo.ribeca@gmail.com>
+```
+*Usage:*
+```
+KPop-autotuner -i <binary_file_prefix> -o <output_file_prefix> [OPTIONS]
+```
+
+**Input/Output\.**
+
+
+| Option | Argument(s) | Effect | Note(s) |
+|-|-|-|-|
+| `-i`<br>`--input` | _binary\_file\_prefix_ |  load the specified binary database of k-mer spectra\.<br>File extension is automatically assigned \(will be `.KPopSpectra`\) | <ins><mark>mandatory</mark></ins> |
+| `-o`<br>`--output` | _output\_file\_prefix_ |  prefix for the three results, their extensions being assigned rather than typed: the twister the loop settled on \(`.KPopTwister`\), the spectra as it embeds them \(`.KPopTwisted`\), and the partition \(`.KPopClasses.txt`\), the last in the two-line form `KPopCountDB -m <file> -c CLASS` reads | <ins><mark>mandatory</mark></ins> |
+
+**Algorithm\.**
+
+
+| Option | Argument(s) | Effect | Note(s) |
+|-|-|-|-|
+| `--projection-sample` | _non\_negative\_integer_ |  number of spectra defining the initial projection, or 0 to use every one of them\.<br>A sample is usually enough, and is much cheaper than a correspondence analysis of the whole database, because the projection only has to keep the classes apart and their arrangement occupies far fewer dimensions than the database is stored in\.<br>Note that the Johnson-Lindenstrauss bound does NOT justify this: being distribution-free it asks for more dimensions than there are samples here, and what makes a small sample work is the low intrinsic dimension of this particular data rather than any worst-case guarantee\.  It matters only for the first round: from the second the axes come from the partition rather than from a sample | <ins>default=<mark>_0_</mark></ins> |
+| `--iterations` | _positive\_integer_ |  maximum number of rounds\.  The loop stops earlier, and usually does, when a round returns the partition it was given &mdash; that being a fixed point of the whole procedure and the answer it is looking for | <ins>default=<mark>_12_</mark></ins> |
+| `--report-anyway` |  |  write a partition out even when the samples show no group structure\.  Off by default, because a partition of a set that does not cluster says more about the criterion that produced it than about the data, and the one thing this program should not do is hand one over without saying so | <ins>default=<mark>_false_</mark></ins> |
+| `-m`<br>`--metric` | _metric_ |  metric the search measures distances under | <ins>default=<mark>_powers\(1,1,1\)_</mark></ins> |
+| `-d`<br>`--distance` | _distance_ |  distance the search measures distances with | <ins>default=<mark>_euclidean_</mark></ins> |
+| `--distance-normalize` | _bool_ |  whether to normalise vectors before measuring the distance between them | <ins>default=<mark>_false_</mark></ins> |
+| `--combination-criterion` | `mean` _&#124;_ `median` |  criterion combining the spectra of a class into the one representing it when the partition is fed back to define the next projection | <ins>default=<mark>_mean_</mark></ins> |
+
+**The search\.**
+
+These mirror the `--clusters-montecarlo-*` family of KPopTwistDB\.
+
+| Option | Argument(s) | Effect | Note(s) |
+|-|-|-|-|
+| `--montecarlo-replicas` | _positive\_integer_ |  number of chains run in parallel at a ladder of temperatures | <ins>default=<mark>_4_</mark></ins> |
+| `--montecarlo-steps` | _positive\_integer_ |  number of moves each round of the search attempts | <ins>default=<mark>_2000_</mark></ins> |
+| `--montecarlo-sample` | _positive\_integer_ |  number of points a chain scores a partition on | <ins>default=<mark>_250_</mark></ins> |
+| `--montecarlo-temperature` | _positive\_float_ |  coldest rung of the temperature ladder, which retunes itself from there | <ins>default=<mark>_0\.002_</mark></ins> |
+| `--montecarlo-decades` | _positive\_float_ |  number of decades of temperature the ladder spans | <ins>default=<mark>_3\._</mark></ins> |
+| `--montecarlo-cooling` | _fractional\_float_ |  factor the temperature is multiplied by after each move | <ins>default=<mark>_0\.999_</mark></ins> |
+
+**Miscellaneous\.**
+
+
+| Option | Argument(s) | Effect | Note(s) |
+|-|-|-|-|
+| `--seed` | _integer_ |  seed for the random number generator | <ins>default=<mark>_17_</mark></ins> |
+| `-T`<br>`--threads` | _computing\_threads_ |  number of concurrent computing threads to be spawned | <ins>default=<mark>_4_</mark></ins> |
+| `-v`<br>`--verbose` |  |  set verbose execution | <ins>default=<mark>_false_</mark></ins> |
+| `-V`<br>`--version` |  |  print version and exit |  |
+| `-h`<br>`--help` |  |  print syntax and exit |  |
+
 ## 5. Examples
 
 By using the programs just described, it is possible to implement a number of interesting high-throughput workflows. We illustrate some examples here - for a more general description, please refer to our [Genome Biology paper](https://doi.org/10.1186/s13059-025-03585-8).

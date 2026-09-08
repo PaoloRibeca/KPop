@@ -276,6 +276,7 @@ dune build --profile="$PROFILE" bin/KPopTwist.exe $FLAGS
 dune build --profile="$PROFILE" bin/KPopTwistDB.exe $FLAGS
 dune build --profile="$PROFILE" bin/KPopPhylo.exe $FLAGS
 dune build --profile="$PROFILE" bin/KPop_hash2kmer.exe $FLAGS
+dune build --profile="$PROFILE" bin/KPop_autotuner.exe $FLAGS
 
 # When a test target is in effect we also need Yggdrasill (for the
 # integration scripts) and the relevant test executables.  Those stay
@@ -304,6 +305,7 @@ mv _build/default/bin/KPopTwist.exe .build/KPopTwist
 mv _build/default/bin/KPopTwistDB.exe .build/KPopTwistDB
 mv _build/default/bin/KPopPhylo.exe .build/KPopPhylo
 mv _build/default/bin/KPop_hash2kmer.exe .build/KPop-hash2kmer
+mv _build/default/bin/KPop_autotuner.exe .build/KPop-autotuner
 
 chmod 755 .build/*
 
@@ -348,6 +350,6 @@ fi
 # around for testing.  Test targets leave _build intact for repeat runs.
 if [[ -z "$DO_TESTS" ]] && \
    [[ "$PROFILE" == "release" || "$PROFILE" == "release-static" ]]; then
-  strip .build/KPop{Count,CountDB,Twist,TwistDB,Phylo,-hash2kmer}
+  strip .build/KPop{Count,CountDB,Twist,TwistDB,Phylo,-hash2kmer,-autotuner}
   rm -rf _build
 fi

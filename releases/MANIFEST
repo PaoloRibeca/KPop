@@ -5,3 +5,4 @@ README.pdf	README.pdf
 .build/KPopTwist	KPopTwist
 .build/KPopTwistDB	KPopTwistDB
 .build/KPop-hash2kmer	KPop-hash2kmer
+.build/KPop-autotuner	KPop-autotuner
