@@ -118,6 +118,7 @@ type to_do_t =
   | Set_clusters_hdbscan_index_type of Interfaiss.Type.t
   | Clusters_kmers of string
   | Clusters_samples of string
+  | Compare_clusters of string * string
 
 module Defaults =
   struct
@@ -581,6 +582,25 @@ let () =
       (fun _ ->
         Set_clusters_hdbscan_index_type (TA.get_parameter () |> Interfaiss.Type.of_string)
         |> List.accum Parameters.program);
+    [ "--clusters-compare" ],
+      Some "<class_file> <class_file>",
+      [ "compare two partitions of the same samples and write three numbers to stdout.";
+        "Each file is a two-line class file as written by --clusters t.  Samples";
+        "  named by only one of them are ignored, so a partition of a subset can be";
+        "  compared against one of the whole.";
+        "THREE NUMBERS BECAUSE ONE CANNOT BE READ ALONE.  The adjusted Rand index";
+        "  charges a partition both for splitting a class of the other and for merging";
+        "  two of them, so a clean refinement and a real disagreement can score alike";
+        "  and the number of clusters ends up tangled into the verdict.  Homogeneity";
+        "  is 1 when every cluster is pure, whatever their number, and so sees only";
+        "  mixing; completeness is 1 when every class is intact, and so falls with";
+        "  every split, cleanly made or not.";
+        "Needs no register, and so can be given anywhere on the command line." ],
+      TA.Optional,
+      (fun _ ->
+        let a = TA.get_parameter () in
+        let b = TA.get_parameter () in
+        Compare_clusters (a, b) |> List.accum Parameters.program);
     [ "-c"; "--clusters" ],
       Some "'T' <kmer_list_file>|'t' <class_file>",
       [ "apply clustering to the contents of the specified register";
@@ -648,6 +668,9 @@ let () =
   List.iter
     (function
       | Empty _ ->
+        ()
+      (* It reads two files and touches no register, so there is nothing here to check *)
+      | Compare_clusters _ ->
         ()
       | Binary_to_register (Twister, _) | Tables_to_register (Twister, _) ->
         twister_loaded := true
@@ -1020,7 +1043,54 @@ let () =
               close_out output);
           if !Parameters.verbose then
             Printf.eprintf "%s Sample class file written to '%s'.\n%!"
-              prefix output_file)
+              prefix output_file
+        | Compare_clusters (file_a, file_b) ->
+          (* A two-line class file: names on the first line, the label 'CLASS' and then one
+             label per name on the second.  Both lines lead with a separator, so the first
+             field of each is empty and is dropped *)
+          let read file =
+            let input = open_in file in
+            let names = try input_line input with End_of_file ->
+              Exception.raise __FUNCTION__ IO_Format
+                (Printf.sprintf "class file '%s' is empty" file) in
+            let labels = try input_line input with End_of_file ->
+              Exception.raise __FUNCTION__ IO_Format
+                (Printf.sprintf "class file '%s' has no CLASS line" file) in
+            close_in input;
+            let names = String.split_on_char '\t' names |> Array.of_list
+            and labels = String.split_on_char '\t' labels |> Array.of_list in
+            if Array.length names <> Array.length labels then
+              Exception.raise __FUNCTION__ IO_Format
+                (Printf.sprintf
+                   "class file '%s' names %d samples and labels %d of them"
+                   file (Array.length names - 1) (Array.length labels - 1));
+            let acc = Hashtbl.create 64 in
+            for i = 1 to Array.length names - 1 do
+              Hashtbl.replace acc names.(i) labels.(i)
+            done;
+            acc in
+          let a = read file_a and b = read file_b in
+          (* Only what both name, so that a partition of a subset can be compared against one
+             of the whole without the caller having to intersect them first *)
+          let la = ref [] and lb = ref [] in
+          Hashtbl.iter
+            (fun name label_a ->
+              match Hashtbl.find_opt b name with
+              | Some label_b -> la := label_a :: !la; lb := label_b :: !lb
+              | None -> ())
+            a;
+          let la = Array.of_list !la and lb = Array.of_list !lb in
+          if Array.length la = 0 then
+            Exception.raise __FUNCTION__ IO_Format
+              "the two class files name no sample in common";
+          let ari, homogeneity, completeness = Clustering.compare_partitions la lb in
+          let classes t = Hashtbl.fold (fun _ v acc -> StringSet.add v acc) t StringSet.empty
+                          |> StringSet.cardinal in
+          if !Parameters.verbose then
+            Printf.eprintf "%s Comparing %d samples named by both, %d classes against %d.\n%!"
+              prefix (Array.length la) (classes a) (classes b);
+          Printf.printf "adjusted_rand_index\thomogeneity\tcompleteness\n%.15g\t%.15g\t%.15g\n"
+            ari homogeneity completeness)
       program
   with e ->
     Exception.handle __FUNCTION__ TA.usage (fun () ->

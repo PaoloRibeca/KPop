@@ -534,9 +534,9 @@ KPopTwistDB -h
 ```
 in your terminal. You will see a header containing information about the version:
 ```
-This is KPopTwistDB version 1.99.1-973 [17-Jul-2026]
+This is KPopTwistDB version 1.99.1-995 [08-Sep-2026]
  compiled against: BiOCamLib version 1.3.3-971 [02-Sep-2026];
-                   KPop version 1.99.1-973 [17-Jul-2026]
+                   KPop version 1.99.1-995 [08-Sep-2026]
  (c) 2022-2026 Paolo Ribeca <paolo.ribeca@gmail.com>
      2024      Ünsal Öztürk <uensal.oeztuerk@gmail.com>
 ```
@@ -602,6 +602,7 @@ Actions on the database registers - Clustering operations:
 | `--clusters-hdbscan-mst-mode` | `auto` _&#124;_ `sparse` _&#124;_ `dense` |  minimum-spanning-tree construction strategy for the `hdbscan` clustering algorithm\.  Same semantics as KPopPhylo's --hdbscan-mst-mode but settable independently\.<br>Ignored unless --clusters-method `hdbscan` is in effect\. | <ins>default=<mark>_auto_</mark></ins> |
 | `--clusters-hdbscan-num-neighbors` | _positive\_integer_ |  number of nearest neighbours per point used to build the FAISS k-NN candidate graph for the sparse `hdbscan` MST\.  When unset, auto-computed as max\(--clusters-hdbscan-min-samples \+ 1, min\(n - 1, 30\)\)\.<br>Ignored unless --clusters-method `hdbscan` and \--clusters-hdbscan-mst-mode `sparse` are in effect\. | <ins>default=<mark>_auto \(max\(min\_samples \+ 1, min\(n - 1, 30\)\)\)_</mark></ins> |
 | `--clusters-hdbscan-index-type` | `flat` _&#124;_ `pq('PQ_PARAMETERS` _\)_ `\|'hnsw(` _positive\_integer_ `)` |  FAISS index type used by the sparse `hdbscan` MST when used as the clustering algorithm\.  Same syntax as --neighbors-index-type\.<br>Ignored unless --clusters-method `hdbscan` and \--clusters-hdbscan-mst-mode `sparse` are in effect\. | <ins>default=<mark>_hnsw\(32\)_</mark></ins> |
+| `--clusters-compare` | _class\_file_ _class\_file_ |  compare two partitions of the same samples and write three numbers to stdout\.<br>Each file is a two-line class file as written by --clusters t\.  Samples   named by only one of them are ignored, so a partition of a subset can be   compared against one of the whole\.<br>THREE NUMBERS BECAUSE ONE CANNOT BE READ ALONE\.  The adjusted Rand index   charges a partition both for splitting a class of the other and for merging   two of them, so a clean refinement and a real disagreement can score alike   and the number of clusters ends up tangled into the verdict\.  Homogeneity   is 1 when every cluster is pure, whatever their number, and so sees only   mixing; completeness is 1 when every class is intact, and so falls with   every split, cleanly made or not\.<br>Needs no register, and so can be given anywhere on the command line\. |  |
 | `-c`<br>`--clusters` | `T` _kmer\_list\_file_ _&#124;_ `t` _class\_file_ |  apply clustering to the contents of the specified register  \(`T`=twister, clusters k-mers; `t`=twisted, clusters samples\)\.<br>The algorithm is selected by --clusters-method \(default `greedy`;   see also `hdbscan`\)\.<br>Uses the current metric, distance, and normalization settings\.<br>The cluster assignment table is written to stdout\.<br>For `T`: k-mer standard coordinates are recovered from the twister   as km\_std\[i\]\[d\] = Twister\[d,i\] \* sqrt\(inertia\[d\]\);   the names of representative k-mers are written to _kmer\_list\_file_,   one per line and with no header, ready to be passed to KPopTwist --keep\.<br>  Greedy writes the cluster representatives; HDBSCAN writes one   representative k-mer per cluster plus every noise k-mer\.<br>For `t`: a two-line tab-separated class file is written to _class\_file_   \(header line of sample names; `CLASS` line of class labels\),   ready to be passed to KPopCountDB -m _class\_file_ -c CLASS\.<br>  Greedy labels each sample as `C@<representative_name>`;   HDBSCAN labels assigned samples as `C@<integer>` \(cluster id\) and   outlier samples as `noise`\. |  |
 
 **Miscellaneous options\.**
