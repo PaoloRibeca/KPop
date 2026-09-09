@@ -104,6 +104,21 @@ let canonical assign =
    to have something to reject and small enough that analysing the pool stays cheap *)
 let pool_factor = 4
 
+(* HOW LARGE THAT SAMPLE IS WHEN THE CALLER DOES NOT SAY.  What it has to be large enough for is
+   the thing that is not yet known -- the number of classes -- so the choice is made on the one
+   quantity that IS known, the size of the database, and made generously, because the two errors
+   are not symmetric: axes the structure does not need cost a little arithmetic, where too few of
+   them lose the structure altogether and nothing downstream can recover it.
+   Generously also because the failure is not gradual.  Measured over norovirus VP1, a sample of
+   55 finds the groups and one of 110 finds none at all, the outcome turning on which pool
+   happened to be drawn rather than on the size; only around four times the square root of the
+   database does it become reliable -- 220 of 3027 VP2 spectra and 244 of 3752 VP1 ones, both
+   putting about 28% of pairs inside the valley.  The cap is there because the pool this is
+   chosen from is four times larger again, and it is the analysis of THAT which sets the cost *)
+let automatic_sample n =
+  let root = int_of_float (sqrt (float_of_int n)) in
+  min n (max 50 (min 500 (4 * root)))
+
 (* THE SAMPLE THE FIRST PROJECTION IS BUILT FROM, chosen to SPAN the corpus rather than to
    represent it -- and those are opposite things here.  A corpus whose classes differ greatly in
    size is mostly its big ones, half of the norovirus VP2 set being a single genotype, so a
@@ -200,7 +215,7 @@ let () =
   TA.set_header (info, authors, [ BiOCamLib.Info.info; KPop.Info.info ]);
   TA.set_synopsis "-i <binary_file_prefix> -o <output_file_prefix> [OPTIONS]";
   TA.parse [
-    TA.make_separator_multiline [ "Input/Output."; "" ];
+    TA.make_separator "Input/Output.";
     [ "-i"; "--input" ],
       Some "<binary_file_prefix>",
       [ "load the specified binary database of k-mer spectra.";
@@ -215,19 +230,16 @@ let () =
         "form 'KPopCountDB -m <file> -c CLASS' reads" ],
       TA.Mandatory,
       (fun _ -> Parameters.output := TA.get_parameter ());
-    TA.make_separator_multiline [ "Algorithm."; "" ];
+    TA.make_separator "Algorithm.";
     [ "--projection-sample" ],
       Some "<non_negative_integer>",
-      [ "number of spectra defining the initial projection, or 0 to use every one of them.";
-        "A sample is usually enough, and is much cheaper than a correspondence analysis of";
-        "the whole database, because the projection only has to keep the classes apart and";
-        "their arrangement occupies far fewer dimensions than the database is stored in.";
-        "Note that the Johnson-Lindenstrauss bound does NOT justify this: being";
-        "distribution-free it asks for more dimensions than there are samples here, and what";
-        "makes a small sample work is the low intrinsic dimension of this particular data";
-        "rather than any worst-case guarantee.  It matters only for the first round: from the";
-        "second the axes come from the partition rather than from a sample" ],
-      TA.Default (string_of_int Defaults.projection_sample |> Fun.const),
+      [ "number of spectra the first projection is built from, 0 choosing a number from the";
+        "size of the database.  They are picked to span the corpus rather than to represent";
+        "it, so that a class holding half of it does not take half of the sample.";
+        "This matters only for the first round: from the second onwards the axes come from";
+        "the partition rather than from a sample.";
+        "Give a number as large as the database to build the projection from all of it" ],
+      TA.Default (Fun.const "about four times the square root of the number of spectra"),
       (fun _ -> Parameters.projection_sample := TA.get_parameter_int_non_neg ());
     [ "--iterations" ],
       Some "<positive_integer>",
@@ -300,7 +312,7 @@ let () =
       [ "factor the temperature is multiplied by after each move" ],
       TA.Default (string_of_float Defaults.montecarlo_cooling |> Fun.const),
       (fun _ -> Parameters.montecarlo_cooling := TA.get_parameter_float_fraction ());
-    TA.make_separator_multiline [ "Miscellaneous."; "" ];
+    TA.make_separator "Miscellaneous.";
     [ "--seed" ],
       Some "<integer>",
       [ "seed for the random number generator" ],
@@ -330,17 +342,27 @@ let () =
   ];
   let verbose = !Parameters.verbose and threads = !Parameters.threads in
   let state = Random.State.make [| !Parameters.seed |] in
-  let db = KMerDB.of_binary ~verbose !Parameters.input in
+  (* HELD IN A REF AND NOT IN A PLAIN BINDING, because `set_metadata` takes one and REPLACES
+     what it points at: adding a metadata field grows the arrays that hold them, and the tables
+     mapping a field's name to its index are shared with what was there before.  A binding that
+     keeps the old value therefore ends up naming arrays too short for indices the tables now
+     hand out, and the round after the one that added the field walks off the end of them *)
+  let db = ref (KMerDB.of_binary ~verbose !Parameters.input) in
   (* ROUND ZERO NEEDS AXES AND HAS NO PARTITION TO TAKE THEM FROM, so it takes them from the
      spectra themselves.  A sample of them will do -- see --projection-sample -- and the
      database becomes that sample by removing everything the sample does not name *)
   let twister_of_sample () =
-    let n = !Parameters.projection_sample in
+    let n =
+      if !Parameters.projection_sample > 0 then !Parameters.projection_sample
+      else automatic_sample (!db).KMerDB_Base.core.KMerDB_Base.n_cols in
+    if verbose then
+      Printf.eprintf "%s Building the first projection from %d of %d spectra.\n%!"
+        prefix n (!db).KMerDB_Base.core.KMerDB_Base.n_cols;
     let sampled =
-      if n <= 0 then db
+      if n >= (!db).KMerDB_Base.core.KMerDB_Base.n_cols then !db
       else
-        KMerDB_Base.remove_selected db
-          (complement_of_diverse_sample ~threads ~verbose state db n) in
+        KMerDB_Base.remove_selected !db
+          (complement_of_diverse_sample ~threads ~verbose state !db n) in
     if verbose then
       Printf.eprintf "%s Building the initial projection...\n%!" prefix;
     let twister, _, _ = CA.twist ~threads ~verbose sampled in
@@ -359,13 +381,12 @@ let () =
      next.  The assignment has exactly one entry per row, and every value in it is a row index,
      so both lookups below are in range by construction *)
   and twister_of_partition names assign =
-    let acc = ref db in
     Array.iteri
       (fun i a ->
-        KMerDB_Base.set_metadata acc names.(i) "CLASS" (Printf.sprintf "C@%s" names.(a)))
+        KMerDB_Base.set_metadata db names.(i) "CLASS" (Printf.sprintf "C@%s" names.(a)))
       assign;
     let combined =
-      KMerDB.split_spectra ~threads ~verbose !acc "CLASS" !Parameters.combination_criterion in
+      KMerDB.split_spectra ~threads ~verbose !db "CLASS" !Parameters.combination_criterion in
     let twister, _, _ = CA.twist ~threads ~verbose combined in
     twister in
   let cluster twister =
