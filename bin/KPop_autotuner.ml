@@ -381,6 +381,15 @@ let () =
      next.  The assignment has exactly one entry per row, and every value in it is a row index,
      so both lookups below are in range by construction *)
   and twister_of_partition names assign =
+    (* READ AFRESH RATHER THAN CARRIED OVER FROM THE ROUND BEFORE.  `split_spectra` builds its
+       class representatives INSIDE the database it is given -- it starts from that database and
+       adds a spectrum per class to it -- so one carried from round to round keeps them, and the
+       round after next stops with `is also the name of a spectrum in the database` when a fresh
+       class label meets a representative an old round left behind.  It bites from the third
+       round on, which is every run that iterates at all.  Reading the spectra again costs a
+       fraction of the analysis that follows, and is the only way to be sure of starting from
+       what was counted rather than from what the last round made of it *)
+    let db = ref (KMerDB.of_binary ~verbose !Parameters.input) in
     Array.iteri
       (fun i a ->
         KMerDB_Base.set_metadata db names.(i) "CLASS" (Printf.sprintf "C@%s" names.(a)))
