@@ -1,6 +1,8 @@
 [submodule "BiOCamLib"]
 	path = BiOCamLib
 	url = ../BiOCamLib.git
+	branch = main
+	update = merge
 [submodule "OpenBLAS"]
 	path = OpenBLAS
 	url = git@github.com:OpenMathLib/OpenBLAS.git
