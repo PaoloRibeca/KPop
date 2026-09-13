@@ -1,17 +1,38 @@
 #!/usr/bin/env bash
 
-# Integration tests for the phylogenetic-tree subsystem: full pipeline
-# from a KPopTwisted binary through KPopTwistDB --phylo-method and on
-# into a Newick (.nwk) tree.
+# Integration tests for the phylogenetic-tree subsystem, through the CLI:
+# a twisted register in, a Newick (.nwk) tree out.
 #
 # Run from the project root.  Assumes:
-#   - .build/KPopTwistDB exists (from `bash BUILD release-static`)
+#   - .build/KPopPhylo exists (from `bash BUILD release-static`)
 #
 # Exits 0 on full success, 1 on any failure.
+#
+# WHAT THIS SUITE IS FOR, now that there are two of them.  test/Phylo.ml calls
+# Twisted.get_phylo_tree in process and can pass every knob the library has;
+# this one drives the binary and can only pass what the CLI exposes.  So the
+# division is not the same checks twice: here is what only the CLI reaches --
+# that a file is written where -o says, that it is syntactically terminated,
+# that argv errors are caught -- while the algorithmic invariants needing knobs
+# KPopPhylo does not expose live in test/Phylo.ml Parts 2, 5 and 6.
+#
+# THREE CHECKS WERE DROPPED RATHER THAN PORTED, and this is where that is said
+# instead of being left as a gap somebody rediscovers.  The tree surface moved
+# out of KPopTwistDB into KPopPhylo, and the HDBSCAN mst-mode, lengths,
+# index-type, num-neighbors and min-samples knobs, and the centroids seeding,
+# have no CLI entry at all today.  The old Part 5 (auto(flat) == dense) and
+# Part 6 (persistence vs mreach lengths) distinguished their two sides with
+# exactly those flags: dropping the flags leaves `cmp` comparing a command with
+# itself, which passes forever and tests nothing.  Both invariants are asserted
+# in test/Phylo.ml Parts 2 and 5.  The old Part 7 asserted the message from the
+# sparse-mreach guard in lib/Clustering.ml; that guard needs three of the
+# missing knobs, and its text still names the old --phylo-hdbscan-* options, so
+# a grep for it would pass while documenting a bug.  test/Phylo.ml Part 6
+# provokes the same guard in process.
 
 set -u
 
-BIN=".build/KPopTwistDB"
+BIN=".build/KPopPhylo"
 DATA="test/Primer/Classes-5"
 
 if [[ ! -x "$BIN" ]]; then
@@ -29,32 +50,43 @@ failed=0
 pass() { printf "  %-60s PASS\n" "$1"; }
 fail() { printf "  %-60s FAIL: %s\n" "$1" "$2"; failed=1; }
 
+# EVERY RUN WRITES TO A PATH OF ITS OWN, EMPTIED FIRST.  Most checks below judge
+# the file rather than the exit status, so a run that died would otherwise
+# inherit the previous one's output and pass on it.
+run() { # <output prefix> <args...>
+  local out="$1"; shift
+  rm -f "$TMP/$out.nwk"
+  $BIN -i t "$DATA" "$@" -o "$TMP/$out" > /dev/null 2>&1
+}
+
+# Exists, is not empty, and ends as Newick does.  The leading [&U] comes from
+# Trees.Newick's rich format, so the anchor is on the tail and not the head.
+well_formed() { # <output prefix>
+  [[ -s "$TMP/$1.nwk" ]] && grep -qE '\);[[:space:]]*$' "$TMP/$1.nwk"
+}
+
 # ----------------------------------------------------------------------------
-# Part 1: every phylo-algorithm runs cleanly on the fixture
+# Part 1: every method runs cleanly and writes the file -o names
 # ----------------------------------------------------------------------------
-echo "=== Part 1: each phylo-algorithm produces a Newick tree ==="
-for algo_args in \
-    "gaps" \
-    "centroids --phylo-centroids-num-seeds 5 --phylo-centroids-seed 42" \
-    "hdbscan --phylo-hdbscan-min-cluster-size 2" \
-    "sparse-nj"; do
-  algo="${algo_args%% *}"
-  if $BIN -i t $DATA --phylo-method $algo_args -P "$TMP/algo_$algo" >/dev/null 2>&1 \
-       && [[ -s "$TMP/algo_$algo.nwk" ]]; then
-    pass "phylo-algorithm $algo emits non-empty .nwk file"
+echo "=== Part 1: each method produces a Newick tree where -o says ==="
+for method in gaps centroids hdbscan sparse-nj; do
+  if run "algo_$method" --method "$method" && well_formed "algo_$method"; then
+    pass "method $method: exit 0, well-formed tree at the -o prefix"
   else
-    fail "phylo-algorithm $algo" "non-zero exit or empty output"
+    fail "method $method" "non-zero exit, or no well-formed .nwk at the -o prefix"
   fi
 done
 
 # ----------------------------------------------------------------------------
-# Part 2: HDBSCAN trees parse as Newick
+# Part 2: HDBSCAN across the cluster-size sweep
 # ----------------------------------------------------------------------------
-echo "=== Part 2: HDBSCAN .nwk output is well-formed ==="
+# --method hdbscan is named on every run: --hdbscan-min-cluster-size is honoured
+# only under that method, and the default is sparse-nj, so omitting it would
+# turn this sweep into four identical runs of a different algorithm.
+echo "=== Part 2: HDBSCAN .nwk output is well-formed across K ==="
 for k in 1 2 3 4; do
-  $BIN -i t $DATA --phylo-method hdbscan --phylo-hdbscan-min-cluster-size $k \
-       -P "$TMP/hdb_K$k" >/dev/null 2>&1
-  if [[ -s "$TMP/hdb_K$k.nwk" ]] && grep -qE '\);[[:space:]]*$' "$TMP/hdb_K$k.nwk"; then
+  run "hdb_K$k" --method hdbscan --hdbscan-min-cluster-size "$k"
+  if well_formed "hdb_K$k"; then
     pass "HDBSCAN K=$k: Newick file ends with ');'"
   else
     fail "HDBSCAN K=$k" "missing or malformed .nwk output"
@@ -62,112 +94,71 @@ for k in 1 2 3 4; do
 done
 
 # ----------------------------------------------------------------------------
-# Part 3: HDBSCAN with K too large for fixture still emits a (degenerate) tree
+# Part 3: K=5 on the 10-leaf fixture -- half the leaves in one cluster
 # ----------------------------------------------------------------------------
-echo "=== Part 3: HDBSCAN with K=5 on 10-sample fixture emits a tree ==="
-$BIN -i t $DATA --phylo-method hdbscan --phylo-hdbscan-min-cluster-size 5 \
-     -P "$TMP/empty" >/dev/null 2>&1
-if [[ -s "$TMP/empty.nwk" ]] && grep -qE '\);[[:space:]]*$' "$TMP/empty.nwk"; then
+echo "=== Part 3: HDBSCAN with K=5 on the 10-leaf fixture emits a tree ==="
+run empty --method hdbscan --hdbscan-min-cluster-size 5
+if well_formed empty; then
   pass "K=5 HDBSCAN emits a valid Newick file"
 else
   fail "K=5 HDBSCAN" "no valid .nwk produced"
 fi
 
 # ----------------------------------------------------------------------------
-# Part 4: cross-thread reproducibility for deterministic paths
+# Part 4: the same tree whatever the thread count
 # ----------------------------------------------------------------------------
-echo "=== Part 4: cross-thread reproducibility (deterministic modes only) ==="
-$BIN -i t $DATA -T 1 --phylo-method centroids --phylo-centroids-num-seeds 10 \
-     --phylo-centroids-seed 42 -P "$TMP/cen_T1" >/dev/null 2>&1
-$BIN -i t $DATA -T 4 --phylo-method centroids --phylo-centroids-num-seeds 10 \
-     --phylo-centroids-seed 42 -P "$TMP/cen_T4" >/dev/null 2>&1
-if cmp -s "$TMP/cen_T1.nwk" "$TMP/cen_T4.nwk"; then
-  pass "centroids: -T 1 == -T 4 (seed=42)"
-else
-  fail "centroids -T 1 vs -T 4" "outputs differ"
-fi
-
-$BIN -i t $DATA -T 1 --phylo-method hdbscan --phylo-hdbscan-mst-mode dense \
-     -P "$TMP/dense_T1" >/dev/null 2>&1
-$BIN -i t $DATA -T 4 --phylo-method hdbscan --phylo-hdbscan-mst-mode dense \
-     -P "$TMP/dense_T4" >/dev/null 2>&1
-if cmp -s "$TMP/dense_T1.nwk" "$TMP/dense_T4.nwk"; then
-  pass "HDBSCAN dense: -T 1 == -T 4"
-else
-  fail "HDBSCAN dense -T 1 vs -T 4" "outputs differ"
-fi
-
-$BIN -i t $DATA -T 1 --phylo-method hdbscan --phylo-hdbscan-index-type flat \
-     -P "$TMP/aflat_T1" >/dev/null 2>&1
-$BIN -i t $DATA -T 4 --phylo-method hdbscan --phylo-hdbscan-index-type flat \
-     -P "$TMP/aflat_T4" >/dev/null 2>&1
-if cmp -s "$TMP/aflat_T1.nwk" "$TMP/aflat_T4.nwk"; then
-  pass "HDBSCAN auto(flat): -T 1 == -T 4"
-else
-  fail "HDBSCAN auto(flat) -T 1 vs -T 4" "outputs differ"
-fi
-
-# ----------------------------------------------------------------------------
-# Part 5: dense and auto-with-flat are byte-identical on small data
-# (Persistence-mode lengths; Mreach walks the raw merge tree and is
-#  sensitive to MST tie-breaking when leaves merge at coincident lambda.)
-# ----------------------------------------------------------------------------
-echo "=== Part 5: HDBSCAN Auto(flat) == Dense byte-for-byte (small n) ==="
-for k in 1 2 3 4; do
-  $BIN -i t $DATA --phylo-method hdbscan --phylo-hdbscan-min-cluster-size $k \
-       --phylo-hdbscan-lengths persistence \
-       --phylo-hdbscan-mst-mode dense -P "$TMP/d_$k" >/dev/null 2>&1
-  $BIN -i t $DATA --phylo-method hdbscan --phylo-hdbscan-min-cluster-size $k \
-       --phylo-hdbscan-lengths persistence \
-       --phylo-hdbscan-mst-mode auto --phylo-hdbscan-index-type flat \
-       -P "$TMP/a_$k" >/dev/null 2>&1
-  if cmp -s "$TMP/d_$k.nwk" "$TMP/a_$k.nwk"; then
-    pass "HDBSCAN K=$k: auto(flat) == dense"
+# Only pairs measured byte-identical belong under `cmp`.  Two runs differing in
+# a genuine parameter can agree on splits and still order children differently,
+# which `cmp` would call a failure; that comparison belongs in test/Phylo.ml,
+# which compares split sets rather than bytes.
+echo "=== Part 4: cross-thread reproducibility ==="
+for method in centroids hdbscan; do
+  run "t1_$method" --method "$method" -T 1
+  run "t4_$method" --method "$method" -T 4
+  if cmp -s "$TMP/t1_$method.nwk" "$TMP/t4_$method.nwk"; then
+    pass "$method: -T 1 and -T 4 give byte-identical trees"
   else
-    fail "HDBSCAN K=$k: auto(flat) vs dense" "outputs differ"
+    fail "$method -T 1 vs -T 4" "outputs differ"
   fi
 done
 
 # ----------------------------------------------------------------------------
-# Part 6: HDBSCAN persistence and mreach branch-length modes both work
+# Part 5: the FAISS index is an implementation detail of sparse-NJ
 # ----------------------------------------------------------------------------
-echo "=== Part 6: HDBSCAN persistence/mreach branch-length modes ==="
-for mode in persistence mreach; do
-  $BIN -i t $DATA --phylo-method hdbscan --phylo-hdbscan-min-cluster-size 2 \
-       --phylo-hdbscan-lengths $mode -P "$TMP/lm_$mode" >/dev/null 2>&1
-  if [[ -s "$TMP/lm_$mode.nwk" ]] && grep -qE '\);[[:space:]]*$' "$TMP/lm_$mode.nwk"; then
-    pass "HDBSCAN lengths=$mode emits valid .nwk"
-  else
-    fail "HDBSCAN lengths=$mode" "missing or malformed .nwk"
-  fi
-done
-
-# ----------------------------------------------------------------------------
-# Part 7: sparse mode rejects under-sized num_neighbors with a clear message
-# ----------------------------------------------------------------------------
-echo "=== Part 7: sparse mode validates --phylo-hdbscan-num-neighbors ==="
-out="$($BIN -i t $DATA --phylo-method hdbscan --phylo-hdbscan-num-neighbors 1 \
-       --phylo-hdbscan-mst-mode sparse --phylo-hdbscan-min-samples 5 \
-       -P "$TMP/bad" 2>&1 || true)"
-if printf '%s' "$out" | grep -q 'must be >= --phylo-hdbscan-min-samples'; then
-  pass "sparse mode rejects num_neighbors < min_samples with helpful message"
-else
-  fail "sparse-mode validation" "did not raise expected error message"
-fi
-
-# ----------------------------------------------------------------------------
-# Part 8: sparse-NJ produces matching trees under flat and hnsw indices
-# on the small fixture (HNSW is exact at n=10, so they should agree).
-# ----------------------------------------------------------------------------
-echo "=== Part 8: sparse-NJ flat == hnsw(32) on small fixture ==="
-$BIN -i t $DATA --phylo-method sparse-nj --phylo-snj-index-type flat \
-     -P "$TMP/snj_flat" >/dev/null 2>&1
-$BIN -i t $DATA --phylo-method sparse-nj --phylo-snj-index-type "hnsw(32)" \
-     -P "$TMP/snj_hnsw" >/dev/null 2>&1
+echo "=== Part 5: sparse-NJ flat == hnsw(32) on the small fixture ==="
+run snj_flat --method sparse-nj --snj-index-type flat
+run snj_hnsw --method sparse-nj --snj-index-type "hnsw(32)"
 if cmp -s "$TMP/snj_flat.nwk" "$TMP/snj_hnsw.nwk"; then
   pass "sparse-NJ: flat == hnsw(32) byte-for-byte (small n)"
 else
   fail "sparse-NJ flat vs hnsw(32)" "outputs differ"
+fi
+
+# ----------------------------------------------------------------------------
+# Part 6: argv errors, which only the CLI can get wrong
+# ----------------------------------------------------------------------------
+# Diagnostics go to stderr and carry ANSI colour even when piped, so these match
+# the message body rather than anchoring on a prefix.
+echo "=== Part 6: the command line is validated ==="
+out="$($BIN -o "$TMP/no_input" 2>&1 || true)"
+if printf '%s' "$out" | grep -q "mandatory"; then
+  pass "a missing -i is refused as mandatory"
+else
+  fail "missing -i" "did not report a mandatory option"
+fi
+
+out="$($BIN -o "$TMP/wrong_order" -i t "$DATA" 2>&1 || true)"
+if printf '%s' "$out" | grep -q "needs at least one of"; then
+  pass "-o before -i is refused, actions running in the order given"
+else
+  fail "-o before -i" "did not report the missing register"
+fi
+
+out="$($BIN -i t "$TMP/does_not_exist" -o "$TMP/missing" 2>&1 || true)"
+if printf '%s' "$out" | grep -q "Input file not found"; then
+  pass "a missing register is reported by name"
+else
+  fail "missing register" "did not report the absent input file"
 fi
 
 echo
