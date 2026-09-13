@@ -63,19 +63,29 @@ fi
 case "$1" in
   "" | "dev" | "dev-static" | "release" | "release-static")
     PROFILE="${1:-dev}"
-    DO_TESTS=""
+    # AN ORDINARY BUILD TESTS ITSELF, as BiOCamLib's and d1avolo's do.  A suite that
+    # runs only when someone remembers to ask for it is a suite that goes stale:
+    # the phylo integration script drove a CLI that had moved out of KPopTwistDB
+    # months earlier, and test/Phylo.ml stopped compiling against the library the
+    # moment BiOCamLib sealed Trees_Base -- neither visible to any profile build,
+    # nor to CI, which builds the packaged binaries and nothing else.
+    DO_TESTS="all"
+    IS_TEST_TARGET=""
     ;;
   "test")
     PROFILE="release-static"
     DO_TESTS="all"
+    IS_TEST_TARGET=1
     ;;
   "test-core")
     PROFILE="release-static"
     DO_TESTS="core"
+    IS_TEST_TARGET=1
     ;;
   "test-phylo")
     PROFILE="release-static"
     DO_TESTS="phylo"
+    IS_TEST_TARGET=1
     ;;
   *)
     echo "Usage: $0 [dev|dev-static|release|release-static|test|test-core|test-phylo|README.pdf|package|mac-begin|mac-end]" >&2
@@ -278,9 +288,9 @@ dune build --profile="$PROFILE" bin/KPopPhylo.exe $FLAGS
 dune build --profile="$PROFILE" bin/KPop_hash2kmer.exe $FLAGS
 dune build --profile="$PROFILE" bin/KPop_autotuner.exe $FLAGS
 
-# When a test target is in effect we also need Yggdrasill (for the
-# integration scripts) and the relevant test executables.  Those stay
-# under _build/; we move only the KPop binaries to .build/.
+# Yggdrasill (for the integration scripts) and the test executables are built
+# whenever anything will be run, which is now every build.  They stay under
+# _build/; only the KPop binaries move to .build/.
 if [[ -n "$DO_TESTS" ]]; then
   case "$DO_TESTS" in
     "all")
@@ -310,7 +320,10 @@ mv _build/default/bin/KPop_autotuner.exe .build/KPop-autotuner
 chmod 755 .build/*
 
 # Run tests before any _build cleanup.  set -e propagates failures.
-if [[ -n "$DO_TESTS" ]]; then
+# KPOP_SKIP_TESTS=1 builds without running them, which is d1avolo's escape hatch
+# under another name; there is no way to ask for it from the command line, so that
+# skipping is a deliberate act and not a habit.
+if [[ -n "$DO_TESTS" && "${KPOP_SKIP_TESTS:-0}" != 1 ]]; then
   echo
   echo "=========================================================="
   echo "  Running tests (target '$1')"
@@ -348,7 +361,9 @@ fi
 
 # Stripping + _build cleanup is for release flows that don't need _build kept
 # around for testing.  Test targets leave _build intact for repeat runs.
-if [[ -z "$DO_TESTS" ]] && \
+# The gate is the TARGET and not $DO_TESTS: every build sets that now, so keying on
+# it here would quietly stop stripping the release binaries.
+if [[ -z "${IS_TEST_TARGET:-}" ]] && \
    [[ "$PROFILE" == "release" || "$PROFILE" == "release-static" ]]; then
   strip .build/KPop{Count,CountDB,Twist,TwistDB,Phylo,-hash2kmer,-autotuner}
   rm -rf _build
