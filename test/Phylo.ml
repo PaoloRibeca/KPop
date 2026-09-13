@@ -22,7 +22,6 @@
 
 open BiOCamLib.Better
 module Trees = BiOCamLib.Trees
-module Trees_Base = BiOCamLib.Trees_Base
 open KPop
 
 let fail fmt =
@@ -41,7 +40,7 @@ let metric = Space.Distance.Metric.of_string "powers(1,1,1)"
    bipartitions with the same branch lengths. *)
 let dump tree =
   Trees.Splits.to_string ~precision:15
-    (Trees_Base.Splits.of_newick tree)
+    (Trees.Splits.of_newick tree)
 
 (* Run get_phylo_tree with sensible defaults for the chosen algorithm *)
 let run_phylo ?(threads = 1) ?(seed = 42)
@@ -225,8 +224,8 @@ let () =
       ~mode:SparseNJ.Mode.PeriodicRebuild
       ~index_type:(Interfaiss.Type.of_string "flat")
       m.matrix.row_names m.matrix.data in
-  let dense_splits = Trees_Base.Splits.of_newick dense in
-  let pr_splits = Trees_Base.Splits.of_newick pr in
+  let dense_splits = Trees.Splits.of_newick dense in
+  let pr_splits = Trees.Splits.of_newick pr in
   if Trees.Splits.to_string ~precision:15 dense_splits
      <> Trees.Splits.to_string ~precision:15 pr_splits then
     fail "periodic-rebuild: split set differs from dense at K=5 K_QUERY=25";
