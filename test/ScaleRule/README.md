@@ -40,6 +40,37 @@ The inputs are text exports of a twisted register and its inertia, as
 | `run2.sh`, `beats.sh`, `tables.sh` | Drive `guard2` and tabulate it. |
 | `valley-page-template.html` | The plot page, with `__DATA__`, `__TREE__` and `__PHYLO__` standing in for the three JSON payloads. |
 
+## What is new here
+
+The work these programs exist for, and the part worth keeping whatever happens to the rest:
+
+- **A valley detector that can be argued with.** Candidate troughs are simplified in order of
+  relative size, and — this is the point — an interior peak is judged against the modes beyond the
+  troughs it sits between rather than against the floor beside it, so a bump inside a gap is
+  measured against the modes the gap separates and no longer splits it in two. Each surviving
+  trough is then calibrated on its own, by resampling the *sequences* and reweighting every pair by
+  the product of the two multiplicities, which gives a prominence in standard deviations rather
+  than a threshold someone chose. Replacing the half-height rule with it changed 29 of 105 rung
+  valley lists and turned RdRp's 5-axis pair at z 5.5 and z 13.3 into one valley at z 27, on the
+  labelled P-type level. `detect3.ml`.
+- **Choosing the number of axes from the structure the embedding resolves.** Doubling from one
+  axis, counting the valleys at or below half the pairs, and taking the right end of the first
+  plateau. `detect3.ml` evaluates that against the alternatives on seven embeddings.
+- **A minimum-cluster guard that charges the noise rather than ignoring it.** Four variants scored
+  against some sixty partitions: barring small clusters from being anyone's nearest other cluster
+  is *worse* than no guard (atomised pairs then score 0.81–0.96 against the labels' 0.26–0.62);
+  charging each member of a sub-threshold cluster −1 removes both that and the noise bin.
+  `guard2.ml`.
+- **The bridge between a valley and a tree level**, which is what the whole question was about:
+  cutting the average-linkage tree at each valley and scoring the cut against the labels, set
+  against the best cut anywhere on the tree. `vtree.ml`.
+
+## What is standard, and only absent from these libraries
+
+Worth contributing, but nobody should read them as novel: average linkage by nearest-neighbour
+chain with Lance-Williams updates is textbook, and so are the adjusted Rand index, homogeneity and
+completeness — the last three are in `Clustering.compare_partitions` already.
+
 ## What the libraries already provide
 
 Written before this was checked, which is the lesson rather than an aside:
@@ -51,10 +82,6 @@ Written before this was checked, which is the lesson rather than an aside:
 - `Numbers` has mean, variance, sample variance and median.
 - `test/repl.sh` gives a toplevel with `BiOCamLib` and `KPop` linked, which is where a probe
   belongs.
-
-Genuinely absent, and worth contributing when the proposal is settled: average linkage with
-cophenetic heights; cutting a tree at a height and scoring the cut; the calibrated detector; the
-minimum-cluster guard.
 
 ## Reproducing the document's numbers
 
