@@ -1,0 +1,774 @@
+<title>Norovirus Pair-Distance Valleys</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f2f4f6;
+    --surface: #fbfcfd;
+    --ink: #10151b;
+    --ink-2: #4a525c;
+    --muted: #6f7782;
+    --grid: #e3e7eb;
+    --axis: #c2c9d0;
+    --ring: rgba(16, 21, 27, 0.10);
+    --rel-strong: #1c5cab;
+    --rel-weak: #86b6ef;
+    --rel-one: #2a78d6;
+    --rel-none: #d3d9df;
+    --curve: #2b323a;
+    --focus: #1c5cab;
+    --tip-bg: #10151b;
+    --tip-ink: #f4f6f8;
+    --tip-ink-2: #b9c1ca;
+    --crude: #9aa3ad;
+    --band: #eef1f4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --page: #0c0f13;
+      --surface: #151a20;
+      --ink: #eef2f6;
+      --ink-2: #bcc4cd;
+      --muted: #8f98a2;
+      --grid: #252b33;
+      --axis: #3a424c;
+      --ring: rgba(255, 255, 255, 0.10);
+      --rel-strong: #9ec5f4;
+      --rel-weak: #256abf;
+      --rel-one: #3987e5;
+      --rel-none: #353d47;
+      --curve: #dde3ea;
+      --focus: #86b6ef;
+      --tip-bg: #eef2f6;
+      --tip-ink: #10151b;
+      --tip-ink-2: #4a525c;
+      --crude: #5d6670;
+      --band: #1b2129;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0c0f13;
+    --surface: #151a20;
+    --ink: #eef2f6;
+    --ink-2: #bcc4cd;
+    --muted: #8f98a2;
+    --grid: #252b33;
+    --axis: #3a424c;
+    --ring: rgba(255, 255, 255, 0.10);
+    --rel-strong: #9ec5f4;
+    --rel-weak: #256abf;
+    --rel-one: #3987e5;
+    --rel-none: #353d47;
+    --curve: #dde3ea;
+    --focus: #86b6ef;
+    --tip-bg: #eef2f6;
+    --tip-ink: #10151b;
+    --tip-ink-2: #4a525c;
+    --crude: #5d6670;
+    --band: #1b2129;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--ink);
+    font: 15px/1.55 "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding-inline: 20px;
+    padding-block: 32px 56px;
+  }
+  main { max-width: 1100px; margin-inline: auto; display: grid; gap: 24px; }
+  header { display: grid; gap: 10px; }
+  .eyebrow {
+    font: 500 12px/1.2 "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted);
+  }
+  h1 {
+    margin: 0; font-weight: 600; font-size: clamp(24px, 3.2vw, 32px); line-height: 1.15;
+    letter-spacing: -0.01em; text-wrap: balance;
+  }
+  h2 { margin: 0; font-size: 18px; font-weight: 600; text-wrap: balance; }
+  h3.chart-title { margin: 18px 0 0; font-size: 15px; font-weight: 600; }
+  .chart-note { margin: 2px 0 0; font-size: 13px; color: var(--ink-2); max-width: 90ch; }
+  .dek { margin: 0; max-width: 72ch; color: var(--ink-2); }
+  .levels { display: flex; flex-wrap: wrap; gap: 4px 22px; font-size: 13px; color: var(--ink-2); }
+  .levels b { font: 500 13px "IBM Plex Mono", ui-monospace, monospace; color: var(--ink); }
+  .controls { display: flex; flex-wrap: wrap; gap: 10px 26px; align-items: center; }
+  .group { display: flex; align-items: center; gap: 10px; }
+  .group-label { font-size: 13px; color: var(--ink-2); }
+  .seg {
+    position: relative; display: inline-flex; border: 1px solid var(--ring); border-radius: 8px;
+    background: var(--surface); padding: 2px;
+  }
+  .seg input { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+  .seg label { font-size: 13px; padding: 5px 11px; border-radius: 6px; cursor: pointer; color: var(--ink-2); }
+  .seg input:checked + label { background: var(--ink); color: var(--surface); }
+  .seg input:focus-visible + label { outline: 2px solid var(--focus); outline-offset: 1px; }
+  .card { background: var(--surface); border: 1px solid var(--ring); border-radius: 12px; padding: 18px 20px 16px; }
+  .detail-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 20px; align-items: baseline; }
+  .meta { font: 13px "IBM Plex Mono", ui-monospace, monospace; color: var(--ink-2); }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--ink-2); margin: 10px 0 2px; }
+  .key { display: inline-flex; align-items: center; gap: 7px; }
+  .sw { width: 14px; height: 10px; border-radius: 2px; display: inline-block; }
+  .lk { width: 18px; height: 0; border-top: 2px solid var(--curve); display: inline-block; }
+  .vk { width: 0; height: 14px; border-left: 1px dashed var(--ink-2); display: inline-block; }
+  .sk { width: 0; height: 14px; border-left: 2px solid var(--ink); display: inline-block; }
+  .gk { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 7px solid var(--muted); display: inline-block; }
+  .chart { position: relative; margin-top: 4px; }
+  .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .tip {
+    position: absolute; pointer-events: none; background: var(--tip-bg); color: var(--tip-ink);
+    border-radius: 8px; padding: 8px 10px; font-size: 12px; line-height: 1.5; min-width: 210px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18); z-index: 2;
+  }
+  .tip .v { font: 500 12px "IBM Plex Mono", ui-monospace, monospace; color: var(--tip-ink); white-space: nowrap; }
+  .tip .l { color: var(--tip-ink-2); }
+  .tip .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .tip .row > span:first-child { display: inline-flex; align-items: center; gap: 6px; }
+  .tip .key-line { width: 12px; height: 0; border-top: 3px solid; display: inline-block; border-radius: 2px; }
+  .table-wrap { overflow-x: auto; margin-top: 12px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--grid); font-variant-numeric: tabular-nums; }
+  th:first-child, td:first-child { text-align: left; }
+  th { font-weight: 500; color: var(--ink-2); }
+  thead th.grp { text-align: center; border-bottom: 1px solid var(--axis); }
+  tr.case td { background: var(--band); color: var(--ink); font-weight: 500; text-align: left; }
+  tr.case td span { font-weight: 400; color: var(--ink-2); }
+  td .flag { color: var(--muted); font-size: 12px; }
+  .stock-line { font-size: 13px; color: var(--ink-2); margin: 10px 0 0; max-width: 90ch; }
+  details { margin-top: 12px; font-size: 13px; }
+  details summary { cursor: pointer; color: var(--ink-2); }
+  details .table-wrap { max-height: 360px; overflow: auto; }
+  .section-head { display: grid; gap: 4px; }
+  .section-head p, .section-note { margin: 0; color: var(--ink-2); font-size: 14px; max-width: 86ch; }
+  .scroll { overflow-x: auto; padding-bottom: 4px; }
+  .matrix {
+    display: grid; grid-template-columns: minmax(150px, 1.25fr) repeat(7, minmax(98px, 1fr));
+    gap: 6px; min-width: 900px;
+  }
+  .mh { font: 500 12px "IBM Plex Mono", ui-monospace, monospace; color: var(--muted); align-self: end; padding: 0 4px 2px; }
+  .rh { display: flex; flex-direction: column; justify-content: center; padding-right: 8px; font-size: 13px; line-height: 1.35; }
+  .rh b { font-weight: 600; }
+  .rh span { color: var(--ink-2); }
+  .cell {
+    appearance: none; border: 1px solid var(--ring); background: var(--surface); border-radius: 8px;
+    padding: 6px 7px 5px; text-align: left; cursor: pointer; display: grid; gap: 3px; color: var(--ink); font: inherit;
+  }
+  .cell:hover { border-color: var(--axis); }
+  .cell:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+  .cell[aria-pressed="true"] { box-shadow: inset 0 0 0 2px var(--focus); border-color: transparent; }
+  .cell svg { width: 100%; height: 38px; display: block; }
+  .cell .n { display: flex; align-items: baseline; gap: 5px; }
+  .cell .n span { font: 500 15px "IBM Plex Mono", ui-monospace, monospace; }
+  .cell .n small { font-size: 12px; color: var(--muted); }
+  .cell .t { font: 11px "IBM Plex Mono", ui-monospace, monospace; color: var(--muted); white-space: nowrap; }
+  .notes { font-size: 13px; color: var(--ink-2); display: grid; gap: 6px; max-width: 86ch; }
+  .notes p { margin: 0; }
+  .tick { fill: var(--muted); font: 11px "IBM Plex Mono", ui-monospace, monospace; }
+  .axis-label { fill: var(--ink-2); font: 12px "IBM Plex Sans", system-ui, sans-serif; }
+  .gridline { stroke: var(--grid); stroke-width: 1; }
+  .baseline, .tickmark { stroke: var(--axis); stroke-width: 1; }
+  .a-none { fill: var(--rel-none); }
+  .a-weak { fill: var(--rel-weak); }
+  .a-strong { fill: var(--rel-strong); }
+  .a-one { fill: var(--rel-one); }
+  .edge { fill: none; stroke: var(--surface); stroke-width: 1.5; }
+  .curve { fill: none; stroke: var(--curve); stroke-width: 1.5; stroke-linejoin: round; }
+  .vline { stroke: var(--ink-2); stroke-width: 1; stroke-dasharray: 3 3; }
+  .sline { stroke: var(--ink); stroke-width: 2; }
+  .guide { fill: var(--muted); }
+  .vlabel { fill: var(--ink-2); font: 11px "IBM Plex Mono", ui-monospace, monospace; }
+  .slabel { fill: var(--ink); font: 500 11px "IBM Plex Mono", ui-monospace, monospace; }
+  .cross { stroke: var(--ink); stroke-width: 1; opacity: 0.45; }
+  .hit { fill: transparent; }
+  .hit:focus { outline: none; }
+  .hit:focus-visible { stroke: var(--focus); stroke-width: 2; }
+  .mini-area { fill: var(--rel-none); }
+  .mini-curve { fill: none; stroke: var(--curve); stroke-width: 1; }
+  .mini-v { stroke: var(--ink); stroke-width: 1.5; }
+  .mini-v.crude { stroke: var(--crude); }
+  @media (max-width: 640px) {
+    body { padding-inline: 16px; }
+    .card { padding: 14px 14px 12px; }
+  }
+</style>
+
+<main>
+  <header>
+    <div class="eyebrow">KPop structure test · norovirus VP1, RdRp, VP2</div>
+    <h1>Norovirus pair-distance valleys</h1>
+    <p class="dek">Each histogram is what the structure test reads before any clustering happens: the distances between 100,000 random pairs of sequences, in the first <em>d</em> axes of the projection. A valley separates close pairs from far ones. Beneath it sits the same thing seen through a tree: the heights at which an average-linkage tree joins those pairs, and what cutting the tree there recovers. The colours show whether the pairs in each bin share a CDC class, so both can be read against the nomenclature neither ever saw.</p>
+    <div class="levels" aria-label="Share of all pairs that share a class">
+      <span>Pairs sharing a class, all sequences:</span>
+      <span>VP1 genotype <b>27.0%</b></span>
+      <span>VP1 finest label <b>11.1%</b></span>
+      <span>RdRp P-type <b>15.3%</b></span>
+      <span>VP2 genotype <b>28.0%</b></span>
+    </div>
+  </header>
+
+  <div class="controls" role="group" aria-label="Lens">
+    <div class="group">
+      <span class="group-label" id="scale-label">Distance scale</span>
+      <div class="seg" role="radiogroup" aria-labelledby="scale-label">
+        <input type="radio" name="scale" id="scale-lin" value="lin"><label for="scale-lin">Linear</label>
+        <input type="radio" name="scale" id="scale-log" value="log"><label for="scale-log">Log</label>
+      </div>
+    </div>
+    <div class="group">
+      <span class="group-label" id="smooth-label">Smoothing of the drawn curve</span>
+      <div class="seg" role="radiogroup" aria-labelledby="smooth-label">
+        <input type="radio" name="smooth" id="smooth-5" value="5"><label for="smooth-5">±5 bins</label>
+        <input type="radio" name="smooth" id="smooth-2" value="2"><label for="smooth-2">±2 bins</label>
+      </div>
+    </div>
+  </div>
+
+  <section class="card" aria-labelledby="d-title">
+    <div class="detail-head">
+      <h2 id="d-title"></h2>
+      <div class="meta" id="d-meta"></div>
+    </div>
+    <div class="legend" id="d-legend"></div>
+
+    <h3 class="chart-title" id="p-title">Distances between random pairs</h3>
+    <div class="chart" id="p-chart">
+      <svg id="p-svg" role="img" aria-labelledby="d-title p-title"></svg>
+      <div class="tip" id="p-tip" hidden></div>
+    </div>
+    <p class="stock-line" id="d-stock"></p>
+    <div class="table-wrap"><table id="d-valleys"></table></div>
+
+    <h3 class="chart-title" id="t-title">Heights at which the average-linkage tree joins the pairs</h3>
+    <p class="chart-note">Each join of two clusters counts every pair it joins, at the height of the join, scaled to the same 100,000 pairs. Same horizontal axis as above. The vertical scale follows the smoothed curve, so the few bars where large clusters join run past the top, with their height written beside them. The small triangles mark the valleys of the pair histogram above. The valleys of this histogram are found the same way, but they carry a relative depth and no z: z comes from resampling the sequences, and nothing resamples a tree.</p>
+    <div class="chart" id="t-chart">
+      <svg id="t-svg" role="img" aria-labelledby="d-title t-title"></svg>
+      <div class="tip" id="t-tip" hidden></div>
+    </div>
+    <div class="table-wrap"><table id="t-valleys"></table></div>
+
+    <h3 class="chart-title" id="c-title">Cutting the tree</h3>
+    <p class="chart-note">Every sequence joined below the cut height shares a cluster. Agreement with the CDC labels as adjusted Rand index (ARI), homogeneity (each cluster within one class) and completeness (each class within one cluster). The best cut is the highest ARI over 120 heights.</p>
+    <div class="table-wrap"><table id="t-cuts"></table></div>
+
+    <details id="d-bins">
+      <summary>Every bin of both histograms as a table</summary>
+      <div class="table-wrap"><table id="d-bin-table"></table></div>
+    </details>
+  </section>
+
+  <section class="section-head" aria-labelledby="m-title">
+    <h2 id="m-title">Valleys at each number of axes</h2>
+    <p>Every embedding and number of axes, with the scale chosen above. The number is how many valleys the pair histogram shows there; under it, the structure test's own verdict — the half-height rule this page is set against — and how many valleys the tree's joining heights show. Grey ticks mark a valley with more than half of all pairs below it, which splits a bulk from a tail rather than finding groups, and which the count leaves out. Choose a cell to open it.</p>
+  </section>
+  <div class="scroll">
+    <div class="matrix" id="matrix"></div>
+  </div>
+
+  <section class="card" aria-labelledby="k-title">
+    <h2 id="k-title">Against KPopPhylo’s trees</h2>
+    <p class="section-note" id="k-note">KPopPhylo’s sparse neighbour-joining tree, built on the same axes, set beside the average-linkage (UPGMA) tree above. For each group of sequences — the clusters a valley cut produces, and the CDC classes — the share of members in groups that form an exact clade of the tree, and how closely the best-matching clade overlaps the group (Jaccard). Robinson–Foulds distance compares the two trees’ branches over the labelled sequences.</p>
+    <div class="table-wrap"><table id="k-table"></table></div>
+  </section>
+
+  <section class="notes" aria-label="How these were made">
+    <p><b>Pairs.</b> 100,000 random pairs of the CDC-labelled spectra (seed 17), the same draw the structure test makes. Distances are Euclidean in principal coordinates over the first <em>d</em> axes of a correspondence analysis.</p>
+    <p><b>Samples.</b> The analysis behind each projection used 244 VP1, 200 RdRp or 220 VP2 spectra. <em>Uniform</em>: chosen at random. <em>Stratified</em>: the autotuner's rule applied to the CDC classes, one spectrum per class and the rest by size, centre first then extremes. <em>Cores</em>: the same allocation, taking each class's members nearest its centre.</p>
+    <p><b>Histograms.</b> 200 bins up to the 99th percentile of the pair distances; on the log scale, from the 0.1th percentile of the positive ones. The bars and the curve are drawn from 100,000 sampled pairs, and the smoothing control chooses how much the curve is smoothed &mdash; a drawing choice, nothing more. <b>The valleys are not found here.</b> They come from the calibrated detector, which works on <em>all</em> pairs of the same spectra: it smooths by one bin either side, simplifies peaks and troughs in order of relative size &mdash; a trough against the lower of its flanking peaks, an interior peak against the modes beyond the troughs it sits between, so a bump inside a gap is measured against the modes the gap separates rather than splitting it &mdash; and keeps what has a prominence of at least 3 resampling standard deviations over 50 resamples of the sequences, with between 0.2% and 90% of pairs below it. Because the drawn curve is a sample and the detector reads every pair, a valley can sit a little off the visible minimum. The <em>test</em> line is the structure test&#8217;s own rule instead: one valley, accepted when the dip reaches half the height of the smaller mode.</p>
+    <p><b>Trees.</b> Average linkage (UPGMA) over every labelled spectrum in the same <em>d</em> axes, by a nearest-neighbour chain with Lance-Williams updates. The tree does not depend on the detector, so only where it is cut changes. A cut at a height takes the clusters standing there and scores them against the labels by adjusted Rand index, homogeneity and completeness; <em>best</em> is the highest-scoring cut anywhere on the tree, over a grid of 120 heights, which no valley is asked to know about. KPopPhylo: sparse neighbour-joining (<code>--snj-mode periodic-rebuild</code>) on the same projection, keeping the first <em>d</em> axes through the metric threshold, on one thread.</p>
+    <p><b>Labels.</b> VP1's finest label is the drift variant within GII.4 and the genotype elsewhere. VP2 histograms were read from a 4,216-spectrum database, restricted to its 3,021 labelled spectra, all of which belong to the 3,027-sequence corpus of the earlier runs; its KPopPhylo tree was built on that corpus alone.</p>
+  </section>
+</main>
+
+<script>
+(() => {
+  const DATA =
+__DATA__
+  ;
+  const TREE =
+__TREE__
+  ;
+  const PHYLO =
+__PHYLO__
+  ;
+  const key = (t, d, s) => `${t}|${d}|${s}`;
+  const IDX = new Map(DATA.map(o => [key(o.tag, o.d, o.scale), o]));
+  const TIDX = new Map(TREE.map(o => [key(o.tag, o.d, o.scale), o]));
+  const ROWS = [
+    { tag: 'vp1.T_rand', region: 'VP1', sample: 'uniform sample' },
+    { tag: 'vp1.T_strat', region: 'VP1', sample: 'stratified by genotype' },
+    { tag: 'vp1.T_core', region: 'VP1', sample: 'genotype cores' },
+    { tag: 'rdrp.T_rand', region: 'RdRp', sample: 'uniform sample' },
+    { tag: 'rdrp.T_strat', region: 'RdRp', sample: 'stratified by P-type' },
+    { tag: 'vp2.T_rand', region: 'VP2', sample: 'uniform sample' },
+  ];
+  const DS = {};
+  for (const o of DATA) (DS[o.tag] ||= new Set()).add(o.d);
+  for (const t in DS) DS[t] = [...DS[t]].sort((a, b) => a - b);
+
+  const state = { tag: 'vp1.T_strat', d: 20, scale: 'lin', smooth: 5 };
+  try {
+    const s = JSON.parse(localStorage.getItem('noro-valleys-view') || 'null');
+    if (s && IDX.has(key(s.tag, s.d, 'lin')) && (s.scale === 'lin' || s.scale === 'log') && (s.smooth === 5 || s.smooth === 2))
+      Object.assign(state, s);
+  } catch (e) { /* no stored view */ }
+  const save = () => { try { localStorage.setItem('noro-valleys-view', JSON.stringify(state)); } catch (e) { /* ignore */ } };
+
+  const NS = 'http://www.w3.org/2000/svg';
+  const el = (name, attrs = {}, parent) => {
+    const e = document.createElementNS(NS, name);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  };
+  const h = (tag, cls, text) => {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  };
+  const fmtPct = x => (100 * x).toFixed(1) + '%';
+  const fmtInt = n => Math.round(n).toLocaleString('en-GB');
+  const fmt3 = x => x.toFixed(3);
+  const fmtDist = v => v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v >= 1 ? v.toFixed(2) : v >= 0.01 ? v.toFixed(3) : v.toPrecision(2);
+  const rowOf = tag => ROWS.find(r => r.tag === tag);
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  const levelLabel = (o, i) => (o.levels.length === 2 && i === 1 ? 'finest label' : o.levels[i]);
+
+  function layers(o) {
+    const tot = o.counts;
+    if (o.levels.length === 2) {
+      const s0 = o.same[0], s1 = o.same[1];
+      const strong = tot.map((_, b) => Math.min(s1[b], s0[b]));
+      return [
+        { cls: 'a-strong', sw: 'var(--rel-strong)', label: 'Same finest label', vals: strong },
+        { cls: 'a-weak', sw: 'var(--rel-weak)', label: 'Same genotype only', vals: tot.map((_, b) => Math.max(0, s0[b] - strong[b])) },
+        { cls: 'a-none', sw: 'var(--rel-none)', label: 'Different genotype', vals: tot.map((t, b) => Math.max(0, t - s0[b])) },
+      ];
+    }
+    const lvl = o.levels[0], s0 = o.same[0];
+    return [
+      { cls: 'a-one', sw: 'var(--rel-one)', label: `Same ${lvl}`, vals: s0 },
+      { cls: 'a-none', sw: 'var(--rel-none)', label: `Different ${lvl}`, vals: tot.map((t, b) => Math.max(0, t - s0[b])) },
+    ];
+  }
+  function xform(o) {
+    const B = o.counts.length;
+    const toU = o.scale === 'log' ? v => (v > 0 ? (Math.log(v) - o.a0) / o.w : -1) : v => (v - o.a0) / o.w;
+    const ofU = o.scale === 'log' ? u => Math.exp(o.a0 + u * o.w) : u => o.a0 + u * o.w;
+    return { B, toU, ofU };
+  }
+  function niceStep(span, n) {
+    const raw = span / n, p = Math.pow(10, Math.floor(Math.log10(raw))), m = raw / p;
+    return (m < 1.5 ? 1 : m < 3 ? 2 : m < 7 ? 5 : 10) * p;
+  }
+  function xTicks(o) {
+    const { B, ofU } = xform(o);
+    const lo = ofU(0), hi = ofU(B);
+    const t = [];
+    if (o.scale === 'lin') {
+      const st = niceStep(hi - lo, 6);
+      for (let v = Math.ceil(lo / st) * st; v <= hi + 1e-12; v += st) t.push(+v.toPrecision(12));
+      return t;
+    }
+    for (let e = Math.floor(Math.log10(lo)); e <= Math.ceil(Math.log10(hi)); e++)
+      for (const m of [1, 2, 5]) { const v = m * Math.pow(10, e); if (v >= lo && v <= hi) t.push(v); }
+    return t.length > 8 ? t.filter(v => Math.round(v / Math.pow(10, Math.floor(Math.log10(v) + 1e-9))) !== 2) : t;
+  }
+
+  const W = 960, H = 380, M = { l: 64, r: 20, t: 48, b: 50 };
+  const PW = W - M.l - M.r, PH = H - M.t - M.b;
+
+  function placeTip(tip, box, fx, fy) {
+    const bw = box.clientWidth, bh = box.clientHeight;
+    const tw = tip.offsetWidth, th = tip.offsetHeight;
+    let left = fx * bw + 14;
+    if (left + tw > bw) left = fx * bw - tw - 14;
+    let top = fy * bh - th - 10;
+    if (top < 0) top = Math.min(bh - th, fy * bh + 14);
+    tip.style.left = `${Math.max(0, left)}px`;
+    tip.style.top = `${Math.max(0, top)}px`;
+  }
+  function fillTip(tip, o, L, b, ofU, word, noun) {
+    tip.replaceChildren();
+    tip.append(h('div', 'l', `${word} ${fmtDist(ofU(b))} – ${fmtDist(ofU(b + 1))}`));
+    const total = h('div', 'row');
+    total.append(h('span', 'v', `${fmtInt(o.counts[b])} ${noun}`), h('span', 'l', `${fmtPct(o.counts[b] / o.pairs)} of all`));
+    tip.append(total);
+    for (const layer of L) {
+      const r = h('div', 'row'), left = h('span'), k = h('i', 'key-line');
+      k.style.borderTopColor = layer.sw;
+      left.append(k, h('span', 'l', layer.label));
+      const c = layer.vals[b];
+      r.append(left, h('span', 'v', o.counts[b] >= 0.5 ? `${fmtInt(c)} · ${Math.round((100 * c) / o.counts[b])}%` : '0'));
+      tip.append(r);
+    }
+    tip.hidden = false;
+  }
+
+  // One histogram, stacked by relatedness, with its smoothed curve, valleys and hover layer
+  function drawHist({ svg, tip, box, o, sm, vs, stock, guides, word, noun, yLabel }) {
+    const { B, toU, ofU } = xform(o);
+    const L = layers(o);
+    const tot = o.counts;
+    // A tree joins whole clusters at once, so a handful of bins can hold most of the pairs; scaling
+    // to those would flatten every join below them.  That chart is scaled to its smoothed curve
+    // instead, and the bars that run past the top carry their height as a label
+    const capped = noun === 'pairs joined';
+    const ymaxRaw = capped ? Math.max(Math.max(...sm) * 1.3, 1) : Math.max(...tot, ...sm, 1);
+    const yst = niceStep(ymaxRaw, 4);
+    const ymax = Math.ceil(ymaxRaw / yst) * yst;
+    const X = u => M.l + (u / B) * PW;
+    const Y = v => M.t + PH - (v / ymax) * PH;
+    svg.replaceChildren();
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    for (let v = 0; v <= ymax + 1e-9; v += yst) {
+      el('line', { x1: M.l, x2: W - M.r, y1: Y(v), y2: Y(v), class: 'gridline' }, svg);
+      el('text', { x: M.l - 8, y: Y(v) + 4, 'text-anchor': 'end', class: 'tick' }, svg).textContent = fmtInt(v);
+    }
+    const cum = [];
+    let acc = new Array(B).fill(0);
+    for (const layer of L) { acc = acc.map((a, b) => a + layer.vals[b]); cum.push(acc); }
+    const stepArea = arr => {
+      let d = `M${X(0)},${Y(0)}`;
+      for (let b = 0; b < B; b++) d += `L${X(b)},${Y(Math.min(arr[b], ymax))}L${X(b + 1)},${Y(Math.min(arr[b], ymax))}`;
+      return d + `L${X(B)},${Y(0)}Z`;
+    };
+    const stepEdge = arr => {
+      let d = '';
+      for (let b = 0; b < B; b++) d += `${b ? 'L' : 'M'}${X(b)},${Y(Math.min(arr[b], ymax))}L${X(b + 1)},${Y(Math.min(arr[b], ymax))}`;
+      return d;
+    };
+    for (let i = L.length - 1; i >= 0; i--) el('path', { d: stepArea(cum[i]), class: L[i].cls }, svg);
+    for (let i = 0; i < L.length - 1; i++) el('path', { d: stepEdge(cum[i]), class: 'edge' }, svg);
+    el('path', { d: sm.map((v, b) => `${b ? 'L' : 'M'}${X(b + 0.5)},${Y(v)}`).join(''), class: 'curve' }, svg);
+    el('line', { x1: M.l, x2: W - M.r, y1: Y(0), y2: Y(0), class: 'baseline' }, svg);
+    if (capped) {
+      const over = [];
+      for (let b = 0; b < B; b++) if (tot[b] > ymax) over.push(b);
+      over.sort((a, c) => tot[c] - tot[a]);
+      const placed = [];
+      for (const b of over) {
+        const x = X(b + 0.5);
+        if (placed.some(p => Math.abs(p - x) < 64)) continue;
+        placed.push(x);
+        const end = x > W - M.r - 70;
+        el('text', { x: end ? x - 5 : x + 5, y: M.t + 12, 'text-anchor': end ? 'end' : 'start', class: 'vlabel' }, svg)
+          .textContent = `↑ ${fmtInt(tot[b])}`;
+      }
+    }
+    for (const v of xTicks(o)) {
+      const u = toU(v);
+      if (u < 0 || u > B) continue;
+      el('line', { x1: X(u), x2: X(u), y1: Y(0), y2: Y(0) + 5, class: 'tickmark' }, svg);
+      el('text', { x: X(u), y: Y(0) + 19, 'text-anchor': 'middle', class: 'tick' }, svg).textContent = fmtDist(v);
+    }
+    el('text', { x: M.l + PW / 2, y: H - 8, 'text-anchor': 'middle', class: 'axis-label' }, svg).textContent =
+      `${word[0].toUpperCase()}${word.slice(1)}${o.scale === 'log' ? ' (log scale)' : ''}`;
+    el('text', { x: 14, y: M.t + PH / 2, 'text-anchor': 'middle', class: 'axis-label', transform: `rotate(-90 14 ${M.t + PH / 2})` }, svg).textContent = yLabel;
+
+    for (const g of guides) {
+      const x = X(toU(g));
+      if (!(x >= M.l && x <= W - M.r)) continue;
+      el('path', { d: `M${x - 5},${M.t - 2}L${x + 5},${M.t - 2}L${x},${M.t + 6}Z`, class: 'guide' }, svg);
+    }
+    const marks = vs.map(v => ({ x: X(toU(v.r)), v, stock: false }));
+    if (stock) {
+      const sx = X(toU(stock.r));
+      const near = marks.find(m => Math.abs(m.x - sx) < 5);
+      if (near) near.stock = true;
+      else marks.push({ x: sx, v: stock, stock: true });
+    }
+    marks.sort((a, b) => a.x - b.x);
+    let lastX = -1e9, lane = 0;
+    for (const m of marks) {
+      if (!(m.x >= M.l && m.x <= W - M.r)) continue;
+      lane = m.x - lastX < 70 ? (lane + 1) % 2 : 0;
+      lastX = m.x;
+      el('line', { x1: m.x, x2: m.x, y1: M.t - 6, y2: Y(0), class: m.stock ? 'sline' : 'vline' }, svg);
+      const anchor = m.x < M.l + 40 ? 'start' : m.x > W - M.r - 40 ? 'end' : 'middle';
+      el('text', { x: m.x, y: M.t - 14 - lane * 16, 'text-anchor': anchor, class: m.stock ? 'slabel' : 'vlabel' }, svg)
+        .textContent = `${m.stock ? 'test ' : ''}${fmtPct(m.v.below)}`;
+    }
+
+    const cross = el('line', { class: 'cross', y1: M.t, y2: Y(0), visibility: 'hidden' }, svg);
+    const hit = el('rect', {
+      x: M.l, y: M.t, width: PW, height: PH, class: 'hit', tabindex: '0', role: 'slider',
+      'aria-label': `${yLabel}: use the left and right arrow keys to read each bin`,
+    }, svg);
+    let cur = null;
+    const show = b => {
+      cur = b;
+      const cx = X(b + 0.5);
+      cross.setAttribute('x1', cx);
+      cross.setAttribute('x2', cx);
+      cross.setAttribute('visibility', 'visible');
+      hit.setAttribute('aria-valuetext', `${word} ${fmtDist(ofU(b))} to ${fmtDist(ofU(b + 1))}: ${fmtInt(tot[b])} ${noun}`);
+      fillTip(tip, o, L, b, ofU, word, noun);
+      placeTip(tip, box, cx / W, Y(Math.min(ymax, Math.max(tot[b], sm[b]))) / H);
+    };
+    const hide = () => { tip.hidden = true; cross.setAttribute('visibility', 'hidden'); };
+    hit.addEventListener('pointermove', ev => {
+      const r = svg.getBoundingClientRect();
+      const px = ((ev.clientX - r.left) / r.width) * W;
+      show(Math.max(0, Math.min(B - 1, Math.floor(((px - M.l) / PW) * B))));
+    });
+    hit.addEventListener('pointerleave', hide);
+    hit.addEventListener('focus', () => show(cur ?? Math.floor(B / 20)));
+    hit.addEventListener('blur', hide);
+    hit.addEventListener('keydown', ev => {
+      if (ev.key !== 'ArrowRight' && ev.key !== 'ArrowLeft') return;
+      ev.preventDefault();
+      const step = (ev.key === 'ArrowRight' ? 1 : -1) * (ev.shiftKey ? 10 : 1);
+      show(Math.max(0, Math.min(B - 1, (cur ?? 0) + step)));
+    });
+    return L;
+  }
+
+  function renderLegend(L) {
+    const lg = document.getElementById('d-legend');
+    lg.replaceChildren();
+    for (const layer of L) {
+      const k = h('span', 'key'), sw = h('i', 'sw');
+      sw.style.background = layer.sw;
+      k.append(sw, document.createTextNode(layer.label));
+      lg.append(k);
+    }
+    const add = (cls, text) => { const k = h('span', 'key'); k.append(h('i', cls), document.createTextNode(text)); lg.append(k); };
+    add('lk', `Smoothed ±${state.smooth} bins`);
+    add('vk', 'Valley, with % of pairs below');
+    add('sk', 'The structure test’s valley');
+    add('gk', 'Pair-distance valley, on the tree chart');
+  }
+
+  function valleyTable(table, o, vs, firstHeader, belowHeader, emptyText) {
+    table.replaceChildren();
+    const thead = h('thead'), trh = h('tr');
+    trh.append(h('th', '', firstHeader), h('th', '', belowHeader));
+    o.levels.forEach((lv, i) => trh.append(h('th', '', `Same-${levelLabel(o, i)} pairs below it`)));
+    thead.append(trh);
+    const tbody = h('tbody');
+    if (!vs.length) {
+      const tr = h('tr'), td = h('td', '', emptyText);
+      td.colSpan = 2 + o.levels.length;
+      tr.append(td);
+      tbody.append(tr);
+    }
+    for (const v of vs) {
+      const tr = h('tr'), first = h('td', '', fmtDist(v.r));
+      if (v.below > 0.5 && belowHeader === 'Pairs below it')
+        first.append(document.createTextNode(' '), h('span', 'flag', '· bulk against a tail'));
+      tr.append(first, h('td', '', fmtPct(v.below)));
+      v.caught.forEach(c => tr.append(h('td', '', fmtPct(c))));
+      tbody.append(tr);
+    }
+    table.append(thead, tbody);
+  }
+
+  function cutsTable(table, t) {
+    table.replaceChildren();
+    if (!t || !t.cuts) {
+      const tr = h('tr'), td = h('td', '', 'No tree for this embedding.');
+      tr.append(td);
+      table.append(tr);
+      return;
+    }
+    const thead = h('thead');
+    const top = h('tr');
+    const blank = h('th', '', '');
+    blank.colSpan = 4;
+    top.append(blank);
+    t.levels.forEach((_, i) => { const th = h('th', 'grp', levelLabel(t, i)); th.colSpan = 3; top.append(th); });
+    const sub = h('tr');
+    for (const s of ['Cut', 'Height', 'Clusters', 'Largest']) sub.append(h('th', '', s));
+    t.levels.forEach(() => { for (const s of ['ARI', 'Homogeneity', 'Completeness']) sub.append(h('th', '', s)); });
+    thead.append(top, sub);
+    const tbody = h('tbody');
+    const row = (label, c) => {
+      const tr = h('tr');
+      tr.append(h('td', '', label), h('td', '', fmtDist(c.r)), h('td', '', fmtInt(c.k)), h('td', '', fmtInt(c.largest)));
+      c.ari.forEach((a, i) => tr.append(h('td', '', fmt3(a)), h('td', '', fmt3(c.hom[i])), h('td', '', fmt3(c.compl[i]))));
+      tbody.append(tr);
+    };
+    const pairsCuts = t.cuts.filter(c => c.at === 'pairs'), treeCuts = t.cuts.filter(c => c.at === 'tree');
+    pairsCuts.forEach(c => row('At a pair-distance valley', c));
+    treeCuts.forEach(c => row('At a tree valley', c));
+    t.best.forEach((c, i) => row(`Best cut for ${levelLabel(t, i)}`, c));
+    if (!pairsCuts.length && !treeCuts.length) {
+      const tr = h('tr'), td = h('td', '', 'No valley to cut at; only the best cuts are shown.');
+      td.colSpan = 4 + 3 * t.levels.length;
+      tr.append(td);
+      tbody.prepend(tr);
+    }
+    table.append(thead, tbody);
+  }
+
+  function renderDetail() {
+    const o = IDX.get(key(state.tag, state.d, state.scale));
+    const lin = IDX.get(key(state.tag, state.d, 'lin'));
+    const t = TIDX.get(key(state.tag, state.d, state.scale));
+    const tlin = TIDX.get(key(state.tag, state.d, 'lin'));
+    const row = rowOf(state.tag);
+    const vs = o['valleys' + state.smooth];
+    const stock = lin.stock && lin.stock.below >= 0.002 ? lin.stock : null;
+    document.getElementById('d-title').textContent = `${row.region} · ${row.sample}`;
+    document.getElementById('d-meta').textContent =
+      `${o.d} of ${o.axes} axes · ${fmtPct(o.inertia_kept)} of inertia · ${state.scale === 'log' ? 'log' : 'linear'}, ±${state.smooth} bins · ${plural(vs.length, 'valley', 'valleys')}${t ? ` · tree ${t['valleys' + state.smooth].length}` : ''}`;
+
+    const L = drawHist({
+      svg: document.getElementById('p-svg'), tip: document.getElementById('p-tip'), box: document.getElementById('p-chart'),
+      o, sm: o['smooth' + state.smooth], vs, stock, guides: [], word: 'distance between the two sequences', noun: 'pairs', yLabel: 'Pairs per bin',
+    });
+    renderLegend(L);
+    document.getElementById('d-stock').textContent = stock
+      ? `The structure test (linear scale, ±5 bins) puts its valley at distance ${fmtDist(stock.r)}, with ${fmtPct(stock.below)} of all pairs below it, and reports groups.`
+      : 'The structure test (linear scale, ±5 bins) finds no valley here and reports no groups: this is where a search would start from every sequence on its own.';
+    valleyTable(document.getElementById('d-valleys'), o, vs, 'Valley at distance', 'Pairs below it', 'No valley with this lens');
+
+    const tsvg = document.getElementById('t-svg');
+    if (t) {
+      drawHist({
+        svg: tsvg, tip: document.getElementById('t-tip'), box: document.getElementById('t-chart'),
+        o: t, sm: t['smooth' + state.smooth], vs: t['valleys' + state.smooth], stock: null,
+        guides: vs.map(v => v.r), word: 'height of the join', noun: 'pairs joined', yLabel: 'Pairs joined per bin',
+      });
+      valleyTable(document.getElementById('t-valleys'), t, t['valleys' + state.smooth], 'Tree valley at height', 'Pairs joined below it', 'No valley in the joining heights with this lens');
+    } else {
+      tsvg.replaceChildren();
+      document.getElementById('t-valleys').replaceChildren();
+    }
+    cutsTable(document.getElementById('t-cuts'), tlin);
+
+    const det = document.getElementById('d-bins');
+    const fillBins = () => {
+      const bt = document.getElementById('d-bin-table');
+      bt.replaceChildren();
+      const { B, ofU } = xform(o);
+      const LT = t ? layers(t) : [];
+      const hd = h('thead'), top = h('tr'), hr = h('tr');
+      const b1 = h('th', '', ''); b1.colSpan = 2; top.append(b1);
+      const g1 = h('th', 'grp', 'Pairs'); g1.colSpan = 1 + L.length; top.append(g1);
+      if (t) { const g2 = h('th', 'grp', 'Pairs joined by the tree'); g2.colSpan = 1 + LT.length; top.append(g2); }
+      hr.append(h('th', '', 'From'), h('th', '', 'To'), h('th', '', 'All'));
+      L.forEach(layer => hr.append(h('th', '', layer.label)));
+      if (t) { hr.append(h('th', '', 'All')); LT.forEach(layer => hr.append(h('th', '', layer.label))); }
+      hd.append(top, hr);
+      const body = h('tbody');
+      for (let b = 0; b < B; b++) {
+        const tr = h('tr');
+        tr.append(h('td', '', fmtDist(ofU(b))), h('td', '', fmtDist(ofU(b + 1))), h('td', '', fmtInt(o.counts[b])));
+        L.forEach(layer => tr.append(h('td', '', fmtInt(layer.vals[b]))));
+        if (t) { tr.append(h('td', '', fmtInt(t.counts[b]))); LT.forEach(layer => tr.append(h('td', '', fmtInt(layer.vals[b])))); }
+        body.append(tr);
+      }
+      bt.append(hd, body);
+    };
+    det.ontoggle = () => { if (det.open) fillBins(); };
+    if (det.open) fillBins();
+  }
+
+  function renderMatrix() {
+    const m = document.getElementById('matrix');
+    m.replaceChildren();
+    m.append(h('div', 'mh', ''));
+    for (const c of ['5 axes', '10 axes', '20 axes', '40 axes', '80 axes', '120 axes', 'all axes']) m.append(h('div', 'mh', c));
+    for (const row of ROWS) {
+      const rh = h('div', 'rh');
+      rh.append(h('b', '', row.region), h('span', '', row.sample));
+      m.append(rh);
+      for (const d of DS[row.tag]) {
+        const o = IDX.get(key(row.tag, d, state.scale));
+        const lin = IDX.get(key(row.tag, d, 'lin'));
+        const t = TIDX.get(key(row.tag, d, state.scale));
+        const vs = o['valleys' + state.smooth];
+        const sm = o['smooth' + state.smooth];
+        const btn = h('button', 'cell');
+        btn.type = 'button';
+        btn.id = `cell-${row.tag}-${d}`.replace(/\./g, '-');
+        btn.setAttribute('aria-pressed', String(row.tag === state.tag && d === state.d));
+        const testText = lin.stock && lin.stock.below >= 0.002 ? `test ${fmtPct(lin.stock.below)}` : 'test: no groups';
+        const treeText = t ? `tree ${t['valleys' + state.smooth].length}` : '';
+        btn.setAttribute('aria-label', `${row.region}, ${row.sample}, ${d} axes: ${plural(vs.length, 'valley', 'valleys')}; ${testText}${treeText ? `; ${plural(t['valleys' + state.smooth].length, 'tree valley', 'tree valleys')}` : ''}`);
+        const n = h('div', 'n');
+        n.append(h('span', '', String(vs.length)), h('small', '', `${vs.length === 1 ? 'valley' : 'valleys'}${d === o.axes ? ` · ${d}` : ''}`));
+        const sv = el('svg', { viewBox: '0 0 100 40', preserveAspectRatio: 'none', 'aria-hidden': 'true' });
+        const B = sm.length, mx = Math.max(...sm) || 1;
+        const pts = sm.map((v, b) => `${(((b + 0.5) / B) * 100).toFixed(2)},${(38 - (v / mx) * 34).toFixed(2)}`);
+        el('path', { d: `M0,38L${pts.join('L')}L100,38Z`, class: 'mini-area' }, sv);
+        el('path', { d: `M${pts.join('L')}`, class: 'mini-curve', 'vector-effect': 'non-scaling-stroke' }, sv);
+        const { toU } = xform(o);
+        for (const v of vs) {
+          const x = (toU(v.r) / B) * 100;
+          el('line', { x1: x, x2: x, y1: 1, y2: 39, class: v.below > 0.5 ? 'mini-v crude' : 'mini-v', 'vector-effect': 'non-scaling-stroke' }, sv);
+        }
+        btn.append(n, sv, h('div', 't', testText));
+        if (treeText) btn.append(h('div', 't', treeText));
+        btn.addEventListener('click', () => {
+          state.tag = row.tag;
+          state.d = d;
+          save();
+          render();
+          document.getElementById('d-title').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+        });
+        m.append(btn);
+      }
+    }
+  }
+
+  function renderPhylo() {
+    const table = document.getElementById('k-table');
+    table.replaceChildren();
+    if (!PHYLO.length) {
+      const tr = h('tr');
+      tr.append(h('td', '', 'KPopPhylo’s trees for this comparison are still being built; this table fills in when they are.'));
+      table.append(tr);
+      return;
+    }
+    const thead = h('thead'), top = h('tr'), sub = h('tr');
+    const b = h('th', '', ''); b.colSpan = 2; top.append(b);
+    const g1 = h('th', 'grp', 'KPopPhylo tree'); g1.colSpan = 2; top.append(g1);
+    const g2 = h('th', 'grp', 'UPGMA tree'); g2.colSpan = 2; top.append(g2);
+    for (const s of ['Groups', 'How many', 'Members in exact clades', 'Best-match Jaccard', 'Members in exact clades', 'Best-match Jaccard']) sub.append(h('th', '', s));
+    thead.append(top, sub);
+    const tbody = h('tbody');
+    for (const c of PHYLO) {
+      const r = rowOf(c.tag);
+      const tr = h('tr', 'case'), td = h('td');
+      td.colSpan = 6;
+      td.append(document.createTextNode(`${r.region} · ${r.sample} · ${c.d} axes `));
+      td.append(h('span', '', `— ${fmtInt(c.shared)} of ${fmtInt(c.upgma_splits)} UPGMA branches also in KPopPhylo’s tree (Robinson–Foulds ${fmt3(c.nrf)}); branches with at least 10 sequences on each side: ${fmtInt(c.deep_shared)} of ${fmtInt(c.deep)} (${fmtPct(c.deep ? c.deep_shared / c.deep : 0)})`));
+      tr.append(td);
+      tbody.append(tr);
+      for (const x of c.rows) {
+        const row = h('tr');
+        const label = x.kind === 'valley' ? `Cut at valley ${fmtDist(x.r)}` : `CDC ${x.level === 'variant' ? 'finest labels' : `${x.level}s`}`;
+        row.append(h('td', '', label), h('td', '', fmtInt(x.groups)), h('td', '', fmtPct(x.nj_pct)), h('td', '', fmt3(x.nj_j)), h('td', '', fmtPct(x.up_pct)), h('td', '', fmt3(x.up_j)));
+        tbody.append(row);
+      }
+    }
+    table.append(thead, tbody);
+  }
+
+  function syncControls() {
+    document.getElementById(`scale-${state.scale}`).checked = true;
+    document.getElementById(`smooth-${state.smooth}`).checked = true;
+  }
+  for (const input of document.querySelectorAll('input[name="scale"]'))
+    input.addEventListener('change', () => { state.scale = input.value; save(); render(); });
+  for (const input of document.querySelectorAll('input[name="smooth"]'))
+    input.addEventListener('change', () => { state.smooth = Number(input.value); save(); render(); });
+
+  function render() {
+    document.getElementById('p-tip').hidden = true;
+    document.getElementById('t-tip').hidden = true;
+    syncControls();
+    renderDetail();
+    renderMatrix();
+  }
+  renderPhylo();
+  render();
+})();
+</script>
