@@ -38,7 +38,7 @@ The inputs are text exports of a twisted register and its inertia, as
 | `compare.sh` | Runs `splitcmp` over the seven cases and writes the page's `phylo.json`. |
 | `regen.sh` | Regenerates both histogram dumps on the union of the page's grid and the doubling ladder. |
 | `run2.sh`, `beats.sh`, `tables.sh` | Drive `guard2` and tabulate it. |
-| `guard3.ml` | The same guards on a corpus built once and apart from the thresholds (2 to 32): attacks at sizes both absolute and relative to n, each partition scored once however many constructions reach it, and no partition built by projecting through a guard. Optionally subsamples the labelled rows (`uniform`, `strat`, `classes`) and coarsens or refines the reference in place (`merge<j>`, `split`). Writes a 20-column TSV that a complete run ends with a row of family `end`. |
+| `guard3.ml` | The same guards on a corpus built once and apart from the thresholds (2 to 32): attacks at sizes both absolute and relative to n, duplicates among the shared constructions scored once (the best-of-eight-seeds probes write their own rows, so they can repeat another construction), and no partition built by projecting through a guard. Optionally subsamples the labelled rows (`uniform`, `strat`, `classes`) and coarsens or refines the reference in place (`merge<j>`, `split`). Writes a 20-column TSV that a complete run ends with a row of family `end`. |
 | `mstar.sh` | m\*, the largest single group against the rest that beats the labels with no guard at all. A lower bound: every probe is a periphery-against-bulk split seeded at the periphery. |
 | `curve.sh` | The smallest threshold at which no unguarded-winning attack beats the labels under G3b. It lands one defence rung above m\* and adds nothing to it; its header says why. |
 | `runexp.sh` | Drives `guard3` over the three embeddings: the anchor, proportional thinning (arm A), whole classes dropped (arm B, not run) and the reference coarsened and refined in place (arm C). |
@@ -74,14 +74,16 @@ The work these programs exist for, and the part worth keeping whatever happens t
 ## The minimum-cluster guard, measured
 
 The question was what threshold s a minimum-cluster guard should use. Measured on the three
-norovirus embeddings at the axes the rule picks (VP1 d = 20, RdRp d = 5, VP2 d = 20; `guard3.ml`,
-`results/`), the answer is that no threshold is safe and no guard should be added.
+norovirus embeddings next to the axes the rule picks (VP1 d = 20, RdRp d = 5, VP2 d = 20; `guard3.ml`,
+`results/`), the answer is that no threshold works across the three and no guard should be added.
 
-**What beats the labels is not a small cluster.** With no guard at all, the partitions that outscore
-the curated labels are two-cluster splits of periphery against bulk: the k points farthest from the
-centroid against the rest (f_p 0.98–0.999), coarser than the labels. One outlier against the rest
-already wins by +0.048/+0.071 on VP1 and +0.051/+0.079 on VP2 (classical/simplified), and loses only
-on RdRp at d = 5. The largest such group that still wins, m\* (`mstar.sh`, 95% draw):
+**What beats the labels is the periphery set apart from the bulk.** With no guard at all, every
+degenerate probe that outscores the curated labels sets some of the outermost points apart from a bulk
+holding almost every spectrum, as singletons or as one group (f_p 0.968–0.999 over all 54 runs),
+coarser than the labels. As singletons they are the small clusters a guard is meant for; as one group
+they are an eligible cluster once they number s. One outlier against the rest already wins by
++0.048/+0.070 on VP1 and +0.051/+0.079 on VP2 (classical/simplified), and loses only on RdRp at d = 5.
+Near-copies of the labels win too (below), and no small cluster inside a class was ever probed. The largest such group that still wins, m\* (`mstar.sh`, 95% draw):
 
 | | classical | simplified |
 |---|---|---|
@@ -92,10 +94,13 @@ on RdRp at d = 5. The largest such group that still wins, m\* (`mstar.sh`, 95% d
 Every m\* is a lower bound: all probes start at the periphery, only eight seeds are tried, and the
 size ladder has gaps.
 
-**No constant threshold can work.** Under G3b a group of exactly s members is eligible, and on VP2
-classical the s farthest points beat the guarded labels at s = 16, 22 and 32. A threshold above 32
-would charge 27 of 39 VP1 classes, 45 of 53 RdRp classes and 27 of 36 VP2 classes as noise; s = 8
-already charges 15, 32 and 14 at full n.
+**No constant threshold can work.** Under G3b a group of exactly s members is eligible. On VP2 one
+beats the guarded labels at every threshold tried, on one silhouette or the other: on the simplified
+silhouette at every s up to 22 (+0.037 at s = 8), on the classical one at s = 2–6, 16, 22 and 32,
+resisting only at s = 8 and 11, by 0.001. On VP1 no degenerate probe beats the guarded labels above
+s = 4, and on RdRp none ever does, so the size that works depends on the data and finding it takes
+labels. A threshold large enough for VP2 would charge 27 of 39 VP1 classes, 45 of 53 RdRp classes and
+27 of 36 VP2 classes as noise at s = 32; s = 8 already charges 15, 32 and 14 at full n.
 
 **The labels are not the optimum in either direction.** Splitting the largest class raises the
 unguarded score (VP1 +0.10, VP2 +0.09, classical), but five nearest-pair merges raise it too, in all
@@ -111,9 +116,9 @@ embedding.
 **Geometry dominates.** At full dimension (d = 243, 199, 219, the older corpus of `guard2.ml`) one
 outlier against the rest beats the labels by +0.10 to +0.20 in all six cells, RdRp included.
 
-**What follows.** The degenerate to defend against is a periphery-against-bulk bipartition. The
-push-back as drafted, `silhouette − λ·max(0, ln(f_v/f_p) − ln 2)`, penalises only partitions finer
-than the valley, so these pass it untouched. Whether the search under the level rule ever reaches
+**What follows.** The degenerate partitions to defend against set the periphery apart from the bulk.
+The push-back as drafted, `silhouette − λ·max(0, ln(f_v/f_p) − ln 2)`, penalises only partitions
+finer than the valley, so these pass it untouched. Whether the search under the level rule ever reaches
 them, and whether a two-sided push-back would stop it, needs autotuner runs: this rig scores
 partitions and cannot say.
 

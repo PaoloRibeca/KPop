@@ -320,8 +320,9 @@ let () =
     done;
     flush oc;
     log "%-60s k=%4d G0 cl %.4f si %.4f" name r.k r.g0.(0) r.g0.(1) in
-  (* Two constructions can reach the same partition.  It is scored and written once: a repeat would
-     inflate every count and make the top1-top2 gap read zero *)
+  (* Two constructions can reach the same partition.  Through add it is scored and written once, since
+     a repeat would inflate every count and zero the top1-top2 gap; the best-of-eight-seeds probes call
+     score and add_res directly, and can repeat what add has already written *)
   let seen_parts = Hashtbl.create 256 in
   let add ?(fam = 0) cat name (p, k) =
     match Hashtbl.find_opt seen_parts p with
