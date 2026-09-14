@@ -35,12 +35,31 @@ open BiOCamLib
 open Better
 open KPop
 
+(* THE NUMBER OF AXES A ROUND WORKS IN: a fixed number, 0 taking as many as the analysis yields, or
+   [Auto], which lets the valleys choose it afresh at every round *)
+module Dimensions =
+  struct
+    type t =
+      | Auto
+      | Fixed of int
+    let of_string = function
+      | "auto" -> Auto
+      | s ->
+        match int_of_string_opt s with
+        | Some d when d >= 0 -> Fixed d
+        | _ -> Exception.raise_unrecognized_initializer __FUNCTION__ "number of dimensions" s
+    let to_string = function
+      | Auto -> "auto"
+      | Fixed d -> string_of_int d
+  end
+
 module Defaults =
   struct
     let projection_sample = 0
     let partition_sample = 0
     let iterations = 12
-    let dimensions = 0
+    let dimensions = Dimensions.Fixed 0
+    let dimensions_max = 256
     let dimensions_inertia = 0.
     let report_anyway = false
     let valleys_method = Clustering.ValleysMethod.HalfHeight
@@ -69,6 +88,7 @@ module Parameters =
     let partition_sample = ref Defaults.partition_sample
     let iterations = ref Defaults.iterations
     let dimensions = ref Defaults.dimensions
+    let dimensions_max = ref Defaults.dimensions_max
     let dimensions_inertia = ref Defaults.dimensions_inertia
     let report_anyway = ref Defaults.report_anyway
     let valleys_method = ref Defaults.valleys_method
@@ -140,11 +160,17 @@ let analyse ?(what = "") ~threads ~verbose ~dimensions db =
      lowered to what is there rather than refused, and the lowering is reported, because it says
      the level asked for was not reached and the run below it is a different run *)
   let available = db.KMerDB_Base.core.KMerDB_Base.n_cols - 1 in
-  let wanted = if dimensions > 0 then min dimensions available else 0 in
-  if dimensions > 0 && wanted < dimensions && verbose then
+  (* 'auto' decomposes into as many axes as it may search, the ladder cutting them down, so being
+     given fewer is not a shortfall but simply all there are *)
+  let asked =
+    match dimensions with
+    | Dimensions.Fixed d -> d
+    | Auto -> !Parameters.dimensions_max in
+  let wanted = if asked > 0 then min asked available else 0 in
+  if dimensions <> Dimensions.Auto && asked > 0 && wanted < asked && verbose then
     Printf.eprintf
       "(%s): %s%d axes were asked for and only %d are available, the analysis having %d rows.\n%!"
-      __FUNCTION__ (if what = "" then "" else what ^ ": ") dimensions wanted (available + 1);
+      __FUNCTION__ (if what = "" then "" else what ^ ": ") asked wanted (available + 1);
   if wanted > 0 then decompose ~threads ~verbose db wanted
   else begin
     let (twister, _, _) as full = CA.twist ~threads ~verbose db in
@@ -462,15 +488,26 @@ let () =
       TA.Default (string_of_int Defaults.iterations |> Fun.const),
       (fun _ -> Parameters.iterations := TA.get_parameter_int_pos ());
     [ "--dimensions" ],
-      Some "<non_negative_integer>",
+      Some "'auto'|<non_negative_integer>",
       [ "number of axes every round works in, 0 taking as many as the analysis yields.";
         "Left to itself the loop has no say in this: an analysis of k classes yields k-1 axes,";
         "so each round inherits whatever the round before happened to find, and the";
         "granularity of the answer follows the dimensionality rather than the other way about.";
         "Fixing it makes the level of the partition something chosen rather than inherited,";
-        "and makes two runs over the same data comparable." ],
-      TA.Default (string_of_int Defaults.dimensions |> Fun.const),
-      (fun _ -> Parameters.dimensions := TA.get_parameter_int_non_neg ());
+        "and makes two runs over the same data comparable.";
+        "'auto' lets the valleys choose instead: every round decomposes into as many axes";
+        "as --dimensions-max allows, finds the valleys in 1, 2, 4 and so on of them, and";
+        "searches at the first of those rungs showing the most valleys with at most half of";
+        "the pairs below, or at the last of the rungs after it showing as many.  It requires";
+        "the calibrated --valleys-method and a --partition-sample above 1, cannot start from";
+        "a --projection-sample of 1, and refuses --report-anyway" ],
+      TA.Default (Dimensions.to_string Defaults.dimensions |> Fun.const),
+      (fun _ -> Parameters.dimensions := TA.get_parameter () |> Dimensions.of_string);
+    [ "--dimensions-max" ],
+      Some "<positive_integer>",
+      [ "largest number of axes 'auto' may decompose into and search in" ],
+      TA.Default (string_of_int Defaults.dimensions_max |> Fun.const),
+      (fun _ -> Parameters.dimensions_max := TA.get_parameter_int_pos ());
     [ "--dimensions-inertia" ],
       Some "<fractional_float>",
       [ "keep only the leading axes carrying this share of the inertia, 0 keeping all of them.";
@@ -479,7 +516,7 @@ let () =
         "the ones that carry the structure makes it a property of the data instead.";
         "A threshold near 1 does not do this: the tail of the spectrum is nearly flat, so 0.95";
         "counts the noise floor and returns most of whatever was on offer.";
-        "Ignored when --dimensions is given." ],
+        "Ignored when --dimensions is not 0, and under 'auto' with a warning." ],
       TA.Default (string_of_float Defaults.dimensions_inertia |> Fun.const),
       (fun _ -> Parameters.dimensions_inertia := TA.get_parameter_float_fraction ());
     [ "--report-anyway" ],
@@ -603,6 +640,38 @@ let () =
       TA.Optional,
       (fun _ -> TA.usage (); exit 1)
   ];
+  (* WHAT 'auto' CANNOT WORK WITH, refused before anything is read.  It chooses among valleys,
+     which only the calibrated detector reports.  A round that combines each class into one
+     spectrum hands the next an analysis of k-1 axes, which is the dependence it exists to break,
+     and an analysis of one spectrum has no axes at all.  And a round showing no groups at any
+     number of axes has no space to search in, so there is nothing a partition could be written
+     out from *)
+  if !Parameters.dimensions = Dimensions.Auto then begin
+    if !Parameters.valleys_method <> Clustering.ValleysMethod.Calibrated then
+      TA.parse_error
+        "option '--dimensions auto' requires '--valleys-method calibrated', the half-height \
+         detector finding one valley and so giving the axis ladder nothing to count";
+    if !Parameters.partition_sample = 0 then
+      TA.parse_error
+        "option '--dimensions auto' requires '--partition-sample' above 0: combining each class \
+         into one spectrum leaves an analysis of k classes k-1 axes, the dependence 'auto' exists \
+         to break";
+    if !Parameters.partition_sample = 1 then
+      TA.parse_error
+        "option '--dimensions auto' cannot work with '--partition-sample 1', an analysis of one \
+         spectrum having no axes";
+    if !Parameters.projection_sample = 1 then
+      TA.parse_error
+        "option '--dimensions auto' cannot work with '--projection-sample 1', an analysis of one \
+         spectrum having no axes";
+    if !Parameters.report_anyway then
+      TA.parse_error
+        "option '--dimensions auto' refuses '--report-anyway': a round showing no groups at any \
+         number of axes stops, having no space in which a partition could be sought";
+    if !Parameters.dimensions_inertia > 0. then
+      Printf.eprintf "%s %s\n%!" prefix
+        (String.TermIO.red "Option '--dimensions-inertia' is ignored under '--dimensions auto'.")
+  end;
   let verbose = !Parameters.verbose and threads = !Parameters.threads in
   let state = Random.State.make [| !Parameters.seed |] in
   (* HELD IN A REF AND NOT IN A PLAIN BINDING, because `set_metadata` takes one and REPLACES
@@ -676,23 +745,46 @@ let () =
     let twister, _, _ = analyse ~what:"projection from the partition" ~threads ~verbose
         ~dimensions:!Parameters.dimensions analysed in
     twister in
-  let cluster twister =
+  let cluster ~round twister =
     let twisted =
       Twister.add_twisted_from_database ~threads ~verbose twister Twisted.empty
         !Parameters.input in
-    let mat = twisted.Twisted.twisted.Matrix.matrix
-    and iv = twisted.Twisted.inertia.Matrix.matrix.Matrix.Base.data.(0) in
-    (* THE CALIBRATED DETECTOR LOOKS ONCE, and the structure test and the search both read what it
-       found rather than asking again *)
-    let valleys =
-      match !Parameters.valleys_method with
-      | Clustering.ValleysMethod.HalfHeight -> None
-      | Calibrated ->
+    (* THE SPACE THE ROUND SEARCHES IN, and the valleys it is held to.  Under 'auto' the ladder
+       picks how many of the axes the analysis gave, and everything after it -- the structure
+       test, the search and the partition sample the next round draws -- works in that many.
+       Otherwise it is all of them, and the calibrated detector, when asked for, looks once, the
+       structure test and the search both reading what it found *)
+    let twisted, rung, valleys =
+      let mat = twisted.Twisted.twisted.Matrix.matrix
+      and iv = twisted.Twisted.inertia.Matrix.matrix.Matrix.Base.data.(0) in
+      match !Parameters.dimensions, !Parameters.valleys_method with
+      | Dimensions.Auto, _ ->
+        let axes = Float.Array.length iv in
+        let l =
+          Clustering.ladder ~verbose ~seed:!Parameters.seed
+            ~resamples:!Parameters.valleys_resamples ~level:!Parameters.montecarlo_level
+            ~dmax:axes ~metric:!Parameters.metric ~distance:!Parameters.distance
+            ~distance_normalize:!Parameters.distance_normalize mat.Matrix.Base.data iv in
+        begin match l.Clustering.pick with
+        | None ->
+          Exception.raise __FUNCTION__ IO_Format
+            (Printf.sprintf
+               "round %d shows no groups at a usable level: in none of 1 to %d axes does a valley \
+                have at most half of the pairs below it" round axes)
+        | Some i ->
+          let d = l.Clustering.rungs.(i) in
+          Twisted.truncate twisted d, Some d, Some l.Clustering.valleys.(i)
+        end
+      | Fixed _, Clustering.ValleysMethod.HalfHeight -> twisted, None, None
+      | Fixed _, Calibrated ->
+        twisted, None,
         Some
           (Clustering.find_valleys ~verbose ~seed:!Parameters.seed
              ~resamples:!Parameters.valleys_resamples ~metric:!Parameters.metric
              ~distance:!Parameters.distance ~distance_normalize:!Parameters.distance_normalize
              mat.Matrix.Base.data iv) in
+    let mat = twisted.Twisted.twisted.Matrix.matrix
+    and iv = twisted.Twisted.inertia.Matrix.matrix.Matrix.Base.data.(0) in
     (* ASKED BEFORE THE SEARCH RATHER THAN AFTER IT, because the search cannot answer it: some
        partition always maximises the criterion, so one always comes back, and over a set that
        does not fall into groups that partition is a property of the criterion.  What decides
@@ -734,7 +826,7 @@ let () =
         ~cooling:!Parameters.montecarlo_cooling ~metric:!Parameters.metric
         ~distance:!Parameters.distance ~distance_normalize:!Parameters.distance_normalize
         mat.Matrix.Base.data mat.Matrix.Base.row_names iv in
-    twisted, mat.Matrix.Base.row_names, assign in
+    twisted, mat.Matrix.Base.row_names, assign, rung in
   (* THE LOOP, which is the program.  It stops when a round hands back what it was given, that
      partition reproducing itself through a projection built from it, which settles which of the
      sequences round zero happened to sample -- and no more than that.  What the partition is
@@ -744,13 +836,13 @@ let () =
      and each of those reproducing itself *)
   let twisted = ref (Twisted.empty: Twisted.t)
   and twister = ref Twister.empty and names = ref [||] and assign = ref [||]
-  and settled = ref false and round = ref 0 in
+  and settled = ref false and round = ref 0 and last_rung = ref None in
   while not !settled && !round < !Parameters.iterations do
     incr round;
     let tw =
       if !round = 1 then twister_of_sample ()
       else twister_of_partition !twisted !names !assign in
-    let tws, nms, asg = cluster tw in
+    let tws, nms, asg, rung = cluster ~round:!round tw in
     let n_classes = canonical asg |> Array.to_list |> IntSet.of_list |> IntSet.cardinal in
     settled := !round > 1 && canonical asg = canonical !assign;
     (* HOW FAR THE ROUND MOVED, and not only whether it moved at all.  A loop that does not
@@ -769,10 +861,15 @@ let () =
             (canonical !assign |> Array.map string_of_int) in
         Printf.sprintf ", ARI %.4f against the round before" ari
       end in
-    twister := tw; twisted := tws; names := nms; assign := asg;
+    twister := tw; twisted := tws; names := nms; assign := asg; last_rung := rung;
     if verbose then
-      Printf.eprintf "%s Round %d: %d %s%s%s.\n%!" prefix !round n_classes
-        (String.pluralize_int ~plural:"classes" "class" n_classes) moved
+      Printf.eprintf "%s Round %d: %d %s%s%s%s.\n%!" prefix !round n_classes
+        (String.pluralize_int ~plural:"classes" "class" n_classes)
+        (Option.fold ~none:""
+           ~some:(fun d ->
+             Printf.sprintf " in %d %s" d (String.pluralize_int ~plural:"axes" "axis" d))
+           rung)
+        moved
         (if !settled then ", which is the one it was given -- settled" else "")
   done;
   if verbose && not !settled then
@@ -791,6 +888,13 @@ let () =
     Printf.eprintf "%s Rebuilding the projection from the partition being returned...\n%!"
       prefix;
   twister := twister_of_partition !twisted !names !assign;
+  (* IN THE AXES THE LAST ROUND SEARCHED IN, the ladder not being run again: the partition being
+     written was found in that many, and the twister written beside it has to separate it there *)
+  Option.iter
+    (fun d ->
+      let axes = Float.Array.length (!twister).Twister.inertia.Matrix.matrix.Matrix.Base.data.(0) in
+      twister := Twister.truncate !twister (min d axes))
+    !last_rung;
   twisted :=
     Twister.add_twisted_from_database ~threads ~verbose !twister Twisted.empty
       !Parameters.input;

@@ -23,6 +23,7 @@
 set -u
 
 BIN=".build/KPop-autotuner"
+TWISTDB=".build/KPopTwistDB"
 DATA="test/Primer/Train-5"
 GOLD="test/Autotuner"
 # Small enough to run in seconds, and single-threaded so that nothing but the code is compared
@@ -143,9 +144,51 @@ refused() {
     fail "$what" "refused, but not for that: $(tail -n 1 "$TMP/r.stderr")"
   fi
 }
-refused "--valleys-resamples 1 is refused" "valleys-resamples" --valleys-resamples 1
-refused "a level share above 1 is refused" "share(1.5)" --montecarlo-level 'share(1.5)'
-refused "a valleys method of no known kind is refused" "bogus" --valleys-method bogus
+refused "--valleys-resamples 1 is refused" "needs at least 2 resamples" --valleys-resamples 1
+refused "a level share above 1 is refused" "Invalid level 'share(1.5)'" --montecarlo-level 'share(1.5)'
+refused "a valleys method of no known kind is refused" "Unrecognized valleys method 'bogus'" \
+  --valleys-method bogus
+
+# ----------------------------------------------------------------------------
+# Part 3: the number of axes chosen by the valleys
+# ----------------------------------------------------------------------------
+echo
+echo "=== Part 3: --dimensions auto ==="
+AUTO=(--dimensions auto --valleys-method calibrated --partition-sample 50)
+"$BIN" -i "$DATA" -o "$TMP/a" "${FLAGS[@]}" "${AUTO[@]}" --dimensions-inertia 0.5 \
+  > "$TMP/a.stdout" 2> "$TMP/a.stderr"
+rc=$?
+if [[ $rc -eq 0 ]]; then
+  pass "--dimensions auto succeeds"
+else
+  fail "--dimensions auto succeeds" "exit status $rc; $(tail -n 1 "$TMP/a.stderr")"
+fi
+if grep -q -F "Option '--dimensions-inertia' is ignored under '--dimensions auto'" "$TMP/a.stderr"; then
+  pass "and says it ignores --dimensions-inertia"
+else
+  fail "and says it ignores --dimensions-inertia" "no warning on stderr"
+fi
+# The register written is in the axes the last round searched in, which its header gives as D
+last_d="$(grep '^=== Clustering' "$TMP/a.stdout" | tail -n 1 | sed 's/.*D=\([0-9]*\).*/\1/')"
+if [[ $rc -eq 0 ]] && "$TWISTDB" -i t "$TMP/a" -O t "$TMP/a.text" > /dev/null 2>&1 \
+     && [[ "$(awk -F'\t' 'NR == 1 { print NF - 1; exit }' "$TMP/a.text.KPopTwisted.txt")" == "$last_d" ]]; then
+  pass "the register written has the axes the last round searched in"
+else
+  fail "the register written has the axes the last round searched in" "expected ${last_d:-none}"
+fi
+refused "--dimensions auto without the calibrated detector is refused" \
+  "requires '--valleys-method calibrated'" --dimensions auto --partition-sample 50
+refused "--dimensions auto with --partition-sample 0 is refused" \
+  "requires '--partition-sample' above 0" --dimensions auto --valleys-method calibrated
+refused "--dimensions auto with --partition-sample 1 is refused" \
+  "cannot work with '--partition-sample 1'" --dimensions auto --valleys-method calibrated \
+  --partition-sample 1
+refused "--dimensions auto with --projection-sample 1 is refused" \
+  "cannot work with '--projection-sample 1'" "${AUTO[@]}" --projection-sample 1
+refused "--dimensions auto with --report-anyway is refused" "refuses '--report-anyway'" \
+  "${AUTO[@]}" --report-anyway
+refused "a number of dimensions of no known kind is refused" \
+  "Unrecognized number of dimensions 'sideways'" --dimensions sideways
 
 echo
 if [[ $failed -eq 0 ]]; then
