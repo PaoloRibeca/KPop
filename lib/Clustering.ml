@@ -1743,6 +1743,21 @@ include (
            |> String.concat "; "
            |> fun s -> if s = "" then "" else ": " ^ s);
       kept
+    (* HOW VALLEYS IN THE DISTANCE HISTOGRAM ARE FOUND: [HalfHeight] finds one, judged by the depth
+       of its dip, and [Calibrated] measures every valley against resamples of the points *)
+    module ValleysMethod =
+      struct
+        type t =
+          | HalfHeight
+          | Calibrated
+        let of_string = function
+          | "half-height" -> HalfHeight
+          | "calibrated" -> Calibrated
+          | s -> Exception.raise_unrecognized_initializer __FUNCTION__ "valleys method" s
+        let to_string = function
+          | HalfHeight -> "half-height"
+          | Calibrated -> "calibrated"
+      end
     (* WHICH VALLEY A SEARCH IS HELD TO when several are found: the finest, the coarsest, or the one
        whose share of pairs below is nearest a given share.  Only a valley with at most half of the
        pairs below it is a level, one above half marking a few very large groups instead *)
@@ -2023,8 +2038,8 @@ include (
        already known and is worth SAYING rather than swallowing, because the search returns a
        partition either way: some partition always maximises the criterion, and over a set with
        no groups in it that partition is an artefact of the criterion rather than a finding *)
-    let assess_structure ?(verbose = false) ?(seed = 17) ?sample ~what_label ~metric ~distance
-        ~distance_normalize coords inertia_vec =
+    let assess_structure ?(verbose = false) ?(seed = 17) ?sample ?valleys ~what_label ~metric
+        ~distance ~distance_normalize coords inertia_vec =
       let open String.TermIO in
       let prefix = grey (Printf.sprintf "(%s):" __FUNCTION__) in
       let embeds, embed_dist =
@@ -2032,56 +2047,84 @@ include (
       let state = Random.State.make [| seed |] in
       let valley = valley_radius state embed_dist embeds in
       let dim = intrinsic_dimension ?sample state embed_dist embeds in
-      (* A VALLEY OUTSIDE THE DATA IS NOT A VALLEY.  The detector reads a minimum off a smoothed
-         histogram and can put it below every distance there is, which is an empty left mode and
-         so no mode at all; the giveaway is that a radius like that admits nothing, the leader
-         clustering it seeds returning one cluster per sample.  Measuring the share of pairs
-         that actually fall below it is what tells a boundary between two modes from a dip in
-         the left tail, and only the first is evidence of groups *)
-      let below =
-        match valley with
-        | None -> 0.
-        | Some r ->
-          let n = Array.length embeds in
-          let hits = ref 0 and drawn = ref 0 in
-          for _ = 1 to 4000 do
-            let i = Random.State.int state n and j = Random.State.int state n in
-            if i <> j then begin
-              incr drawn;
-              if embed_dist embeds.(i) embeds.(j) <= r then incr hits
-            end
-          done;
-          if !drawn > 0 then float_of_int !hits /. float_of_int !drawn else 0. in
-      let structured = valley <> None && below >= 0.002 in
-      if verbose then begin
+      if verbose then
         Printf.eprintf
           "%s %s: a neighbourhood occupies about %.1f dimensions of the %d they are stored in.\n%!"
           prefix what_label dim (Float.Array.length inertia_vec);
-        (* Said of THESE EMBEDDINGS and not of the data, the two being different claims: a
-           projection that does not span the corpus can hide groups that are really there *)
-        match valley with
-        | Some r when structured ->
-          Printf.eprintf
-            "%s %s: their distances are two-moded, the valley lying at %.4g with %.1f%% of \
-             pairs below it.\n%!"
-            prefix what_label r (100. *. below)
-        | Some r ->
-          Printf.eprintf
-            "%s %s: %s.\n%!" prefix what_label
-            (red
-               (Printf.sprintf
-                  "a valley was placed at %.4g but only %.2f%% of pairs lie below it, so there \
-                   is no left mode and this embedding shows no groups" r (100. *. below)))
-        | None ->
-          Printf.eprintf
-            "%s %s: %s.\n%!" prefix what_label
-            (red "their distances have a single mode, so this embedding shows no groups")
-      end;
-      structured, dim
+      match valleys with
+      | Some valleys ->
+        (* THE CALIBRATED DETECTOR HAS ALREADY ANSWERED and is not asked again: there are groups at
+           a usable level when some valley it kept has at most half of the pairs below it.  The
+           half-height valley is still looked for above, so that the dimension estimate draws what
+           it draws under either method *)
+        let usable = List.filter (fun v -> v.share <= 0.5) valleys in
+        if verbose then begin
+          match Level.select Level.Finest usable with
+          | Some finest ->
+            Printf.eprintf
+              "%s %s: their distances have %d %s at a usable level, the finest with %.1f%% of \
+               pairs below it.\n%!"
+              prefix what_label (List.length usable)
+              (String.pluralize_int "valley" (List.length usable)) (100. *. finest.share)
+          | None ->
+            Printf.eprintf "%s %s: %s.\n%!" prefix what_label
+              (red
+                 (if valleys = [] then
+                    "the calibrated detector keeps no valley in their distances, so this \
+                     embedding shows no groups"
+                  else
+                    "every valley kept has more than half of the pairs below it, so this \
+                     embedding shows no groups at a usable level"))
+        end;
+        usable <> [], dim
+      | None ->
+        (* A VALLEY OUTSIDE THE DATA IS NOT A VALLEY.  The detector reads a minimum off a smoothed
+           histogram and can put it below every distance there is, which is an empty left mode and
+           so no mode at all; the giveaway is that a radius like that admits nothing, the leader
+           clustering it seeds returning one cluster per sample.  Measuring the share of pairs
+           that actually fall below it is what tells a boundary between two modes from a dip in
+           the left tail, and only the first is evidence of groups *)
+        let below =
+          match valley with
+          | None -> 0.
+          | Some r ->
+            let n = Array.length embeds in
+            let hits = ref 0 and drawn = ref 0 in
+            for _ = 1 to 4000 do
+              let i = Random.State.int state n and j = Random.State.int state n in
+              if i <> j then begin
+                incr drawn;
+                if embed_dist embeds.(i) embeds.(j) <= r then incr hits
+              end
+            done;
+            if !drawn > 0 then float_of_int !hits /. float_of_int !drawn else 0. in
+        let structured = valley <> None && below >= 0.002 in
+        if verbose then begin
+          (* Said of THESE EMBEDDINGS and not of the data, the two being different claims: a
+             projection that does not span the corpus can hide groups that are really there *)
+          match valley with
+          | Some r when structured ->
+            Printf.eprintf
+              "%s %s: their distances are two-moded, the valley lying at %.4g with %.1f%% of \
+               pairs below it.\n%!"
+              prefix what_label r (100. *. below)
+          | Some r ->
+            Printf.eprintf
+              "%s %s: %s.\n%!" prefix what_label
+              (red
+                 (Printf.sprintf
+                    "a valley was placed at %.4g but only %.2f%% of pairs lie below it, so there \
+                     is no left mode and this embedding shows no groups" r (100. *. below)))
+          | None ->
+            Printf.eprintf
+              "%s %s: %s.\n%!" prefix what_label
+              (red "their distances have a single mode, so this embedding shows no groups")
+        end;
+        structured, dim
     let run_montecarlo
         ?(verbose = false) ?(seed = 17) ?(threads = 1) ?(replicas = 1) ?(exchange_every = 250)
-        ?(decades = 3.) ~what_label ~steps ~sample ~temperature ~cooling ~metric ~distance
-        ~distance_normalize coords names inertia_vec =
+        ?(decades = 3.) ?valleys ?(level = Level.Finest) ~what_label ~steps ~sample ~temperature
+        ~cooling ~metric ~distance ~distance_normalize coords names inertia_vec =
       let n = Array.length coords and d = Float.Array.length inertia_vec in
       let open String.TermIO in
       let prefix = grey (Printf.sprintf "(%s):" __FUNCTION__) in
@@ -2093,11 +2136,26 @@ include (
          so it is said here rather than left to be inferred from a starting point of one cluster
          per sample.  A radius of zero is the honest consequence and not a fallback: nothing is
          within it, so every sample leads its own cluster and the search begins from the
-         partition that assumes nothing *)
+         partition that assumes nothing.
+         UNDER THE CALIBRATED DETECTOR the radius is the level's, one of the valleys the caller
+         found.  The half-height valley is looked for all the same, so that every draw after it --
+         the scoring sample of every epoch -- is the draw the other method makes, and the two
+         differ in where the search starts and in nothing else *)
+      let half_height = valley_radius state embed_dist embeds
+      and chosen = Option.bind valleys (Level.select level) in
       let radius =
-        match valley_radius state embed_dist embeds with
-        | Some r -> r
-        | None ->
+        match valleys, chosen, half_height with
+        | Some _, Some v, _ -> v.radius
+        | None, _, Some r -> r
+        | Some _, None, _ ->
+          if verbose then
+            Printf.eprintf "%s %s: %s.\n%!" prefix what_label
+              (String.TermIO.red
+                 "no valley has at most half of the pairs below it, so there are no groups here \
+                  at a usable level -- what follows maximises the criterion over a set that does \
+                  not cluster at one");
+          0.
+        | None, _, None ->
           if verbose then
             Printf.eprintf "%s %s: %s.\n%!" prefix what_label
               (String.TermIO.red
@@ -2453,14 +2511,27 @@ include (
       let rep_orig = Array.init n (fun i -> rep.(assign.(i))) in
       let metric_str = Space.Distance.Metric.to_string metric
       and distance_str = Space.Distance.to_string distance in
+      (* Said only when the caller brought valleys, so that the default header stays what it was:
+         the level, the share of pairs below it, and the same share for the partition returned --
+         the pairs inside its clusters, floored at one pair *)
+      let calibrated =
+        match valleys with
+        | None -> ""
+        | Some _ ->
+          let pairs = float_of_int n *. float_of_int (n - 1) in
+          let within =
+            Array.fold_left (fun acc s -> acc +. (float_of_int s *. float_of_int (s - 1))) 0. size in
+          Printf.sprintf " level=%s fv=%s fp=%.15g" (Level.to_string level)
+            (Option.fold ~none:"none" ~some:(fun v -> Printf.sprintf "%.15g" v.share) chosen)
+            (if pairs > 0. then Float.max (within /. pairs) (1. /. pairs) else 0.) in
       Printf.printf
         "=== Clustering of %s: Monte-Carlo \
          (steps=%d, sample=%d, temperature=%.15g, cooling=%.15g, metric=%s, distance=%s, \
          D=%d) ===\n\
-         # n=%d n_clusters=%d silhouette=%.15g started_from=%d\n\
+         # n=%d n_clusters=%d silhouette=%.15g started_from=%d%s\n\
          name\trepresentative\tstatus\n"
         what_label steps (min sample n) temperature cooling metric_str distance_str d
-        n !n_live !cur n_start;
+        n !n_live !cur n_start calibrated;
       for i = 0 to n - 1 do
         Printf.printf "%s\t%s\t%s\n"
           names.(i) names.(rep_orig.(i)) (if rep_orig.(i) = i then "rep" else "abs")
@@ -2588,6 +2659,14 @@ include (
       Float.Array.t array ->
       Float.Array.t ->
       valley_t list
+    module ValleysMethod:
+      sig
+        type t =
+          | HalfHeight
+          | Calibrated
+        val of_string: string -> t
+        val to_string: t -> string
+      end
     module Level:
       sig
         type t =
@@ -2641,6 +2720,8 @@ include (
       ?verbose:bool ->
       ?seed:int ->
       ?sample:int ->
+      (* The calibrated detector's valleys, which decide instead of the half-height one *)
+      ?valleys:valley_t list ->
       what_label:string ->
       metric:Space.Distance.Metric.t ->
       distance:Space.Distance.t ->
@@ -2655,6 +2736,10 @@ include (
       ?replicas:int ->
       ?exchange_every:int ->
       ?decades:float ->
+      (* The calibrated detector's valleys, the search starting from the radius of the one [level]
+         selects and its header saying which *)
+      ?valleys:valley_t list ->
+      ?level:Level.t ->
       what_label:string ->
       steps:int ->
       sample:int ->

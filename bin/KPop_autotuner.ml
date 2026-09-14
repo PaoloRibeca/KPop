@@ -43,6 +43,8 @@ module Defaults =
     let dimensions = 0
     let dimensions_inertia = 0.
     let report_anyway = false
+    let valleys_method = Clustering.ValleysMethod.HalfHeight
+    let valleys_resamples = 50
     let metric = Space.Distance.Metric.of_string "powers(1,1,1)"
     let distance = Space.Distance.of_string "euclidean"
     let distance_normalize = false
@@ -53,6 +55,7 @@ module Defaults =
     let montecarlo_temperature = 0.002
     let montecarlo_decades = 3.
     let montecarlo_cooling = 0.999
+    let montecarlo_level = Clustering.Level.Finest
     let seed = 17
     let threads = Processes.Parallel.get_nproc ()
     let verbose = false
@@ -68,6 +71,8 @@ module Parameters =
     let dimensions = ref Defaults.dimensions
     let dimensions_inertia = ref Defaults.dimensions_inertia
     let report_anyway = ref Defaults.report_anyway
+    let valleys_method = ref Defaults.valleys_method
+    let valleys_resamples = ref Defaults.valleys_resamples
     let metric = ref Defaults.metric
     let distance = ref Defaults.distance
     let distance_normalize = ref Defaults.distance_normalize
@@ -78,6 +83,7 @@ module Parameters =
     let montecarlo_temperature = ref Defaults.montecarlo_temperature
     let montecarlo_decades = ref Defaults.montecarlo_decades
     let montecarlo_cooling = ref Defaults.montecarlo_cooling
+    let montecarlo_level = ref Defaults.montecarlo_level
     let seed = ref Defaults.seed
     let threads = ref Defaults.threads
     let verbose = ref Defaults.verbose
@@ -484,6 +490,27 @@ let () =
         "one over without saying so" ],
       TA.Default (fun () -> string_of_bool Defaults.report_anyway),
       (fun _ -> Parameters.report_anyway := true);
+    [ "--valleys-method" ],
+      Some "'half-height'|'calibrated'",
+      [ "how valleys in the distance histogram are found: 'half-height' finds one, judged by the";
+        "depth of its dip, and 'calibrated' measures every valley against resamples of the";
+        "spectra, which gives each a significance and allows several" ],
+      TA.Default (Clustering.ValleysMethod.to_string Defaults.valleys_method |> Fun.const),
+      (fun _ ->
+        Parameters.valleys_method := TA.get_parameter () |> Clustering.ValleysMethod.of_string);
+    [ "--valleys-resamples" ],
+      Some "<positive_integer>",
+      [ "number of resamples of the spectra the calibrated detector measures each valley";
+        "against.  At least 2, a standard deviation needing two" ],
+      TA.Default (string_of_int Defaults.valleys_resamples |> Fun.const),
+      (fun _ ->
+        let resamples = TA.get_parameter_int_pos () in
+        if resamples < 2 then
+          TA.parse_error
+            (Printf.sprintf
+               "option '--valleys-resamples' needs at least 2 resamples, a standard deviation \
+                needing two, and was given %d" resamples);
+        Parameters.valleys_resamples := resamples);
     [ "-m"; "--metric" ],
       Some "<metric>",
       [ "metric the search measures distances under" ],
@@ -540,6 +567,14 @@ let () =
       [ "factor the temperature is multiplied by after each move" ],
       TA.Default (string_of_float Defaults.montecarlo_cooling |> Fun.const),
       (fun _ -> Parameters.montecarlo_cooling := TA.get_parameter_float_fraction ());
+    [ "--montecarlo-level" ],
+      Some "'finest'|'coarsest'|'share('<fractional_float>')'",
+      [ "which valley the search is held to when several are found: the finest, the coarsest,";
+        "or the one nearest a given share of pairs below, only a valley with at most half of";
+        "the pairs below it counting.  Inert under --valleys-method half-height, which finds";
+        "one valley" ],
+      TA.Default (Clustering.Level.to_string Defaults.montecarlo_level |> Fun.const),
+      (fun _ -> Parameters.montecarlo_level := TA.get_parameter () |> Clustering.Level.of_string);
     TA.make_separator "Miscellaneous.";
     [ "--seed" ],
       Some "<integer>",
@@ -647,12 +682,23 @@ let () =
         !Parameters.input in
     let mat = twisted.Twisted.twisted.Matrix.matrix
     and iv = twisted.Twisted.inertia.Matrix.matrix.Matrix.Base.data.(0) in
+    (* THE CALIBRATED DETECTOR LOOKS ONCE, and the structure test and the search both read what it
+       found rather than asking again *)
+    let valleys =
+      match !Parameters.valleys_method with
+      | Clustering.ValleysMethod.HalfHeight -> None
+      | Calibrated ->
+        Some
+          (Clustering.find_valleys ~verbose ~seed:!Parameters.seed
+             ~resamples:!Parameters.valleys_resamples ~metric:!Parameters.metric
+             ~distance:!Parameters.distance ~distance_normalize:!Parameters.distance_normalize
+             mat.Matrix.Base.data iv) in
     (* ASKED BEFORE THE SEARCH RATHER THAN AFTER IT, because the search cannot answer it: some
        partition always maximises the criterion, so one always comes back, and over a set that
        does not fall into groups that partition is a property of the criterion.  What decides
        is whether the distances are two-moded at all *)
     let structured, _ =
-      Clustering.assess_structure ~verbose ~seed:!Parameters.seed ~what_label:"samples"
+      Clustering.assess_structure ~verbose ~seed:!Parameters.seed ?valleys ~what_label:"samples"
         ~metric:!Parameters.metric ~distance:!Parameters.distance
         ~distance_normalize:!Parameters.distance_normalize mat.Matrix.Base.data iv in
     (* A SINGLE MODE HAS TWO READINGS AND THEY ARE DIFFERENT CLAIMS, so the message says which
@@ -662,7 +708,11 @@ let () =
        variation rather than what separates one class from another *)
     if not structured && not !Parameters.report_anyway then
       Exception.raise __FUNCTION__ IO_Format
-        (if !Parameters.projection_sample > 0 then
+        (if Option.is_some valleys then
+           "the samples show no groups at a usable level: no valley the calibrated detector keeps \
+            in their pairwise distances has at most half of the pairs below it.  Pass \
+            --report-anyway to have a partition written out regardless"
+         else if !Parameters.projection_sample > 0 then
            Printf.sprintf
              "the embedding built from a sample of %d spectra shows no groups: its pairwise \
               distances have a single mode and no valley between two.  The sample may simply \
@@ -676,8 +726,9 @@ let () =
             criterion used to find it rather than a property of the data.  Pass --report-anyway \
             to have one written out regardless");
     let assign =
-      Clustering.run_montecarlo ~verbose ~threads ~seed:!Parameters.seed
-        ~replicas:!Parameters.montecarlo_replicas ~what_label:"samples"
+      Clustering.run_montecarlo ~verbose ~threads ~seed:!Parameters.seed ?valleys
+        ~level:!Parameters.montecarlo_level ~replicas:!Parameters.montecarlo_replicas
+        ~what_label:"samples"
         ~steps:!Parameters.montecarlo_steps ~sample:!Parameters.montecarlo_sample
         ~temperature:!Parameters.montecarlo_temperature ~decades:!Parameters.montecarlo_decades
         ~cooling:!Parameters.montecarlo_cooling ~metric:!Parameters.metric

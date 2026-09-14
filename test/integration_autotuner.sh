@@ -106,6 +106,47 @@ else
   fi
 fi
 
+# ----------------------------------------------------------------------------
+# Part 2: the calibrated detector, and what its flags refuse
+# ----------------------------------------------------------------------------
+echo
+echo "=== Part 2: the calibrated detector ==="
+"$BIN" -i "$DATA" -o "$TMP/c" "${FLAGS[@]}" --valleys-method calibrated \
+  > "$TMP/c.stdout" 2> "$TMP/c.stderr"
+rc=$?
+if [[ $rc -eq 0 ]]; then
+  pass "--valleys-method calibrated succeeds"
+else
+  fail "--valleys-method calibrated succeeds" "exit status $rc; $(tail -n 1 "$TMP/c.stderr")"
+fi
+if [[ "$(rounds "$TMP/c.stdout")" -gt 0 \
+      && "$(grep -c '^# n=.* level=finest fv=[^ ]* fp=' "$TMP/c.stdout")" == "$(rounds "$TMP/c.stdout")" ]]; then
+  pass "every round's header gives the level and both shares"
+else
+  fail "every round's header gives the level and both shares" "$(grep -m 1 '^# n=' "$TMP/c.stdout")"
+fi
+if ! grep -q ' level=' "$TMP/stdout"; then
+  pass "and the default header does not"
+else
+  fail "and the default header does not" "a level appears under default flags"
+fi
+
+# A refusal has to name what it refuses, or it is some other failure passing for one
+refused() {
+  local what="$1" pattern="$2"
+  shift 2
+  if "$BIN" -i "$DATA" -o "$TMP/r" "${FLAGS[@]}" "$@" > /dev/null 2> "$TMP/r.stderr"; then
+    fail "$what" "accepted"
+  elif grep -q -F -- "$pattern" "$TMP/r.stderr"; then
+    pass "$what"
+  else
+    fail "$what" "refused, but not for that: $(tail -n 1 "$TMP/r.stderr")"
+  fi
+}
+refused "--valleys-resamples 1 is refused" "valleys-resamples" --valleys-resamples 1
+refused "a level share above 1 is refused" "share(1.5)" --montecarlo-level 'share(1.5)'
+refused "a valleys method of no known kind is refused" "bogus" --valleys-method bogus
+
 echo
 if [[ $failed -eq 0 ]]; then
   echo "All autotuner integration tests passed."

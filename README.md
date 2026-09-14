@@ -664,9 +664,9 @@ KPop-autotuner -h
 ```
 in your terminal. You will see a header containing information about the version:
 ```
-This is KPop-autotuner version 1.99.1-987 [07-Sep-2026]
- compiled against: BiOCamLib version 1.3.3-971 [02-Sep-2026];
-                   KPop version 1.99.1-987 [07-Sep-2026]
+This is KPop-autotuner version 1.99.1-1053 [14-Sep-2026]
+ compiled against: BiOCamLib version 1.3.3-973 [10-Sep-2026];
+                   KPop version 1.99.1-1053 [14-Sep-2026]
  (c) 2026 Paolo Ribeca <paolo.ribeca@gmail.com>
 ```
 *Usage:*
@@ -676,7 +676,6 @@ KPop-autotuner -i <binary_file_prefix> -o <output_file_prefix> [OPTIONS]
 
 **Input/Output\.**
 
-
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
 | `-i`<br>`--input` | _binary\_file\_prefix_ |  load the specified binary database of k-mer spectra\.<br>File extension is automatically assigned \(will be `.KPopSpectra`\) | <ins><mark>mandatory</mark></ins> |
@@ -684,12 +683,16 @@ KPop-autotuner -i <binary_file_prefix> -o <output_file_prefix> [OPTIONS]
 
 **Algorithm\.**
 
-
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
-| `--projection-sample` | _non\_negative\_integer_ |  number of spectra defining the initial projection, or 0 to use every one of them\.<br>A sample is usually enough, and is much cheaper than a correspondence analysis of the whole database, because the projection only has to keep the classes apart and their arrangement occupies far fewer dimensions than the database is stored in\.<br>Note that the Johnson-Lindenstrauss bound does NOT justify this: being distribution-free it asks for more dimensions than there are samples here, and what makes a small sample work is the low intrinsic dimension of this particular data rather than any worst-case guarantee\.  It matters only for the first round: from the second the axes come from the partition rather than from a sample | <ins>default=<mark>_0_</mark></ins> |
+| `--projection-sample` | _non\_negative\_integer_ |  number of spectra the first projection is built from, 0 choosing a number from the size of the database\.  They are picked to span the corpus rather than to represent it, so that a class holding half of it does not take half of the sample\.<br>This matters only for the first round: from the second onwards the axes come from the partition rather than from a sample\.<br>Give a number as large as the database to build the projection from all of it | <ins>default=<mark>_about four times the square root of the number of spectra_</mark></ins> |
+| `--partition-sample` | _non\_negative\_integer_ |  number of spectra a later round's projection is built from, chosen with the partition: every class contributes at least one, and the rest are shared out by size, each class entering as the member nearest its centre and then its extremes\.  Should a round return more classes than this, the budget holds and the smallest of them go unrepresented\.<br>0, the default, combines each class into the one spectrum that stands for it instead\.<br>That leaves the analysis a column per class and so as many axes as there are classes, which is how a round comes to work in a space the round before it sized; a fixed number of spectra keeps the space the same size in every round\. | <ins>default=<mark>_0_</mark></ins> |
 | `--iterations` | _positive\_integer_ |  maximum number of rounds\.  The loop stops earlier, and usually does, when a round returns the partition it was given &mdash; that being a fixed point of the whole procedure and the answer it is looking for | <ins>default=<mark>_12_</mark></ins> |
+| `--dimensions` | _non\_negative\_integer_ |  number of axes every round works in, 0 taking as many as the analysis yields\.<br>Left to itself the loop has no say in this: an analysis of k classes yields k-1 axes, so each round inherits whatever the round before happened to find, and the granularity of the answer follows the dimensionality rather than the other way about\.<br>Fixing it makes the level of the partition something chosen rather than inherited, and makes two runs over the same data comparable\. | <ins>default=<mark>_0_</mark></ins> |
+| `--dimensions-inertia` | _fractional\_float_ |  keep only the leading axes carrying this share of the inertia, 0 keeping all of them\.<br>An analysis of k classes returns k-1 axes whatever the data needs, so the number of axes a round works in is inherited from the round before rather than chosen\.  Keeping the ones that carry the structure makes it a property of the data instead\.<br>A threshold near 1 does not do this: the tail of the spectrum is nearly flat, so 0\.95 counts the noise floor and returns most of whatever was on offer\.<br>Ignored when --dimensions is given\. | <ins>default=<mark>_0\._</mark></ins> |
 | `--report-anyway` |  |  write a partition out even when the samples show no group structure\.  Off by default, because a partition of a set that does not cluster says more about the criterion that produced it than about the data, and the one thing this program should not do is hand one over without saying so | <ins>default=<mark>_false_</mark></ins> |
+| `--valleys-method` | `half-height` _&#124;_ `calibrated` |  how valleys in the distance histogram are found: `half-height` finds one, judged by the depth of its dip, and `calibrated` measures every valley against resamples of the spectra, which gives each a significance and allows several | <ins>default=<mark>_half-height_</mark></ins> |
+| `--valleys-resamples` | _positive\_integer_ |  number of resamples of the spectra the calibrated detector measures each valley against\.  At least 2, a standard deviation needing two | <ins>default=<mark>_50_</mark></ins> |
 | `-m`<br>`--metric` | _metric_ |  metric the search measures distances under | <ins>default=<mark>_powers\(1,1,1\)_</mark></ins> |
 | `-d`<br>`--distance` | _distance_ |  distance the search measures distances with | <ins>default=<mark>_euclidean_</mark></ins> |
 | `--distance-normalize` | _bool_ |  whether to normalise vectors before measuring the distance between them | <ins>default=<mark>_false_</mark></ins> |
@@ -707,9 +710,9 @@ These mirror the `--clusters-montecarlo-*` family of KPopTwistDB\.
 | `--montecarlo-temperature` | _positive\_float_ |  coldest rung of the temperature ladder, which retunes itself from there | <ins>default=<mark>_0\.002_</mark></ins> |
 | `--montecarlo-decades` | _positive\_float_ |  number of decades of temperature the ladder spans | <ins>default=<mark>_3\._</mark></ins> |
 | `--montecarlo-cooling` | _fractional\_float_ |  factor the temperature is multiplied by after each move | <ins>default=<mark>_0\.999_</mark></ins> |
+| `--montecarlo-level` | `finest` _&#124;_ `coarsest` _&#124;_ `share(` _fractional\_float_ `)` |  which valley the search is held to when several are found: the finest, the coarsest, or the one nearest a given share of pairs below, only a valley with at most half of the pairs below it counting\.  Inert under --valleys-method half-height, which finds one valley | <ins>default=<mark>_finest_</mark></ins> |
 
 **Miscellaneous\.**
-
 
 | Option | Argument(s) | Effect | Note(s) |
 |-|-|-|-|
