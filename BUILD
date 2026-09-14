@@ -297,7 +297,7 @@ if [[ -n "$DO_TESTS" ]]; then
       dune build --profile="$PROFILE" BiOCamLib/bin/Yggdrasill.exe $FLAGS
       dune build --profile="$PROFILE" \
         test/CA.exe test/RSVD.exe test/Epsilon.exe \
-        test/Cluster.exe test/Phylo.exe $FLAGS
+        test/Cluster.exe test/Phylo.exe test/Autotuner.exe $FLAGS
       ;;
     "phylo")
       dune build --profile="$PROFILE" test/Phylo.exe $FLAGS
@@ -351,6 +351,7 @@ if [[ -n "$DO_TESTS" && "${KPOP_SKIP_TESTS:-0}" != 1 ]]; then
       _build/default/test/Epsilon.exe -o 1 test/Primer/Classes-5 >/dev/null
       _build/default/test/Cluster.exe -1 test/Primer/Classes-5 >/dev/null
       _build/default/test/Phylo.exe
+      _build/default/test/Autotuner.exe
       echo
       bash test/integration_core.sh
       echo

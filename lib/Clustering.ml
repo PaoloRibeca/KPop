@@ -43,6 +43,7 @@
 
 (* We cannot open BiOCamLib here due to the ambiguity between BiOCamLib.Matrix
    and KPop.Matrix *)
+module Numbers = BiOCamLib.Numbers
 module Processes = BiOCamLib.Processes
 module Tools = BiOCamLib.Tools
 module Trees = BiOCamLib.Trees
@@ -1428,13 +1429,320 @@ include (
           end)
         idx;
       if !cnt > 0 && !tot > 0. then float_of_int !cnt /. !tot else 0.
-    (* WHETHER THERE IS ANYTHING HERE TO PARTITION AT ALL.  A set that falls into groups has two
-       modes in its pairwise-distance distribution -- one for pairs within a group, one for
-       pairs across -- with a valley between them, and a set that does not has one mode and no
-       valley.  The radius the search starts from is read off that valley, so its absence is
-       already known and is worth SAYING rather than swallowing, because the search returns a
-       partition either way: some partition always maximises the criterion, and over a set with
-       no groups in it that partition is an artefact of the criterion rather than a finding *)
+    (* A VALLEY IN THE DISTANCES BETWEEN PAIRS, as the calibrated detector reports one: [radius] is
+       the centre of its bin, [share] the share of pairs below it, [z] its prominence in standard
+       deviations of its own resampling distribution, [reappearance] the share of resamples in
+       which it is still at least a quarter deep, and [depth] how deep it is, as a share of the
+       lower of the two modes it separates *)
+    type valley_t = { radius: float; share: float; z: float; reappearance: float; depth: float }
+    module ValleyStats = Numbers.OnlineStats (Numbers.Float)
+    (* The detector's constants.  The histogram has [valley_bins] bins up to the 99th percentile,
+       which is read off [valley_fine_bins] finer ones rather than by sorting; a feature scoring
+       under [valley_floor] is simplified away; a valley is kept when its [z] is at least
+       [valley_z_min] and its share lies between [valley_share_min] and [valley_share_max]; and
+       kept valleys whose shares are closer than [valley_chain] are one valley *)
+    let valley_bins = 200
+    and valley_fine_bins = 1_000_000
+    and valley_floor = 0.25
+    and valley_z_min = 3.
+    and valley_share_min = 0.002
+    and valley_share_max = 0.9
+    and valley_chain = 0.015
+    (* A moving average over one bin either side, the window shrinking at the ends *)
+    let smooth_counts counts =
+      let n = Float.Array.length counts in
+      Float.Array.init n
+        (fun b ->
+          let lo = max 0 (b - 1) and hi = min (n - 1) (b + 1) and s = ref 0. in
+          for j = lo to hi do s := !s +. Float.Array.get counts j done;
+          !s /. float_of_int (hi - lo + 1))
+    (* THE EXTREMA OF A SMOOTHED HISTOGRAM, as an alternating peak-trough-...-peak sequence of
+       (is a peak, bin, height).  A plateau counts once, at its middle -- the left of the two
+       middle bins when it is even -- and a run of like extrema keeps its most extreme member, so
+       that a trough always has a peak on each side and neither end of the range is a trough *)
+    let valley_extrema sm =
+      let n = Float.Array.length sm and ext = ref [] and b = ref 0 in
+      while !b < n do
+        let e = ref !b and v = Float.Array.get sm !b in
+        while !e + 1 < n && Float.Array.get sm (!e + 1) = v do incr e done;
+        let left = if !b > 0 then Float.Array.get sm (!b - 1) else neg_infinity
+        and right = if !e + 1 < n then Float.Array.get sm (!e + 1) else neg_infinity
+        and mid = (!b + !e) / 2 in
+        if v > left && v > right then ext := (true, mid, v) :: !ext
+        else if v < left && v < right then ext := (false, mid, v) :: !ext;
+        b := !e + 1
+      done;
+      let alt = ref [] in
+      List.iter
+        (fun ((is_peak, _, v) as x) ->
+          match !alt with
+          | [] -> if is_peak then alt := [ x ]
+          | (last_is_peak, _, last_v) :: rest ->
+            if last_is_peak = is_peak then begin
+              if (is_peak && v > last_v) || (not is_peak && v < last_v) then alt := x :: rest
+            end else alt := x :: !alt)
+        (List.rev !ext);
+      (match !alt with (false, _, _) :: rest -> rest | l -> l) |> List.rev |> Array.of_list
+    (* PERSISTENCE SIMPLIFICATION BY RELATIVE SIZE, smallest score first, until every feature
+       scores at least [valley_floor].  A trough T between peaks L and R scores
+       (min(L,R) - T) / min(L,R) and goes with the lower of L and R, the right one on a tie.  An
+       interior peak P between troughs A and B scores (P - max(A,B)) / min(L',R'), L' and R' being
+       the peaks beyond A and B, and goes with the higher of A and B, the right one on a tie -- so
+       a bump inside a gap is judged against the modes the gap separates and not against the floor
+       beside it, and cannot split one valley into two.  On a tie between scores the first feature
+       found goes, troughs before peaks and left to right *)
+    let simplify_extrema arr =
+      let a = ref arr and go = ref true in
+      while !go do
+        let arr = !a in
+        let len = Array.length arr in
+        let v k = let _, _, x = arr.(k) in x in
+        let best = ref infinity and lo = ref (-1) and k = ref 1 in
+        while !k < len - 1 do
+          let p = Float.min (v (!k - 1)) (v (!k + 1)) in
+          let s = if p > 0. then (p -. v !k) /. p else 0. in
+          if s < !best then begin
+            best := s;
+            lo := if v (!k - 1) < v (!k + 1) then !k - 1 else !k
+          end;
+          k := !k + 2
+        done;
+        k := 2;
+        while !k < len - 2 do
+          let outer = Float.min (v (!k - 2)) (v (!k + 2)) in
+          let s =
+            if outer > 0. then (v !k -. Float.max (v (!k - 1)) (v (!k + 1))) /. outer else 0. in
+          if s < !best then begin
+            best := s;
+            lo := if v (!k - 1) > v (!k + 1) then !k - 1 else !k
+          end;
+          k := !k + 2
+        done;
+        if !lo < 0 || !best >= valley_floor then go := false
+        else a := Array.append (Array.sub arr 0 !lo) (Array.sub arr (!lo + 2) (len - !lo - 2))
+      done;
+      !a
+    let troughs_of_counts counts =
+      let arr = smooth_counts counts |> valley_extrema |> simplify_extrema in
+      List.init ((Array.length arr - 1) / 2)
+        (fun i ->
+          let k = (2 * i) + 1 in
+          let _, tb, t = arr.(k) and _, lb, l = arr.(k - 1) and _, rb, r = arr.(k + 1) in
+          let p = Float.min l r in
+          tb, lb, rb, p -. t, if p > 0. then (p -. t) /. p else 0.)
+    (* THE PAIRS A HISTOGRAM IS BUILT FROM: every one of them when there are few enough, and
+       otherwise a sample drawn with replacement, a point never being paired with itself *)
+    type valley_pairs_t =
+      | AllPairs of int
+      | SampledPairs of int array * int array
+    let valley_pairs ~pairs_max ~pairs_sample state n =
+      if n * (n - 1) / 2 <= pairs_max then AllPairs n
+      else begin
+        let pi = Array.make pairs_sample 0 and pj = Array.make pairs_sample 0 in
+        for p = 0 to pairs_sample - 1 do
+          (* In sequence and not under [and], whose order of evaluation is unspecified and would
+             make the draws depend on the compiler *)
+          let i = Random.State.int state n in
+          let j = ref (Random.State.int state n) in
+          while !j = i do j := Random.State.int state n done;
+          pi.(p) <- i;
+          pj.(p) <- !j
+        done;
+        SampledPairs (pi, pj)
+      end
+    let valley_distances embed_dist embeds = function
+      | AllPairs n ->
+        let d = Float.Array.make (n * (n - 1) / 2) 0. and id = ref 0 in
+        for i = 0 to n - 2 do
+          for j = i + 1 to n - 1 do
+            Float.Array.unsafe_set d !id (embed_dist embeds.(i) embeds.(j));
+            incr id
+          done
+        done;
+        d
+      | SampledPairs (pi, pj) ->
+        Float.Array.init (Array.length pi) (fun p -> embed_dist embeds.(pi.(p)) embeds.(pj.(p)))
+    (* A resample of the points: each is drawn [n] times with replacement, and what is kept is how
+       many times each was drawn *)
+    let valley_multiplicities state resamples n =
+      Array.init resamples
+        (fun _ ->
+          let m = Array.make n 0 in
+          for _ = 1 to n do
+            let x = Random.State.int state n in
+            m.(x) <- m.(x) + 1
+          done;
+          m)
+    (* EVERY CANDIDATE TROUGH OF ONE SET OF DISTANCES, each scored against the resamples.  A
+       resample weights every pair by the product of the multiplicities of its two points, is
+       binned on the bins the full data set, rescaled to the full number of pairs and smoothed
+       alike, and has the prominence and depth of each trough read at that trough's own bins, so
+       that what varies from one resample to the next is the data and never where the trough is
+       looked for.  Returns each candidate with its depth in every resample *)
+    let calibrate_troughs ~multiplicities pairs dists =
+      let np = Float.Array.length dists in
+      let maximum = Float.Array.fold_left Float.max 0. dists in
+      if np = 0 || maximum <= 0. then []
+      else begin
+        (* The 99th percentile as the upper edge of the first fine bin at which the cumulative count
+           passes 99% of the pairs *)
+        let fw = maximum *. (1. +. 1e-9) /. float_of_int valley_fine_bins
+        and fine = Array.make valley_fine_bins 0 in
+        Float.Array.iter
+          (fun x ->
+            let b = min (valley_fine_bins - 1) (int_of_float (x /. fw)) in
+            fine.(b) <- fine.(b) + 1)
+          dists;
+        let target = 0.99 *. float_of_int np and cum = ref 0 and fb = ref 0 in
+        while !fb < valley_fine_bins - 1 && float_of_int (!cum + fine.(!fb)) <= target do
+          cum := !cum + fine.(!fb);
+          incr fb
+        done;
+        (* The last bin is the overflow: it counts towards all pairs but takes no part in the
+           smoothing or in the search for extrema *)
+        let w = float_of_int (!fb + 1) *. fw /. float_of_int valley_bins
+        and idx = Bytes.create np and counts = Float.Array.make (valley_bins + 1) 0. in
+        Float.Array.iteri
+          (fun p x ->
+            let b = min valley_bins (int_of_float (x /. w)) in
+            Bytes.unsafe_set idx p (Char.unsafe_chr b);
+            Float.Array.set counts b (Float.Array.get counts b +. 1.))
+          dists;
+        let cands = troughs_of_counts (Float.Array.sub counts 0 valley_bins) |> Array.of_list in
+        let nc = Array.length cands and nr = Array.length multiplicities
+        and total = float_of_int np in
+        let proms = Array.make_matrix nc nr 0. and depths = Array.make_matrix nc nr 0. in
+        Array.iteri
+          (fun r m ->
+            let acc = Float.Array.make (valley_bins + 1) 0. in
+            let add p weight =
+              let b = Char.code (Bytes.unsafe_get idx p) in
+              Float.Array.unsafe_set acc b (Float.Array.unsafe_get acc b +. weight) in
+            (match pairs with
+             | AllPairs n ->
+               let id = ref 0 in
+               for i = 0 to n - 2 do
+                 let mi = m.(i) in
+                 if mi = 0 then id := !id + (n - 1 - i)
+                 else
+                   for j = i + 1 to n - 1 do
+                     let mj = Array.unsafe_get m j in
+                     if mj > 0 then add !id (float_of_int (mi * mj));
+                     incr id
+                   done
+               done
+             | SampledPairs (pi, pj) ->
+               Array.iteri
+                 (fun p i ->
+                   let mm = m.(i) * m.(pj.(p)) in
+                   if mm > 0 then add p (float_of_int mm))
+                 pi);
+            let mass = Float.Array.fold_left ( +. ) 0. acc in
+            let scale = if mass > 0. then total /. mass else 0. in
+            let smr =
+              Float.Array.init valley_bins (fun b -> Float.Array.get acc b *. scale)
+              |> smooth_counts in
+            Array.iteri
+              (fun k (tb, lb, rb, _, _) ->
+                let p = Float.min (Float.Array.get smr lb) (Float.Array.get smr rb)
+                and t = Float.Array.get smr tb in
+                proms.(k).(r) <- p -. t;
+                depths.(k).(r) <- if p > 0. then (p -. t) /. p else 0.)
+              cands)
+          multiplicities;
+        let below = Float.Array.make (valley_bins + 1) 0. in
+        for b = 1 to valley_bins do
+          Float.Array.set below b (Float.Array.get below (b - 1) +. Float.Array.get counts (b - 1))
+        done;
+        Array.mapi
+          (fun k (tb, _, _, prominence, depth) ->
+            let stats = ValleyStats.make () in
+            Array.iter (ValleyStats.add stats) proms.(k);
+            let sd = ValleyStats.sample_standard_deviation stats in
+            let z =
+              if sd > 0. then prominence /. sd else if prominence > 0. then infinity else 0.
+            and reappearing =
+              Array.fold_left (fun acc x -> if x >= valley_floor then acc + 1 else acc) 0 depths.(k) in
+            { radius = (float_of_int tb +. 0.5) *. w;
+              share = (Float.Array.get below tb +. (0.5 *. Float.Array.get counts tb)) /. total;
+              z; reappearance = float_of_int reappearing /. float_of_int nr; depth },
+            depths.(k))
+          cands
+        |> Array.to_list
+      end
+    let keep_valleys valleys =
+      List.filter
+        (fun v -> v.z >= valley_z_min && v.share >= valley_share_min && v.share <= valley_share_max)
+        valleys
+      |> List.stable_sort (fun a b -> compare a.share b.share)
+      (* A chain of shares each within [valley_chain] of the one before is one valley, and keeps
+         its highest z -- the first reaching it, which is the lower share on a tie *)
+      |> List.fold_left
+           (fun acc v ->
+             match acc with
+             | (last, best) :: rest when v.share -. last.share < valley_chain ->
+               (v, if v.z > best.z then v else best) :: rest
+             | _ -> (v, v) :: acc)
+           []
+      |> List.rev_map snd
+    (* The random state the detector draws from.  It is its own, so that choosing the calibrated
+       detector does not move a single draw of any other stream seeded from the same number *)
+    let valley_state seed = Random.State.make [| seed; 0x5CA1E |]
+    let check_valley_arguments ~resamples ?multiplicities n =
+      match multiplicities with
+      | None ->
+        if resamples < 2 then
+          Exception.raise __FUNCTION__ Initialize
+            (Printf.sprintf "at least 2 resamples are needed for a standard deviation, not %d"
+               resamples)
+      | Some m ->
+        if Array.length m < 2 then
+          Exception.raise __FUNCTION__ Initialize
+            (Printf.sprintf "at least 2 resamples are needed for a standard deviation, not %d"
+               (Array.length m));
+        Array.iter
+          (fun a ->
+            if Array.length a <> n then
+              Exception.raise __FUNCTION__ Initialize
+                (Printf.sprintf "a resample has %d multiplicities for %d points" (Array.length a) n))
+          m
+    let calibrated_troughs ?(seed = 17) ?(pairs_max = 10_000_000) ?(pairs_sample = 2_000_000)
+        ?(resamples = 50) ?multiplicities ~metric ~distance ~distance_normalize coords
+        inertia_vec =
+      let n = Array.length coords in
+      check_valley_arguments ~resamples ?multiplicities n;
+      if n < 50 then []
+      else begin
+        let embeds, embed_dist =
+          make_embeddings ~metric ~distance ~distance_normalize coords inertia_vec in
+        let state = valley_state seed in
+        let pairs = valley_pairs ~pairs_max ~pairs_sample state n in
+        let multiplicities =
+          match multiplicities with
+          | Some m -> m
+          | None -> valley_multiplicities state resamples n in
+        valley_distances embed_dist embeds pairs
+        |> calibrate_troughs ~multiplicities pairs |> List.map fst
+      end
+    let find_valleys ?(verbose = false) ?seed ?pairs_max ?pairs_sample ?resamples ?multiplicities
+        ~metric ~distance ~distance_normalize coords inertia_vec =
+      let prefix = String.TermIO.grey (Printf.sprintf "(%s):" __FUNCTION__) in
+      let candidates =
+        calibrated_troughs ?seed ?pairs_max ?pairs_sample ?resamples ?multiplicities ~metric
+          ~distance ~distance_normalize coords inertia_vec in
+      let kept = keep_valleys candidates in
+      if verbose then
+        Printf.eprintf "%s %d of %d candidate %s kept%s.\n%!" prefix (List.length kept)
+          (List.length candidates)
+          (String.pluralize_int "trough" (List.length candidates))
+          (List.map
+             (fun v ->
+               Printf.sprintf "%.1f%% of pairs below (z %.1f, reappearing in %.0f%%)"
+                 (100. *. v.share) v.z (100. *. v.reappearance))
+             kept
+           |> String.concat "; "
+           |> fun s -> if s = "" then "" else ": " ^ s);
+      kept
     (* HOW FAR APART TWO PARTITIONS OF THE SAME THINGS ARE, given as labellings aligned by
        index.  Three numbers rather than one, because the obvious single number cannot be read
        alone: the adjusted Rand index charges a partition BOTH for splitting a class of the
@@ -1480,6 +1788,13 @@ include (
       let homogeneity = if h_b > 0. then 1. -. (conditional false /. h_b) else 1.
       and completeness = if h_a > 0. then 1. -. (conditional true /. h_a) else 1. in
       ari, homogeneity, completeness
+    (* WHETHER THERE IS ANYTHING HERE TO PARTITION AT ALL.  A set that falls into groups has two
+       modes in its pairwise-distance distribution -- one for pairs within a group, one for
+       pairs across -- with a valley between them, and a set that does not has one mode and no
+       valley.  The radius the search starts from is read off that valley, so its absence is
+       already known and is worth SAYING rather than swallowing, because the search returns a
+       partition either way: some partition always maximises the criterion, and over a set with
+       no groups in it that partition is an artefact of the criterion rather than a finding *)
     let assess_structure ?(verbose = false) ?(seed = 17) ?sample ~what_label ~metric ~distance
         ~distance_normalize coords inertia_vec =
       let open String.TermIO in
@@ -2010,13 +2325,48 @@ include (
       (Float.Array.t -> Float.Array.t -> float) ->
       Float.Array.t array ->
       float option
+    (* A valley in the pairwise distances, as the calibrated detector reports one *)
+    type valley_t = { radius: float; share: float; z: float; reappearance: float; depth: float }
+    (* The troughs of a histogram once smoothed and simplified, each as its bin, the bins of the
+       peaks either side of it, its prominence and its relative depth *)
+    val troughs_of_counts: Float.Array.t -> (int * int * int * float * float) list
+    (* The candidates that pass the detector's thresholds, a chain of near-identical shares
+       counting as one valley *)
+    val keep_valleys: valley_t list -> valley_t list
+    (* Every candidate trough of the pairwise distances, calibrated against resamples of the points
+       and not yet thresholded.  [multiplicities], when given, replaces the resamples drawn *)
+    val calibrated_troughs:
+      ?seed:int ->
+      ?pairs_max:int ->
+      ?pairs_sample:int ->
+      ?resamples:int ->
+      ?multiplicities:int array array ->
+      metric:Space.Distance.Metric.t ->
+      distance:Space.Distance.t ->
+      distance_normalize:bool ->
+      Float.Array.t array ->
+      Float.Array.t ->
+      valley_t list
+    val find_valleys:
+      ?verbose:bool ->
+      ?seed:int ->
+      ?pairs_max:int ->
+      ?pairs_sample:int ->
+      ?resamples:int ->
+      ?multiplicities:int array array ->
+      metric:Space.Distance.Metric.t ->
+      distance:Space.Distance.t ->
+      distance_normalize:bool ->
+      Float.Array.t array ->
+      Float.Array.t ->
+      valley_t list
+    (* Adjusted Rand index, homogeneity and completeness of two labellings of the same items,
+       given aligned by index.  Three numbers because one cannot be read alone.  The first array
+       is the partition being judged, the second the reference: reversing them exchanges
+       homogeneity and completeness *)
+    val compare_partitions: string array -> string array -> float * float * float
     (* Whether the pairwise distances are two-moded, which is to say whether there are groups
        here at all, and the dimension a neighbourhood occupies *)
-    (* Adjusted Rand index, homogeneity and completeness of two labellings of the same items,
-       given aligned by index.  Three numbers because one cannot be read alone *)
-    val compare_partitions: string array -> string array -> float * float * float
-    (* The first array is the partition being judged, the second the reference: reversing them
-       exchanges homogeneity and completeness *)
     val assess_structure:
       ?verbose:bool ->
       ?seed:int ->
