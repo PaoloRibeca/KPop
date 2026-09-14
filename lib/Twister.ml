@@ -42,6 +42,21 @@ include (
       inertia: Matrix.t
     }
     let empty = { twister = Matrix.empty Twister; inertia = Matrix.empty Inertia }
+    (* The first [d] axes of a twister are its first [d] rows, and its inertia is cut alike *)
+    let truncate (t: t) d =
+      let axes = Float.Array.length t.inertia.matrix.data.(0) in
+      if d < 1 || d > axes then
+        Exception.raise __FUNCTION__ Initialize
+          (Printf.sprintf "a twister of %d axes cannot be truncated to %d" axes d);
+      if d = axes then t
+      else begin
+        let m = t.twister.matrix in
+        { twister =
+            { t.twister with
+              matrix =
+                { m with row_names = Array.sub m.row_names 0 d; data = Array.sub m.data 0 d } };
+          inertia = Twisted.truncate_inertia t.inertia d }
+      end
     (* Strictly speaking, we return the _transposed_ of the matrix product here *)
     let add_twisted_from_database
         ?(threads = 1) ?(elements_per_step = 100) ?(verbose = false) twister twisted prefix =
@@ -214,6 +229,9 @@ include (
       inertia: Matrix.t
     }
     val empty: t
+    (* The twister an analysis asked for its first [d] axes gives, [d] lying between 1 and the axes
+       there are, all of them returning the twister itself *)
+    val truncate: t -> int -> t
     (* This one can fail due to a number of reasons *)
     val add_twisted_from_database: ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
                                    t -> Twisted.t -> string -> Twisted.t

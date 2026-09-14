@@ -300,9 +300,47 @@ let test_ladder () =
       Clustering.ladder ~dmax:9 ~metric:flat ~distance:euclidean ~distance_normalize:false coords
         inertia))
 
+(* Truncation. *)
+
+let test_truncation () =
+  Testing.section "Truncating a twister and a register" (fun () ->
+    (* The Primer's twister, which test/integration_build.sh leaves behind, and the spectra it was
+       built for *)
+    let twister = Twister.of_binary "test/Primer/Classes-5" and spectra = "test/Primer/Train-5" in
+    let inertias (m: Matrix.t) = m.Matrix.matrix.Matrix.Base.data.(0) in
+    let axes = Float.Array.length (inertias twister.Twister.inertia) in
+    Testing.check_bool "the fixture has more than two axes to cut" ~expected:true (axes > 2);
+    let d = 2 and project tw = Twister.add_twisted_from_database tw Twisted.empty spectra in
+    let full = project twister and cut = Twister.truncate twister d in
+    let through_cut = project cut and cut_after = Twisted.truncate full d in
+    let rows (t: Twisted.t) = t.Twisted.twisted.Matrix.matrix.Matrix.Base.data in
+    Testing.check_int "a truncated twister has the axes asked for" ~expected:d
+      (Float.Array.length (inertias cut.Twister.inertia));
+    Testing.check_int "a truncated register keeps every row" ~expected:(Array.length (rows full))
+      (Array.length (rows cut_after));
+    Testing.check "projecting through a truncated twister gives the truncated projection"
+      (fun () ->
+        let close a b k =
+          let p = Float.Array.get a k and q = Float.Array.get b k in
+          Float.abs (p -. q) <= 1e-12 *. Float.max 1. (Float.abs p) in
+        Array.length (rows through_cut) = Array.length (rows cut_after)
+        && Array.for_all2
+             (fun a b ->
+               Float.Array.length a = d && Float.Array.length b = d
+               && List.for_all (close a b) (List.init d Fun.id))
+             (rows through_cut) (rows cut_after));
+    Testing.check "with the same inertias" (fun () ->
+      inertias through_cut.Twisted.inertia = inertias cut_after.Twisted.inertia);
+    Testing.check "truncating to every axis returns the twister itself" (fun () ->
+      Twister.truncate twister axes == twister);
+    Testing.check_raises "truncating to more axes than there are is refused" (fun () ->
+      Twister.truncate twister (axes + 1));
+    Testing.check_raises "and so is truncating to none" (fun () -> Twisted.truncate full 0))
+
 let () =
   test_troughs ();
   test_keep ();
   test_detector ();
   test_ladder ();
+  test_truncation ();
   Testing.summary ()

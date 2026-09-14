@@ -187,6 +187,32 @@ include (
       if inertias1 <> inertias2 then
         raise_incompatible_inertias __FUNCTION__ inertias1 inertias2;
       { inertia = t1.inertia; twisted = Matrix.merge_rowwise t1.twisted t2.twisted }
+    (* THE FIRST [d] AXES OF A REGISTER, which is what the same analysis asked for [d] axes gives:
+       every row's coordinates and the inertia are both cut at [d], so a register truncated and one
+       projected through a truncated twister are the same register *)
+    let truncate_inertia (inertia: Matrix.t) d =
+      let m = inertia.matrix in
+      { inertia with
+        matrix =
+          { m with
+            col_names = Array.sub m.col_names 0 d;
+            data = Array.map (fun v -> Float.Array.sub v 0 d) m.data } }
+    let truncate (t: t) d =
+      let axes = Float.Array.length (get_inertias t) in
+      if d < 1 || d > axes then
+        Exception.raise __FUNCTION__ Initialize
+          (Printf.sprintf "a register of %d axes cannot be truncated to %d" axes d);
+      if d = axes then t
+      else begin
+        let m = t.twisted.matrix in
+        { inertia = truncate_inertia t.inertia d;
+          twisted =
+            { t.twisted with
+              matrix =
+                { m with
+                  col_names = Array.sub m.col_names 0 d;
+                  data = Array.map (fun v -> Float.Array.sub v 0 d) m.data } } }
+      end
     (* *)
     let to_embeddings ?(normalize = true) ?(threads = 1) ?(elements_per_step = 10000) ?(verbose = false)
         distance metric t =
@@ -936,6 +962,12 @@ include (
     val empty: t
     (* It fails if matrices have incompatible intertias *)
     val merge_rowwise: t -> t -> t
+    (* The register an analysis asked for its first [d] axes gives: the same rows, [d] coordinates
+       and [d] inertias.  [d] lies between 1 and the axes there are, all of them returning the
+       register itself *)
+    val truncate: t -> int -> t
+    (* The first [d] inertias of an inertia matrix *)
+    val truncate_inertia: Matrix.t -> int -> Matrix.t
     (* Recompute vectors from the specified distance and metric functions *)
     val to_embeddings: ?normalize:bool -> ?threads:int -> ?elements_per_step:int -> ?verbose:bool ->
                        Space.Distance.t -> Space.Distance.Metric.t -> t -> Matrix.t
