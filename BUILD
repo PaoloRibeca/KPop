@@ -355,6 +355,8 @@ if [[ -n "$DO_TESTS" && "${KPOP_SKIP_TESTS:-0}" != 1 ]]; then
       bash test/integration_core.sh
       echo
       bash test/integration_splits.sh
+      echo
+      bash test/integration_autotuner.sh
       ;;
   esac
 fi
