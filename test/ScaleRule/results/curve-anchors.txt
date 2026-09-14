@@ -1,0 +1,41 @@
+#### estimator: s* = min{ s : max_A G3b_s(P) - G3b_s(CDC) <= -0.002 };  |A| < 5 is VOID
+run                            silhouette     n  |A| k_ref | s*(all)   s*(abs)   s*(rel)   | gate
+vp1.d20.f0.95.r1.none          simplified  3557   11    39 | 5         5         none      | GATE FIRES: one sub-corpus protected, the other never
+vp2.d20.f0.95.r1.none          simplified  2869   31    36 | 22        22        16        | -
+rdrp.d5.f0.95.r1.none          simplified  3066    0    53 | VOID      VOID      VOID      | VOID
+vp1.d20.f0.95.r1.none          classical   3557    4    39 | VOID      VOID      VOID      | VOID
+rdrp.d5.f0.95.r1.none          classical   3066    0    53 | VOID      VOID      VOID      | VOID
+vp2.d20.f0.95.r1.none          classical   2869   35    36 | RIGHT     RIGHT     8         | GATE FIRES: one sub-corpus protected, the other never
+
+#### the curve, with the reference decomposed (handicap = G2-G0, charge = noise/n)
+run                      silhouette    s  ref G3b     maxA     M(s)     hcap   charge   #>  binding attacker
+vp1.d20.f0.95.r1.none    simplified    2   0.5710   0.6200  +0.0491   0.0009   0.0011    9  all but farthest 2, as one group
+vp1.d20.f0.95.r1.none    simplified    3   0.5722   0.6047  +0.0324   0.0039   0.0028    6  all but farthest 3, as one group
+vp1.d20.f0.95.r1.none    simplified    4   0.5721   0.5856  +0.0135   0.0045   0.0037    3  farthest point + 3 NN as one group vs re
+vp1.d20.f0.95.r1.none    simplified    5   0.5797  -0.0003  -0.5800   0.0145   0.0059    0  all but farthest 1, as singletons
+vp1.d20.f0.95.r1.none    simplified    6   0.5797  -0.0003  -0.5800   0.0145   0.0059    0  all but farthest 1, as singletons
+vp1.d20.f0.95.r1.none    simplified    8   0.5681  -0.0003  -0.5684   0.0141   0.0171    0  all but farthest 1, as singletons
+vp1.d20.f0.95.r1.none    simplified   11   0.5638  -0.0003  -0.5641   0.0126   0.0200    0  all but farthest 1, as singletons
+vp1.d20.f0.95.r1.none    simplified   16   0.5852  -0.0003  -0.5855   0.0486   0.0346    0  all but farthest 1, as singletons
+vp1.d20.f0.95.r1.none    simplified   22   0.5591  -0.0003  -0.5594   0.0388   0.0509    0  all but farthest 1, as singletons
+vp1.d20.f0.95.r1.none    simplified   32   0.5443  -0.0003  -0.5446   0.0451   0.0720    0  all but farthest 1, as singletons
+vp2.d20.f0.95.r1.none    simplified    2   0.6006   0.6592  +0.0586   0.0020   0.0010   24  best seed+2 NN group, 8 farthest seeds, 
+vp2.d20.f0.95.r1.none    simplified    3   0.6033   0.6592  +0.0559   0.0061   0.0024   21  best seed+2 NN group, 8 farthest seeds, 
+vp2.d20.f0.95.r1.none    simplified    4   0.6050   0.6586  +0.0536   0.0098   0.0045   18  best seed+4 NN group, 8 farthest seeds, 
+vp2.d20.f0.95.r1.none    simplified    5   0.6029   0.6586  +0.0557   0.0092   0.0059   15  best seed+4 NN group, 8 farthest seeds, 
+vp2.d20.f0.95.r1.none    simplified    6   0.6006   0.6493  +0.0487   0.0086   0.0077   12  best seed+5 NN group, 8 farthest seeds, 
+vp2.d20.f0.95.r1.none    simplified    8   0.6101   0.6472  +0.0371   0.0338   0.0234    8  best seed+7 NN group, 8 farthest seeds, 
+vp2.d20.f0.95.r1.none    simplified   11   0.6058   0.6439  +0.0381   0.0323   0.0261    6  best seed+10 NN group, 8 farthest seeds,
+vp2.d20.f0.95.r1.none    simplified   16   0.5775   0.6249  +0.0474   0.0211   0.0432    2  best seed+15 NN group, 8 farthest seeds,
+vp2.d20.f0.95.r1.none    simplified   22   0.5554  -0.0003  -0.5557   0.0122   0.0565    0  all but farthest 1, as singletons
+vp2.d20.f0.95.r1.none    simplified   32   0.5079  -0.0003  -0.5082   0.0037   0.0955    0  all but farthest 1, as singletons
+vp2.d20.f0.95.r1.none    classical     2   0.5001   0.5384  +0.0383   0.0033   0.0010   25  all but farthest 2, as one group
+vp2.d20.f0.95.r1.none    classical     3   0.5062   0.5310  +0.0248   0.0109   0.0024   18  all but farthest 3, as one group
+vp2.d20.f0.95.r1.none    classical     4   0.5084   0.5281  +0.0196   0.0152   0.0045   11  all but farthest 4, as one group
+vp2.d20.f0.95.r1.none    classical     5   0.5067   0.5259  +0.0192   0.0148   0.0059   12  all but farthest 5, as one group
+vp2.d20.f0.95.r1.none    classical     6   0.5048   0.5244  +0.0197   0.0146   0.0077    9  all but farthest 6, as one group
+vp2.d20.f0.95.r1.none    classical     8   0.5236   0.5226  -0.0011   0.0492   0.0234    0  all but farthest 8, as one group
+vp2.d20.f0.95.r1.none    classical    11   0.5197   0.5187  -0.0010   0.0480   0.0261    0  all but farthest 11, as one group
+vp2.d20.f0.95.r1.none    classical    16   0.4933   0.5139  +0.0205   0.0387   0.0432    4  all but farthest 16, as one group
+vp2.d20.f0.95.r1.none    classical    22   0.4723   0.5080  +0.0357   0.0310   0.0565    3  all but farthest 22, as one group
+vp2.d20.f0.95.r1.none    classical    32   0.4331   0.5012  +0.0681   0.0308   0.0955    1  all but farthest 32, as one group
