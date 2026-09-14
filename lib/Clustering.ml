@@ -1743,6 +1743,234 @@ include (
            |> String.concat "; "
            |> fun s -> if s = "" then "" else ": " ^ s);
       kept
+    (* WHICH VALLEY A SEARCH IS HELD TO when several are found: the finest, the coarsest, or the one
+       whose share of pairs below is nearest a given share.  Only a valley with at most half of the
+       pairs below it is a level, one above half marking a few very large groups instead *)
+    module Level =
+      struct
+        type t =
+          | Finest
+          | Coarsest
+          | Share of float
+        let of_string_re = Str.regexp "[()]"
+        let of_string s =
+          match Str.full_split of_string_re s with
+          | [ Text "finest" ] -> Finest
+          | [ Text "coarsest" ] -> Coarsest
+          | [ Text "share"; Delim "("; Text f; Delim ")" ] ->
+            let f =
+              try float_of_string f
+              with _ ->
+                Exception.raise __FUNCTION__ IO_Format (Printf.sprintf "Invalid level '%s'" s) in
+            if not (f >= 0. && f <= 1.) then
+              Exception.raise __FUNCTION__ IO_Format
+                (Printf.sprintf "Invalid level '%s': a share lies between 0 and 1" s);
+            Share f
+          | _ -> Exception.raise_unrecognized_initializer __FUNCTION__ "level" s
+        let to_string = function
+          | Finest -> "finest"
+          | Coarsest -> "coarsest"
+          | Share f -> Printf.sprintf "share(%.15g)" f
+        (* Midway between two valleys, the lower share wins *)
+        let select level valleys =
+          let better a b =
+            match level with
+            | Finest -> a.share < b.share
+            | Coarsest -> a.share > b.share
+            | Share s ->
+              let da = Float.abs (a.share -. s) and db = Float.abs (b.share -. s) in
+              da < db || (da = db && a.share < b.share) in
+          List.fold_left
+            (fun acc v ->
+              if v.share > 0.5 then acc
+              else
+                match acc with
+                | Some b when not (better v b) -> acc
+                | _ -> Some v)
+            None valleys
+      end
+    (* THE AXIS LADDER: [rungs] are the numbers of axes tried, [scores] how many kept valleys with
+       at most half of the pairs below each rung has, [valleys] the kept valleys at each rung, and
+       [pick] the index of the rung chosen.  [resample_picks] and [resample_levels] are the rung each
+       resample chooses and the level it selects there *)
+    type ladder_t = {
+      rungs: int array;
+      scores: int array;
+      valleys: valley_t list array;
+      pick: int option;
+      resample_picks: int option array;
+      resample_levels: valley_t option array
+    }
+    (* One axis, then twice as many each time, and the most there are *)
+    let ladder_rungs dmax =
+      if dmax < 1 then
+        Exception.raise __FUNCTION__ Initialize
+          (Printf.sprintf "a ladder needs at least one axis, not %d" dmax);
+      let rec up acc r = if r >= dmax then List.rev (dmax :: acc) else up (r :: acc) (2 * r) in
+      up [] 1 |> Array.of_list
+    (* THE RUNG A LADDER CHOOSES: the first to reach the highest score, extended across the rungs
+       adjoining it at that same score, of which the last is taken.  A plateau leaves the search the
+       largest space resolving that much structure, while a later and unconnected rung of equal
+       height does not win.  None when no rung scores at all *)
+    let pick_rung scores =
+      let n = Array.length scores and best = Array.fold_left max 0 scores in
+      if best = 0 then None
+      else begin
+        let last = ref 0 in
+        while scores.(!last) <> best do incr last done;
+        while !last + 1 < n && scores.(!last + 1) = best do incr last done;
+        Some !last
+      end
+    let ladder ?(verbose = false) ?(seed = 17) ?(pairs_max = 10_000_000) ?(pairs_sample = 2_000_000)
+        ?(resamples = 50) ?multiplicities ?(level = Level.Finest) ~dmax ~metric ~distance
+        ~distance_normalize coords inertia_vec =
+      let prefix = String.TermIO.grey (Printf.sprintf "(%s):" __FUNCTION__) in
+      let n = Array.length coords in
+      check_valley_arguments ~resamples ?multiplicities n;
+      if dmax > Float.Array.length inertia_vec then
+        Exception.raise __FUNCTION__ Initialize
+          (Printf.sprintf "a ladder of %d axes was asked for and the inertia has %d" dmax
+             (Float.Array.length inertia_vec));
+      Array.iter
+        (fun c ->
+          if Float.Array.length c < dmax then
+            Exception.raise __FUNCTION__ Initialize
+              (Printf.sprintf "a ladder of %d axes was asked for and a point has %d" dmax
+                 (Float.Array.length c)))
+        coords;
+      let rungs = ladder_rungs dmax in
+      let nrungs = Array.length rungs in
+      (* Each rung's candidate troughs, with the depth of each in every resample *)
+      let candidates = Array.make nrungs [] and drawn = ref [||] in
+      if n >= 50 then begin
+        (* The same draws as [calibrated_troughs], so that a rung of the ladder and the detector
+           run on that many axes see the same pairs and the same resamples *)
+        let state = valley_state seed in
+        let pairs = valley_pairs ~pairs_max ~pairs_sample state n in
+        let multiplicities =
+          match multiplicities with
+          | Some m -> m
+          | None -> valley_multiplicities state resamples n in
+        drawn := multiplicities;
+        (* ONE PASS OF RUNNING SUMS SERVES EVERY RUNG when the weights a truncation gets are one
+           factor times weights that do not depend on it -- a flat metric, or powers with threshold
+           1, whose weights on d axes are u_k * d / (u_0 + ... + u_{d-1}) for the u of the whole
+           ladder -- and the distance is Euclidean over unnormalised vectors.  The squared distance
+           at a rung is then the sum so far times that factor.  Anything else takes the embeddings
+           afresh at every rung *)
+        let fast =
+          (not distance_normalize)
+          && (match distance with Space.Distance.Euclidean -> true | _ -> false)
+          && (match metric with
+              | Space.Distance.Metric.Flat -> true
+              | Space.Distance.Metric.Powers (_, threshold, _) -> threshold = 1.) in
+        if fast then begin
+          let u = Space.Distance.Metric.compute metric (Float.Array.sub inertia_vec 0 dmax) in
+          let np =
+            match pairs with AllPairs n -> n * (n - 1) / 2 | SampledPairs (pi, _) -> Array.length pi in
+          let sums = Float.Array.make np 0. and dists = Float.Array.make np 0.
+          and prev = ref 0 and total_u = ref 0. in
+          Array.iteri
+            (fun r d ->
+              for k = !prev to d - 1 do
+                let uk = Float.Array.get u k in
+                total_u := !total_u +. uk;
+                let add p x =
+                  Float.Array.unsafe_set sums p (Float.Array.unsafe_get sums p +. (uk *. x *. x)) in
+                match pairs with
+                | AllPairs n ->
+                  let id = ref 0 in
+                  for i = 0 to n - 2 do
+                    let cik = Float.Array.get coords.(i) k in
+                    for j = i + 1 to n - 1 do
+                      add !id (cik -. Float.Array.get coords.(j) k);
+                      incr id
+                    done
+                  done
+                | SampledPairs (pi, pj) ->
+                  Array.iteri
+                    (fun p i ->
+                      add p (Float.Array.get coords.(i) k -. Float.Array.get coords.(pj.(p)) k))
+                    pi
+              done;
+              prev := d;
+              let factor = float_of_int d /. !total_u in
+              Float.Array.iteri (fun p x -> Float.Array.unsafe_set dists p (sqrt (x *. factor)))
+                sums;
+              candidates.(r) <- calibrate_troughs ~multiplicities pairs dists)
+            rungs
+        end else
+          Array.iteri
+            (fun r d ->
+              (* An embedding reads as many coordinates as the inertia it is given has axes *)
+              let embeds, embed_dist =
+                make_embeddings ~metric ~distance ~distance_normalize coords
+                  (Float.Array.sub inertia_vec 0 d) in
+              candidates.(r) <-
+                valley_distances embed_dist embeds pairs
+                |> calibrate_troughs ~multiplicities pairs)
+            rungs
+      end;
+      let valleys = Array.map (fun c -> List.map fst c |> keep_valleys) candidates in
+      let count l = List.fold_left (fun acc v -> if v.share <= 0.5 then acc + 1 else acc) 0 l in
+      let scores = Array.map count valleys in
+      let pick = pick_rung scores in
+      (* A RESAMPLE CHOOSES AMONG THE SAME VALLEYS, detecting nothing afresh: at each rung the ones
+         present in it are the full data's kept valleys that are still at least [valley_floor] deep
+         there, and the rule is applied to those *)
+      let nr = Array.length !drawn in
+      let resample_picks = Array.make nr None and resample_levels = Array.make nr None in
+      for q = 0 to nr - 1 do
+        let present =
+          Array.mapi
+            (fun r vs ->
+              List.filter (fun v -> (List.assq v candidates.(r)).(q) >= valley_floor) vs)
+            valleys in
+        let p = pick_rung (Array.map count present) in
+        resample_picks.(q) <- p;
+        resample_levels.(q) <- Option.bind p (fun i -> Level.select level present.(i))
+      done;
+      if verbose then begin
+        let axes d = Printf.sprintf "%d %s" d (String.pluralize_int ~plural:"axes" "axis" d)
+        and percent v = Printf.sprintf "%.1f%%" (100. *. v.share) in
+        Array.iteri
+          (fun r d ->
+            Printf.eprintf "%s %s: %d %s with at most half of the pairs below, of %d kept%s.\n%!"
+              prefix (axes d) scores.(r) (String.pluralize_int "valley" scores.(r))
+              (List.length valleys.(r))
+              (List.map (fun v -> Printf.sprintf "%s (z %.1f)" (percent v) v.z) valleys.(r)
+               |> String.concat ", "
+               |> fun s -> if s = "" then "" else ": " ^ s))
+          rungs;
+        match pick with
+        | None ->
+          Printf.eprintf "%s No rung has a valley with at most half of the pairs below.\n%!" prefix
+        | Some i ->
+          (* The rung the resamples pick most often, the fewer axes on a tie *)
+          let tally = Array.make nrungs 0 and none = ref 0 in
+          Array.iter
+            (function Some j -> tally.(j) <- tally.(j) + 1 | None -> incr none)
+            resample_picks;
+          let modal = ref 0 in
+          Array.iteri (fun j c -> if c > tally.(!modal) then modal := j) tally;
+          let shares =
+            Array.to_list resample_levels
+            |> List.filter_map (Option.map (fun v -> v.share))
+            |> List.sort compare |> Array.of_list in
+          let m = Array.length shares in
+          let quantile p = shares.(int_of_float (p *. float_of_int (m - 1))) in
+          Printf.eprintf "%s The ladder picks %s, at a level of %s of the pairs below.\n%!" prefix
+            (axes rungs.(i))
+            (Option.fold ~none:"none" ~some:percent (Level.select level valleys.(i)));
+          Printf.eprintf "%s The resamples pick %s in %d of %d%s%s.\n%!" prefix
+            (axes rungs.(!modal)) tally.(!modal) nr
+            (if !none > 0 then Printf.sprintf ", and no rung in %d" !none else "")
+            (if m > 0 then
+               Printf.sprintf ", their level lying between %.1f%% and %.1f%%"
+                 (100. *. quantile 0.05) (100. *. quantile 0.95)
+             else "")
+      end;
+      { rungs; scores; valleys; pick; resample_picks; resample_levels }
     (* HOW FAR APART TWO PARTITIONS OF THE SAME THINGS ARE, given as labellings aligned by
        index.  Three numbers rather than one, because the obvious single number cannot be read
        alone: the adjusted Rand index charges a partition BOTH for splitting a class of the
@@ -2360,6 +2588,48 @@ include (
       Float.Array.t array ->
       Float.Array.t ->
       valley_t list
+    module Level:
+      sig
+        type t =
+          | Finest
+          | Coarsest
+          | Share of float
+        val of_string: string -> t
+        val to_string: t -> string
+        (* The valley a search is held to, among those with at most half of the pairs below; None
+           when there is none *)
+        val select: t -> valley_t list -> valley_t option
+      end
+    type ladder_t = {
+      rungs: int array;
+      scores: int array;
+      valleys: valley_t list array;
+      pick: int option;
+      resample_picks: int option array;
+      resample_levels: valley_t option array
+    }
+    (* 1, 2, 4, ... up to and including [dmax] *)
+    val ladder_rungs: int -> int array
+    (* The index of the right end of the first plateau of the highest score; None when every score
+       is 0 *)
+    val pick_rung: int array -> int option
+    (* The detector run at every rung of the ladder, sharing one set of pairs and resamples, and the
+       rung chosen *)
+    val ladder:
+      ?verbose:bool ->
+      ?seed:int ->
+      ?pairs_max:int ->
+      ?pairs_sample:int ->
+      ?resamples:int ->
+      ?multiplicities:int array array ->
+      ?level:Level.t ->
+      dmax:int ->
+      metric:Space.Distance.Metric.t ->
+      distance:Space.Distance.t ->
+      distance_normalize:bool ->
+      Float.Array.t array ->
+      Float.Array.t ->
+      ladder_t
     (* Adjusted Rand index, homogeneity and completeness of two labellings of the same items,
        given aligned by index.  Three numbers because one cannot be read alone.  The first array
        is the partition being judged, the second the reference: reversing them exchanges

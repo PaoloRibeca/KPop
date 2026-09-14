@@ -196,8 +196,113 @@ let test_detector () =
       all_pairs
       (if List.length sampled = List.length all_pairs then sampled else all_pairs))
 
+(* The axis ladder. *)
+
+let test_ladder () =
+  Testing.section "The rungs of the ladder and the one it picks" (fun () ->
+    let rungs a = Array.to_list a |> List.map string_of_int |> String.concat " " in
+    Testing.check_equal "rungs double from one and end at the most axes there are"
+      ~to_string:rungs ~expected:[| 1; 2; 4; 8; 16; 20 |] (Clustering.ladder_rungs 20);
+    Testing.check_equal "and end once where that is itself a power of two" ~to_string:rungs
+      ~expected:[| 1; 2; 4; 8 |] (Clustering.ladder_rungs 8);
+    Testing.check_equal "one axis is a ladder of one rung" ~to_string:rungs ~expected:[| 1 |]
+      (Clustering.ladder_rungs 1);
+    Testing.check_raises "no axes at all is refused" (fun () -> Clustering.ladder_rungs 0);
+    let picked = function Some i -> Printf.sprintf "rung %d" i | None -> "none" in
+    (* The right end of the FIRST plateau at the highest score, never a later rung as high *)
+    Testing.check_equal "a later, unconnected rung of the same height does not win"
+      ~to_string:picked ~expected:(Some 1) (Clustering.pick_rung [| 1; 3; 1; 3 |]);
+    Testing.check_equal "a plateau is taken at its right end" ~to_string:picked ~expected:(Some 2)
+      (Clustering.pick_rung [| 1; 3; 3; 1; 3 |]);
+    Testing.check_equal "1 1 2 3 3 2 2 3 2 picks the second of the first two threes"
+      ~to_string:picked ~expected:(Some 4) (Clustering.pick_rung [| 1; 1; 2; 3; 3; 2; 2; 3; 2 |]);
+    Testing.check_equal "2 2 3 1 1 1 3 3 2 picks the first three" ~to_string:picked
+      ~expected:(Some 2) (Clustering.pick_rung [| 2; 2; 3; 1; 1; 1; 3; 3; 2 |]);
+    Testing.check_equal "no rung scoring is no pick" ~to_string:picked ~expected:None
+      (Clustering.pick_rung [| 0; 0; 0 |]));
+  Testing.section "Which valley is the level" (fun () ->
+    let module L = Clustering.Level in
+    Testing.check_equal "a level prints as it parses" ~to_string:(String.concat ", ")
+      ~expected:[ "finest"; "coarsest"; "share(0.25)" ]
+      (List.map (fun s -> L.to_string (L.of_string s)) [ "finest"; "coarsest"; "share(0.25)" ]);
+    Testing.check_raises "a share above 1 is refused" (fun () -> L.of_string "share(1.5)");
+    Testing.check_raises "and one that is not a number" (fun () -> L.of_string "share(x)");
+    Testing.check_raises "and a level of no known kind" (fun () -> L.of_string "median");
+    let v share = { Clustering.radius = 1.; share; z = 10.; reappearance = 1.; depth = 1. } in
+    let level l valleys = Option.map (fun v -> v.Clustering.share) (L.select l valleys)
+    and shown = function Some s -> Printf.sprintf "%g" s | None -> "none" in
+    let three = [ v 0.75; v 0.5; v 0.25 ] in
+    Testing.check_equal "the finest is the lowest share" ~to_string:shown ~expected:(Some 0.25)
+      (level L.Finest three);
+    Testing.check_equal "the coarsest stops at half of the pairs" ~to_string:shown
+      ~expected:(Some 0.5) (level L.Coarsest three);
+    Testing.check_equal "a share midway between two valleys takes the lower" ~to_string:shown
+      ~expected:(Some 0.25) (level (L.Share 0.375) three);
+    Testing.check_equal "and otherwise the nearer" ~to_string:shown ~expected:(Some 0.5)
+      (level (L.Share 0.45) three);
+    Testing.check_equal "no valley at or below half of the pairs is no level" ~to_string:shown
+      ~expected:None (level L.Finest [ v 0.75 ]));
+  Testing.section "The ladder end to end" (fun () ->
+    let state = Random.State.make [| 43 |] and dmax = 8 in
+    (* Three groups apart on the first three axes, with an inertia that falls away as a real
+       analysis's does *)
+    let inertia = Float.Array.init dmax (fun k -> 2. ** float_of_int (-k))
+    and centre k = Array.init dmax (fun j -> if j = k then 3. else 0.) in
+    let coords =
+      Array.concat
+        [ blob state ~centre:(centre 0) ~sd:0.3 60; blob state ~centre:(centre 1) ~sd:0.3 60;
+          blob state ~centre:(centre 2) ~sd:0.3 60 ] in
+    (* Every rung must find exactly what the detector finds on that many axes, whichever way the
+       ladder takes its distances *)
+    let against_detector what ~metric ~distance_normalize =
+      let l =
+        Clustering.ladder ~dmax ~metric ~distance:euclidean ~distance_normalize coords inertia in
+      Array.iteri
+        (fun r d ->
+          let direct =
+            Clustering.calibrated_troughs ~metric ~distance:euclidean ~distance_normalize coords
+              (Float.Array.sub inertia 0 d)
+            |> Clustering.keep_valleys
+          and got = l.Clustering.valleys.(r) in
+          let at = Printf.sprintf "%s, %d axes" what d in
+          Testing.check_int (at ^ ": the valleys the detector finds there")
+            ~expected:(List.length direct) (List.length got);
+          if List.length got = List.length direct then
+            List.iter2
+              (fun a b ->
+                check_near (at ^ ": the share") ~tolerance:1e-3 ~expected:a.Clustering.share
+                  b.Clustering.share;
+                check_near (at ^ ": the radius") ~tolerance:(1e-9 *. a.Clustering.radius)
+                  ~expected:a.Clustering.radius b.Clustering.radius)
+              direct got)
+        l.Clustering.rungs;
+      l in
+    let flat_ladder = against_detector "running sums, flat" ~metric:flat ~distance_normalize:false in
+    ignore
+      (against_detector "running sums, powers(1,1,1)"
+         ~metric:(Space.Distance.Metric.of_string "powers(1,1,1)") ~distance_normalize:false);
+    ignore (against_detector "embeddings afresh" ~metric:flat ~distance_normalize:true);
+    (* The level of three groups is the share of pairs inside one, and the rung picked must hold
+       it.  Not every rung does: where the groups lie far enough apart that only a few stray pairs
+       fall between the two modes, the gap breaks into troughs none of which is significant, and
+       the valley is kept only at the fewer axes where the modes are closer *)
+    let expected = 3. *. choose2 60 /. choose2 180 in
+    (match flat_ladder.Clustering.pick with
+     | None -> Testing.check_bool "three groups give the ladder a pick" ~expected:true false
+     | Some i ->
+       Clustering.Level.select Clustering.Level.Finest flat_ladder.Clustering.valleys.(i)
+       |> Option.fold ~none:nan ~some:(fun v -> v.Clustering.share)
+       |> check_near "the rung the ladder picks holds the level of the groups" ~tolerance:0.02
+            ~expected);
+    Testing.check_int "and every resample's choice is recorded" ~expected:50
+      (Array.length flat_ladder.Clustering.resample_picks);
+    Testing.check_raises "a ladder taller than the inertia is refused" (fun () ->
+      Clustering.ladder ~dmax:9 ~metric:flat ~distance:euclidean ~distance_normalize:false coords
+        inertia))
+
 let () =
   test_troughs ();
   test_keep ();
   test_detector ();
+  test_ladder ();
   Testing.summary ()
