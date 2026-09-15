@@ -72,7 +72,11 @@ jobs:
           ocaml-compiler: "4.14"
 
       - name: Install OCaml dependencies
-        run: opam install --yes dune menhir zarith
+        # Written out, BiOCamLib being a submodule rather than a package.  gg, vg
+        # and otfm are BiOCamLib's since its Plot module: vg is only built with
+        # the PDF renderer Plot links (vg.pdf) when otfm is already installed, so
+        # otfm is needed although no dune file names it.
+        run: opam install --yes dune menhir zarith gg vg otfm
 
       - name: Patch dune files and BiOCamLib for macOS
         # dune cannot express OS-conditional C flags cleanly, so the CI checkout
