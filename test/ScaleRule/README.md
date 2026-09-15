@@ -45,6 +45,7 @@ The inputs are text exports of a twisted register and its inertia, as
 | `inputs/` | How the three embeddings were built: `build.sh` (VP1, RdRp) and `build-vp2.sh`, verbatim with the scratch paths they ran against, and the spectra each twister was computed from (`*.T_rand.sel`). The spectra databases are not kept. |
 | `results/` | `g0.tsv.xz`, the unguarded rows of all 54 complete runs, which is enough to recompute every m\* and every comparison of references; `mstar.txt` and `curve-anchors.txt`, the two scripts' output. The guarded rows (81 MB) are not kept; `runexp.sh` regenerates them. |
 | `valley-page-template.html` | The plot page, with `__DATA__`, `__TREE__` and `__PHYLO__` standing in for the three JSON payloads. |
+| `stage1/` | Stage 1 run with the implemented autotuner (see *Stage 1, run* below). `stage1-run` drives the 18 runs two at a time from a frozen copy of the binary; `control-run` the six runs of the fixed-rung control on RdRp; `stage1-score` scores every round against the CDC labels and takes each run's median over its last four rounds; `stage1-summary` gives per corpus and arm the median over seeds, its spread, and whether each arm differs from `today` by more than twice the larger spread. `runs/` and `control/` hold the logs (xz), final partitions, scores and provenance; `verify/` the independent rechecks of stage 1. The spectra databases are not kept. |
 
 ## What is new here
 
@@ -121,6 +122,66 @@ The push-back as drafted, `silhouette − λ·max(0, ln(f_v/f_p) − ln 2)`, pen
 finer than the valley, so these pass it untouched. Whether the search under the level rule ever reaches
 them, and whether a two-sided push-back would stop it, needs autotuner runs: this rig scores
 partitions and cannot say.
+
+## Stage 1, run
+
+The document's stage 1 as the autotuner now implements it (KPop.Claude `dd13d32`..`bc19be9`): two arms,
+three corpora, three seeds (17, 18, 19), eight rounds each, one thread at nice 19. `today` is the
+half-height detector with `--dimensions-inertia 0.5`; `auto` is the calibrated detector with
+`--dimensions auto`. Both take projection and partition samples of 244 (VP1), 200 (RdRp) and 220 (VP2)
+spectra. All 18 runs finished.
+
+Median over seeds (spread across seeds), homogeneity / completeness against the CDC types, each run
+contributing its median over rounds 5–8:
+
+| | today | auto | auto − today (bar) |
+|---|---|---|---|
+| VP1 | 0.941 (0.040) / 0.659 (0.028) | 0.907 (0.168) / 0.658 (0.058) | −0.034 (0.337) / −0.001 (0.116) |
+| RdRp | 0.918 (0.014) / 0.820 (0.024) | 0.698 (0.015) / 0.957 (0.006) | −0.220 (0.029) / +0.137 (0.049) |
+| VP2 | 0.926 (0.008) / 0.781 (0.060) | 0.962 (0.063) / 0.719 (0.259) | +0.036 (0.126) / −0.063 (0.517) |
+
+The bar is twice the larger spread. Every figure reproduces through `KPopTwistDB --clusters-compare`.
+`rdrp.cdc` labels 9 sequences `-`, which the scorer counts as a class in both arms.
+
+**RdRp: one change, coarser partitions.** Under `auto` the ladder picks 4 axes or fewer in 18 of 24
+rounds, and those rounds return 3–11 clusters for 53 P-types. The clusters are near-exact unions of
+P-types (pair recall 0.95–0.996), merging even across genogroups, so completeness rises and homogeneity
+falls to what the cluster count allows. In 13 of the 18 a rung of 1–4 axes counts more valleys at or
+below half the pairs than any rung of 16 axes or more; in the other 5 a higher rung ties and the
+first-plateau tie-break, which favours fewer axes, decides. The winning low-rung valleys are mostly weak
+(median z 9, often a few points of share apart), where rungs of 8–32 axes usually show one strong valley
+(z 20–28) at 8–15% of pairs, and rungs of 64–199 axes one or two at 6–9%. The logs list only kept
+valleys, so whether the low rungs' extra valleys are the gap fragmentation seen on synthetic groups
+cannot be settled from them.
+
+**VP1 and VP2: undetermined, not equal.** The bars there are set by `auto`'s own spread over three seeds,
+each driven by one seed, and are too wide for a difference smaller than a third to a half of the scale to
+count.
+
+**The rung moves between rounds, not within one.** Pooled over seeds, `auto` searches VP1 in 8–64 axes,
+RdRp in 1–64 and VP2 in 2–219 (2–128 after round 1), against `today`'s 21–26, 17–25 and 24–34; cluster
+counts follow the axes. Within a round the 50 resamples agree with the pick in 71 of 72 rounds, so the
+change comes from the projection being rebuilt from the previous partition. It does not explain the seed
+spread: RdRp `auto` moves as much from round to round and has the smallest spread of all.
+
+**Cost.** VP2 `auto` took 1.4–3.1 h against 20 min for `today`, and RdRp `auto` 1.6–2.9 times `today`'s
+time while mostly searching in 4 axes or fewer, so the per-round ladder costs time of its own. The logs
+carry no per-round timings, and the runs went two at a time on a shared machine.
+
+**The fixed-rung control: the loss on RdRp is the pick rule's.** The calibrated detector with
+`--dimensions` fixed at 16 or at 32 — rungs the ladder turned down — on the same seeds and settings
+(`control-run`, `control/`):
+
+| RdRp | homogeneity / completeness | against `today` (bar) |
+|---|---|---|
+| calibrated, 16 axes | 0.915 (0.017) / 0.821 (0.041) | −0.003 (0.034) / +0.001 (0.081) |
+| calibrated, 32 axes | 0.937 (0.010) / 0.805 (0.022) | +0.019 (0.028) / −0.015 (0.049) |
+
+Neither differs from `today`, and every round of every seed stays at 18–50 clusters (16 axes) or 31–77
+(32 axes), homogeneity 0.86–0.97. The detector and the data are therefore not what costs `auto` on
+RdRp: it is the choice of rung — counting valleys regardless of their z, and breaking ties towards fewer
+axes. A fixed `--dimensions` asks the randomised decomposition for that many axes directly, where `auto`
+decomposes into all of them and truncates; both keep the leading axes of the same analysis.
 
 ## What is standard, and only absent from these libraries
 
