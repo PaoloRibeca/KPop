@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+
+# stage1-run -- the 18 runs of stage 1 of the autotuner's scale rule
+#
+#   stage1-run <kpop_autotuner_binary> <output_directory>
+#
+# Two arms, three corpora, three seeds, as DocsYard's KPop-autotuner-scale-rule §10 fixes them:
+# one thread each, nice 19, at most two runs at a time, --iterations 8 --montecarlo-steps 1000
+# --montecarlo-replicas 4, projection and partition samples of 244 VP1, 200 RdRp and 220 VP2
+# spectra, --montecarlo-level finest, no --report-anyway.  The binary is copied first, so that a
+# rebuild while the runs go on changes nothing about them.  A run whose outputs are already
+# complete is not run again.
+
+set -u
+
+BIN_SRC="${1:?usage: stage1-run <kpop_autotuner_binary> <output_directory>}"
+OUT="${2:?usage: stage1-run <kpop_autotuner_binary> <output_directory>}"
+S=/home/ribeca/.claude/jobs/29a54aa8/tmp
+
+mkdir -p "$OUT"
+BIN="$OUT/KPop-autotuner"
+[[ -x "$BIN" ]] || cp "$BIN_SRC" "$BIN"
+
+declare -A DB=( [vp1]="$S/regions/vp1" [rdrp]="$S/regions/rdrp" [vp2]="$S/vp2rand/all" )
+declare -A SAMPLE=( [vp1]=244 [rdrp]=200 [vp2]=220 )
+COMMON=(-T 1 --iterations 8 --montecarlo-steps 1000 --montecarlo-replicas 4
+        --montecarlo-level finest -v)
+
+one() {
+  local corpus="$1" arm="$2" seed="$3"
+  local tag="$corpus.$arm.s$seed" arm_flags
+  case "$arm" in
+    today) arm_flags=(--valleys-method half-height --dimensions-inertia 0.5) ;;
+    auto) arm_flags=(--valleys-method calibrated --dimensions auto) ;;
+  esac
+  [[ -s "$OUT/$tag.KPopClasses.txt" ]] && return 0
+  local start=$SECONDS
+  nice -n 19 "$BIN" -i "${DB[$corpus]}" -o "$OUT/$tag" "${COMMON[@]}" "${arm_flags[@]}" \
+    --projection-sample "${SAMPLE[$corpus]}" --partition-sample "${SAMPLE[$corpus]}" \
+    --seed "$seed" > "$OUT/$tag.stdout" 2> "$OUT/$tag.stderr"
+  printf '%s\texit=%d\t%ds\n' "$tag" $? $(( SECONDS - start )) >> "$OUT/runs.log"
+}
+export -f one
+export OUT BIN S
+export COMMON_STR="${COMMON[*]}"
+
+for corpus in vp1 rdrp vp2; do
+  for arm in today auto; do
+    for seed in 17 18 19; do
+      printf '%s %s %s\n' "$corpus" "$arm" "$seed"
+    done
+  done
+done |
+  xargs -P 2 -L 1 bash -c '
+    declare -A DB=( [vp1]="$S/regions/vp1" [rdrp]="$S/regions/rdrp" [vp2]="$S/vp2rand/all" )
+    declare -A SAMPLE=( [vp1]=244 [rdrp]=200 [vp2]=220 )
+    read -r -a COMMON <<< "$COMMON_STR"
+    one "$@"' _

@@ -26,7 +26,7 @@ The inputs are text exports of a twisted register and its inertia, as
 | File | What it is |
 |---|---|
 | `kio.ml` | Reads a twisted register, an inertia vector and a label file. **Duplicates the library**: `Matrix`/`Twisted` already parse these. |
-| `detect3.ml` | The calibrated valley detector of §1, and the axis rules of §2. Persistence simplification judges a bump against the modes the gap separates; each surviving trough is calibrated by resampling the sequences. Prints kept valleys per rung with radius, share below, z and reappearance, plus the pick under each candidate rule. |
+| `detect3.ml` | The calibrated valley detector of §1, and the axis rules of §2. Persistence simplification judges a bump against the modes the gap separates; each surviving trough is calibrated by resampling the sequences. Prints kept valleys per rung with radius, share below, z and reappearance, plus the pick under each candidate rule. The rules run on three ladders read off one set of detections: the 5, 10, 20, 40 … one, the doubling one, and the half powers of two the autotuner now takes — 1, 2, 3, 4, 6, 8, 11, 16, 23, 32, 45, 64, 91, 128, 181 and the most axes there are. |
 | `vdump.ml` | The pair-distance histogram for the plot page: raw counts, counts of same-class pairs, two smoothed curves, and — at radii `detect3` found — the share of pairs below and of each label level caught. Detects nothing itself. |
 | `vtree.ml` | Average linkage (UPGMA) by nearest-neighbour chain with Lance-Williams updates; the join-height histogram; cuts at given radii and over a 120-height grid, each scored against the labels. |
 | `treecut.ml` | The first version of the same, superseded by `vtree.ml` and kept only because the document's earliest tree numbers came from it. |
@@ -182,6 +182,133 @@ Neither differs from `today`, and every round of every seed stays at 18–50 clu
 RdRp: it is the choice of rung — counting valleys regardless of their z, and breaking ties towards fewer
 axes. A fixed `--dimensions` asks the randomised decomposition for that many axes directly, where `auto`
 decomposes into all of them and truncates; both keep the leading axes of the same analysis.
+
+## The ladder's spacing, measured
+
+The axis ladder steps by half powers of two — 1, 2, 3, 4, 6, 8, 11, 16, 23, 32, 45, 64, 91, 128,
+181 and the most axes there are, each rung 2^(k/2) rounded — rather than doubling. `detect3` scores
+both ladders off one set of detections, on the six embeddings the document measures, with the
+misordered share of (same-type pair, different-type pair) comparisons at the pick as the judge.
+`halfladder/` holds the run: `half-ladder-run`, `half.out` and the candidate lines, `half.cand.xz`.
+
+| Embedding | Doubling: pick, misordered | Half powers: pick, misordered |
+|---|---|---|
+| VP1 uniform | 16, 1.70% | 23, 1.15% |
+| VP1 stratified | 16, 1.87% | 23, 1.11% |
+| VP1 cores | 16, 0.53% | 16, 0.53% |
+| RdRp uniform | 4, 0.83% | 4, 0.83% |
+| RdRp stratified | 4, 1.19% | 4, 1.19% |
+| VP2 uniform | 16, 0.91% | 16, 0.91% |
+| **Mean** | **1.17%** | **0.95%** |
+
+Three things follow. The tie rule is exercised for the first time: on both VP1 samples 16 and 23
+axes tie, and taking the right end of that plateau is what gains the 0.22 points, so the leftmost
+end would give them back. The detector costs about 1.8 times as much a round, sixteen rungs against
+nine at 243 axes, at 1–4 s a rung. And RdRp is untouched: it picks 4 axes on both samples because
+4 holds three valleys and no other rung holds more, where the fixed-rung control above puts its
+best real-search range at 16–32, so the finer ladder does not address that.
+
+### On 300 sequences, where the axes matter most
+
+Both ladders under `--dimensions auto` on the 300-sequence VP1 and RdRp subsets of
+`stage1/subsample/`, three seeds each, otherwise the stage-1 settings, the frozen doubling binary
+against the half-powers one (`stage1/subsample/auto/`, driven by `subsample-auto`). On 68 projected
+spectra the doubling ladder offers 1, 2, 4, 8, 16, 32, 64 and 67 rungs, the half-powers one 1, 2, 3,
+4, 6, 8, 11, 16, 23, 32, 45, 64 and 67.
+
+| Corpus | Arm | Homogeneity (spread) | Completeness (spread) |
+|---|---|---|---|
+| RdRp | doubling | 0.870 (0.103) | 0.919 (0.062) |
+| RdRp | half powers | 0.797 (0.171) | 0.941 (0.114) |
+| VP1 | doubling | 0.791 (0.133) | 0.718 (0.106) |
+| VP1 | half powers | 0.751 (0.009) | 0.737 (0.190) |
+
+No difference counts: every difference is far inside twice the larger spread. What the runs do show
+is that `auto` removes the stopping problem these subsets had under fixed rungs — all 12 runs
+finished their 8 rounds, where 27 of the 30 fixed-rung runs stopped at "no groups at a usable
+level" — and that this is `auto` itself, not the spacing, since the doubling arm finished too.
+
+Judged the way the six big embeddings were judged, though, the finer rungs do earn their place on a
+small corpus. Each subset was embedded as round 1 embeds one — a correspondence analysis of a
+68-spectrum uniform sample with all 300 projected through it, leaving 67 axes — and `detect3` ran
+both ladders on it (`halfladder/small/`, driven by `small-embed`):
+
+| Embedding | Doubling: pick, misordered | Half powers: pick, misordered | Best rung by labels |
+|---|---|---|---|
+| VP1, 300 | 16, 3.09% | 16, 3.09% | 4, 1.53% |
+| RdRp, 300 | 2, 3.81% | 3, 2.32% | 11, 0.23% |
+
+RdRp's pick moves to a rung the doubling ladder does not have, gaining 1.49 points and becoming
+unanimous over the 50 resamples where rung 2 held 94% of them. Both rules stay well above the best
+rung either ladder offers, which is the price of not looking at labels, and that gap is much wider
+here than on the full corpora.
+
+The rung wanders between rounds on both ladders, which is the behaviour to fix for small sets: VP1
+under doubling runs 67, 32, 4, 32, 64, 4, 32, 4 in one seed. The finer ladder keeps VP1 lower and
+less extreme (mean rung 15–16 against 18–30, highest 45 against 67) and makes its homogeneity
+consistent across seeds, 0.009 of spread against 0.133; on RdRp it does the opposite, one seed
+sitting at 1–4 axes throughout and scoring 0.628/0.987.
+
+## Searching for the number of axes
+
+What `KPop-autotuner --dimensions search` does rests on five measurements, each kept under
+`halfladder/`. The page drawing all of them is the artifact *Axis Ladder Evidence*.
+
+**The silhouette falls as axes are added, and the valleys' strength says where** (`silhouette/`:
+`silh.ml`, `silh-run`, one TSV per embedding, `bounds.json`). On the six full-corpus embeddings and
+the two 300-sequence ones, the classical silhouette of the CDC labels rises and then falls with the
+number of axes on every one of them, peaking at 3–6 axes on the full corpora, 4 and 11 on the
+small ones. A partition carried unchanged from the ladder's pick peaks at its own rung or the next,
+so it cannot bound anything by itself. What can is the strength of each rung's strongest usable
+valley: the largest downward step in its log z, from the first rung with a usable valley on, is
+significant under 4,000 shuffles of the rungs' order on seven of the eight embeddings, and the
+labels' silhouette peaks at or before that step on all seven. That is `Clustering.ladder_bound`.
+
+**No other distance or metric does better** (`distances/`: `dist.ml` mirrors `Space.Distance`,
+`detect4.ml` and `silhgrid.ml` are `detect3.ml` and `silhnull.ml` with the metric and the distance as
+arguments and reproduce them byte for byte under `powers(1,1,1)` and Euclidean; `grid-run`,
+`grid-analyse.py`, one directory per setting). Across `flat` and `powers(1,1,1)` crossed with
+Euclidean, Manhattan and angle, `flat` gives a significant step on all eight embeddings and never
+before the labels' peak, but its ladder picks average 3.3–10.9% misordered on the full corpora
+against 0.95% for the default. The excess of each rung's own silhouette over what the same number of
+clusters gets on per-axis shuffled coordinates peaks within one rung of the labels' on at best four
+of eight, so no static quantity found the number of axes inside the bound.
+
+**Inside the bound, first rounds with different seeds agree best where the labels score best**
+(`round1/`, `round1-vp2/`, `round1-vp1/`: `round1-scan`, `round1-analyse.py`, logs and one JSON per
+corpus). The first round at every rung up to 64 axes, seeds 17–19. A golden-section search on the
+median agreement, restricted to the bound, probes four rungs — twelve first rounds — and lands on
+16 axes on RdRp (the labels' best), 11 on VP2 (best by ARI, on a plateau running 8–23) and 8 on VP1
+(one below the labels' best, 11, and tied with it within the spread between seeds). Agreement is
+not single-peaked: two axes and three clusters agree almost perfectly on VP1 and VP2.
+
+**Rounds after the first make the partition worse** (`hold/`: `hold-run`, `hold-analyse.py`,
+`hold.json`, logs). Held at the searched axes for eight rounds, completeness against the CDC types
+falls between round 1 and round 2 on every corpus — RdRp 0.93 to 0.83, VP2 0.93 to 0.81, VP1 0.94 to
+0.77 — and stays down, as it does under today's settings too.
+
+**However the later rounds' sample is drawn** (`sample/`: `sample-run`, logs, and
+`sample-options.patch` with `KPop_autotuner.ml.with-sample-options`, the two options the runs used —
+`--partition-sample-allocation every-class|by-size` and `--partition-sample-members
+extremes|random` — which were then removed, having helped nowhere). Shared by size, with members at
+random, or both, the drop at round 2 is the same and never recovers; random members also make VP1's
+rounds unsteady. Both together are close to a uniform sample, so what makes the first round good is
+its sample spanning the corpus, not the way a later one uses the partition.
+
+**What the implementation does with all that.** `--dimensions search`, run on each corpus with seed
+17 and stage 1's settings, bounds itself at 32 axes on RdRp (p 0.001) and 23 on VP2 (p 0.044), finds
+no significant step on VP1, probes five or six rungs, and takes the finest rung the seeds cannot
+tell from the best:
+
+| Corpus | Axes taken | Clusters | Homogeneity | Completeness | V | ARI |
+|---|---|---|---|---|---|---|
+| RdRp | 16 | 21 | 0.911 | 0.936 | 0.923 | 0.965 |
+| VP2 | 11 | 19 | 0.917 | 0.946 | 0.931 | 0.985 |
+| VP1 | 11 | 17 | 0.884 | 0.948 | 0.915 | 0.979 |
+
+Stage 1's `today` arm scores 0.866, 0.848 and 0.777 by V-measure over its last four rounds, so the
+gain is 0.06 to 0.14, nearly all of it completeness: 0.94 against 0.66–0.82. Each run costs about
+fifteen first rounds — 25 minutes on RdRp, 25 on VP2 and 66 on VP1, single-threaded.
 
 ## What is standard, and only absent from these libraries
 

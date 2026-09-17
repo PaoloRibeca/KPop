@@ -1,0 +1,10 @@
+vp1   today  hom median=0.9410 spread=0.0400 [summary 0.9410, 0.0401] | comp median=0.6590 spread=0.0282 [summary 0.6590, 0.0282] runs=3 failed=0
+vp1   auto   hom median=0.9066 spread=0.1683 [summary 0.9066, 0.1684] | comp median=0.6578 spread=0.0579 [summary 0.6578, 0.0579] runs=3 failed=0
+vp1   auto-today hom -0.0344 (no effect, bar 0.3367) [summary -0.0344 (no effect, bar 0.3368)] | comp -0.0011 (no effect, bar 0.1157) [summary -0.0012 (no effect, bar 0.1158)]
+rdrp  today  hom median=0.9179 spread=0.0141 [summary 0.9179, 0.0141] | comp median=0.8197 spread=0.0243 [summary 0.8197, 0.0243] runs=3 failed=0
+rdrp  auto   hom median=0.6978 spread=0.0145 [summary 0.6978, 0.0145] | comp median=0.9571 spread=0.0063 [summary 0.9571, 0.0063] runs=3 failed=0
+rdrp  auto-today hom -0.2201 (an effect, bar 0.0290) [summary -0.2201 (an effect, bar 0.0290)] | comp +0.1374 (an effect, bar 0.0486) [summary +0.1374 (an effect, bar 0.0486)]
+vp2   today  hom median=0.9264 spread=0.0078 [summary 0.9264, 0.0077] | comp median=0.7811 spread=0.0596 [summary 0.7811, 0.0596] runs=3 failed=0
+vp2   auto   hom median=0.9622 spread=0.0632 [summary 0.9622, 0.0632] | comp median=0.7185 spread=0.2586 [summary 0.7185, 0.2586] runs=3 failed=0
+vp2   auto-today hom +0.0358 (no effect, bar 0.1264) [summary +0.0358 (no effect, bar 0.1264)] | comp -0.0626 (no effect, bar 0.5172) [summary -0.0626 (no effect, bar 0.5172)]
+aggregate mismatches=0

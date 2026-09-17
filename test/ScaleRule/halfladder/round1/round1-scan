@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+
+# round1-scan -- the first round's search at every rung of the half-powers ladder up to 64 axes
+#
+#   round1-scan <kpop_autotuner_binary> <output_directory> <corpus> <spectra_database> <sample>
+#
+# The calibrated detector, --dimensions fixed at each of 1, 2, 3, 4, 6, 8, 11, 16, 23, 32, 45 and 64
+# axes, seeds 17, 18 and 19, one round only (--iterations 1), otherwise the settings of the stage-1
+# and fixed-rung runs: one thread, --montecarlo-steps 1000 --montecarlo-replicas 4
+# --montecarlo-level finest, projection and partition samples of <sample>.  Two runs at a time, each
+# at nice 19 and in the idle I/O class, from a frozen copy of the binary; tagged
+# <corpus>.r1d<axes>.s<seed>, and a run already logged is not run again.
+
+set -u
+
+BIN_SRC="${1:?usage: round1-scan <binary> <output_directory> <corpus> <database> <sample>}"
+OUT="${2:?usage: round1-scan <binary> <output_directory> <corpus> <database> <sample>}"
+CORPUS="${3:?usage: round1-scan <binary> <output_directory> <corpus> <database> <sample>}"
+DB="${4:?usage: round1-scan <binary> <output_directory> <corpus> <database> <sample>}"
+SAMPLE="${5:?usage: round1-scan <binary> <output_directory> <corpus> <database> <sample>}"
+RUNGS="1 2 3 4 6 8 11 16 23 32 45 64"
+
+mkdir -p "$OUT"
+BIN="$OUT/KPop-autotuner"
+[[ -x "$BIN" ]] || { cp "$BIN_SRC" "$BIN"; chmod 755 "$BIN"; }
+IDLE=""
+command -v ionice > /dev/null && IDLE="ionice -c 3"
+
+one() {
+  local d="$1" seed="$2"
+  local tag="$CORPUS.r1d$d.s$seed"
+  grep -q "^$tag	" "$OUT/runs.log" 2> /dev/null && return 0
+  local start=$SECONDS
+  $IDLE nice -n 19 "$BIN" -i "$DB" -o "$OUT/$tag" -T 1 --iterations 1 --montecarlo-steps 1000 \
+    --montecarlo-replicas 4 --montecarlo-level finest -v --valleys-method calibrated \
+    --dimensions "$d" --projection-sample "$SAMPLE" --partition-sample "$SAMPLE" --seed "$seed" \
+    > "$OUT/$tag.stdout" 2> "$OUT/$tag.stderr"
+  printf '%s\texit=%d\t%ds\n' "$tag" $? $(( SECONDS - start )) >> "$OUT/runs.log"
+}
+export -f one
+export OUT BIN DB IDLE CORPUS SAMPLE
+
+for d in $RUNGS; do
+  for seed in 17 18 19; do
+    printf '%s %s\n' "$d" "$seed"
+  done
+done | xargs -P 2 -L 1 bash -c 'one "$@"' _
+echo "$CORPUS runs finished at $(date '+%d-%b-%Y %H:%M')"

@@ -1,0 +1,12 @@
+rdrp.fixed16.s18	exit=0	798s
+rdrp.fixed16.s17	exit=0	860s
+rdrp.fixed16.s19	exit=0	928s
+rdrp.fixed32.s17	exit=0	2014s
+rdrp.fixed32.s18	exit=0	1872s
+rdrp.fixed32.s19	exit=0	1575s
+rdrp.fixed8.s18	exit=0	569s
+rdrp.fixed8.s17	exit=0	586s
+rdrp.fixed8.s19	exit=0	478s
+rdrp.fixed64.s17	exit=0	4129s
+rdrp.fixed64.s18	exit=0	4134s
+rdrp.fixed64.s19	exit=0	4100s

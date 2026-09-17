@@ -1,0 +1,12 @@
+rdrps300.doubling.s17	rounds=8	rungs=2 1 2 2 32 32 4 4	clusters=5 2 3 4 29 28 9 10
+rdrps300.doubling.s18	rounds=8	rungs=4 4 32 2 2 32 8 4	clusters=11 6 25 4 5 35 15 11
+rdrps300.doubling.s19	rounds=8	rungs=1 4 4 8 2 32 2 32	clusters=7 10 10 10 3 25 5 27
+rdrps300.halfpowers.s17	rounds=8	rungs=3 6 4 45 2 3 16 4	clusters=8 10 7 25 4 9 14 11
+rdrps300.halfpowers.s18	rounds=8	rungs=4 6 2 2 45 4 45 2	clusters=11 13 4 3 36 6 31 4
+rdrps300.halfpowers.s19	rounds=8	rungs=1 2 3 2 2 3 4 4	clusters=7 7 9 4 4 4 6 6
+vp1s300.doubling.s17	rounds=8	rungs=2 16 8 32 4 64 4 16	clusters=3 23 22 36 6 30 9 24
+vp1s300.doubling.s18	rounds=8	rungs=67 67 4 16 16 16 4 16	clusters=38 45 5 26 21 20 8 21
+vp1s300.doubling.s19	rounds=8	rungs=67 32 4 32 64 4 32 4	clusters=40 35 6 29 41 10 35 8
+vp1s300.halfpowers.s17	rounds=8	rungs=45 16 16 16 4 4 8 16	clusters=33 17 19 26 10 9 11 17
+vp1s300.halfpowers.s18	rounds=8	rungs=11 16 16 4 6 4 32 32	clusters=16 18 20 6 10 6 23 26
+vp1s300.halfpowers.s19	rounds=8	rungs=67 32 4 8 8 4 6 1	clusters=40 35 6 10 8 6 10 2

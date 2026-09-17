@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+
+# small-embed -- the ladders compared on a small corpus, where the axes matter most
+#
+#   small-embed <output_directory>
+#
+# Builds a round-1 style embedding of each 300-sequence subset the way inputs/build.sh built the
+# six big ones -- a correspondence analysis of a 68-spectrum uniform sample, the size the autotuner
+# picks for 300 spectra, with all 300 projected through it, leaving 67 axes -- and runs detect3 on
+# it.  The rungs measured are the union of the three ladders', so the doubling and the half-powers
+# rules are read off one set of detections, and the labels are the CDC types, which the rules never
+# see.  One job at a time, nice 19.
+
+set -u
+
+OUT="${1:?usage: small-embed <output_directory>}"
+B=/home/ribeca/Development/Git/KPop.Claude/.build
+T=/home/ribeca/.claude/jobs/29a54aa8/tmp/stage1
+S="$T/subsample"
+DET="$T/halfladder/detect3"
+RUNGS=1,2,3,4,5,6,8,10,11,16,20,23,32,40,45,64,67
+
+mkdir -p "$OUT"
+for c in vp1 rdrp; do
+  P="$OUT/${c}s300.T_rand"
+  if [[ ! -s "$P.all.KPopTwisted.txt" ]]; then
+    shuf --random-source=<(yes 17) -n 68 "$S/${c}s300.sel" > "$P.sel"
+    nice -n 19 "$B/KPopCountDB" -T 1 -i "$S/${c}s300" -L "$(paste -sd, "$P.sel")" -N -D -o "$P.sample" \
+      2> "$P.countdb.err"
+    nice -n 19 "$B/KPopTwist" -T 1 --kmers-threshold off -v -i "$P.sample" -o "$P" 2> "$P.twist.err"
+    nice -n 19 "$B/KPopTwistDB" -T 1 -i T "$P" -t "$S/${c}s300" -O t "$P.all" 2> "$P.twistdb.err"
+    rm -f "$P.sample.KPopSpectra"
+  fi
+  nice -n 19 "$DET" "$P.all.KPopTwisted.txt" "$P.all.KPopInertia.txt" "$S/labels/${c}s300.cdc" \
+    "${c}s300" "$RUNGS" 50 1 >> "$OUT/small.out" 2>> "$OUT/small.cand"
+done
+grep -E '^####|LADDER scores|RULE (doubling|half-powers) ladder, most valleys, first plateau' "$OUT/small.out"

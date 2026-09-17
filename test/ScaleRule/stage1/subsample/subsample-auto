@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+
+# subsample-auto -- whether the finer ladder helps where the axes matter most, on 300 sequences
+#
+#   subsample-auto <old_binary> <new_binary> <output_directory>
+#
+# The same 300-sequence VP1 and RdRp subsets as subsample-run, under --dimensions auto, with the
+# doubling ladder (the frozen stage-1 binary) and with the half powers of two (the binary built
+# now).  On 68 projected spectra the doubling ladder offers 1, 2, 4, 8, 16, 32, 64 and 67 rungs
+# against the new one's 1, 2, 3, 4, 6, 8, 11, 16, 23, 32, 45, 64 and 67.  Seeds 17, 18 and 19, one
+# thread each, nice 19, two runs at a time, otherwise the stage-1 settings: --iterations 8
+# --montecarlo-steps 1000 --montecarlo-replicas 4 --montecarlo-level finest, projection and
+# partition samples of 68.  Then every round is scored against the CDC types.
+
+set -u
+
+OLD="${1:?usage: subsample-auto <old_binary> <new_binary> <output_directory>}"
+NEW="${2:?usage: subsample-auto <old_binary> <new_binary> <output_directory>}"
+OUT="${3:?usage: subsample-auto <old_binary> <new_binary> <output_directory>}"
+T=/home/ribeca/.claude/jobs/29a54aa8/tmp/stage1
+S="$T/subsample"
+
+mkdir -p "$OUT"
+[[ -x "$OUT/KPop-autotuner.doubling" ]] || { cp "$OLD" "$OUT/KPop-autotuner.doubling"; chmod 755 "$OUT/KPop-autotuner.doubling"; }
+[[ -x "$OUT/KPop-autotuner.halfpowers" ]] || { cp "$NEW" "$OUT/KPop-autotuner.halfpowers"; chmod 755 "$OUT/KPop-autotuner.halfpowers"; }
+
+one() {
+  local corpus="$1" arm="$2" seed="$3"
+  local tag="${corpus}s300.$arm.s$seed"
+  [[ -s "$OUT/$tag.stdout" ]] && return 0
+  local bin="$OUT/KPop-autotuner.doubling"
+  [[ "$arm" = halfpowers ]] && bin="$OUT/KPop-autotuner.halfpowers"
+  local start=$SECONDS
+  nice -n 19 "$bin" -i "$S/${corpus}s300" -o "$OUT/$tag" -T 1 --iterations 8 --montecarlo-steps 1000 \
+    --montecarlo-replicas 4 --montecarlo-level finest -v --valleys-method calibrated \
+    --dimensions auto --projection-sample 68 --partition-sample 68 --seed "$seed" \
+    > "$OUT/$tag.stdout" 2> "$OUT/$tag.stderr"
+  printf '%s\texit=%d\t%ds\n' "$tag" $? $(( SECONDS - start )) >> "$OUT/runs.log"
+}
+export -f one
+export OUT S
+
+for corpus in rdrp vp1; do
+  for arm in doubling halfpowers; do
+    for seed in 17 18 19; do
+      printf '%s %s %s\n' "$corpus" "$arm" "$seed"
+    done
+  done
+done | xargs -P 2 -L 1 bash -c 'one "$@"' _
+
+echo "runs finished at $(date '+%d-%b-%Y %H:%M')"
+bash "$T/stage1-score" "$OUT" "$S/labels" > "$OUT/scores.tsv"
+# Which rung each round picked, and how each run ended
+for f in "$OUT"/*.stdout; do
+  tag="$(basename "$f" .stdout)"
+  printf '%s\trounds=%d\trungs=%s\tclusters=%s\n' "$tag" "$(grep -c '^=== Clustering' "$f")" \
+    "$(grep -o 'D=[0-9]*' "$f" | cut -d= -f2 | paste -sd' ')" \
+    "$(grep -o 'n_clusters=[0-9]*' "$f" | cut -d= -f2 | paste -sd' ')"
+done | tee "$OUT/picks.tsv"
+grep SUMMARY "$OUT/scores.tsv" | tee "$OUT/summary.tsv"

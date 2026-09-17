@@ -1,0 +1,15 @@
+# vp1s300: 300 labelled spectra, 24 label classes, 67 axes available, 4 shuffles, flat angle
+tag	rung	sil_labels	own_clusters	sil_own	sil_null_mean	sil_null_sd	null_clusters_mean	excess
+vp1s300	1	0.1500	-	-	-	-	-	-
+vp1s300	2	0.4568	3	0.9270	0.6411	0.0590	3.0	0.2859
+vp1s300	3	0.5800	-	-	-	-	-	-
+vp1s300	4	0.6437	-	-	-	-	-	-
+vp1s300	6	0.4468	-	-	-	-	-	-
+vp1s300	8	0.4503	15	0.6733	0.0865	0.0129	14.8	0.5868
+vp1s300	11	0.4165	14	0.6953	0.0582	0.0359	14.0	0.6372
+vp1s300	16	0.4211	52	0.6087	0.0700	0.0069	52.0	0.5387
+vp1s300	23	0.3217	-	-	-	-	-	-
+vp1s300	32	0.2113	-	-	-	-	-	-
+vp1s300	45	0.1522	-	-	-	-	-	-
+vp1s300	64	0.0823	-	-	-	-	-	-
+vp1s300	67	0.0478	-	-	-	-	-	-

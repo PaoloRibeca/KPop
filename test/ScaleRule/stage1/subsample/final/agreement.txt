@@ -1,0 +1,22 @@
+=== rdrps300, neighbouring rungs, same seed and round (finer judged against coarser)
+8 vs 4 axes	no pairs
+16 vs 8 axes	no pairs
+32 vs 16 axes	no pairs
+64 vs 32 axes	no pairs
+=== rdrps300, different seeds at the same rung, same round
+4 axes	no pairs
+8 axes	ARI median 0.876 (range 0.835-0.918)	homogeneity 0.862	completeness 0.950	2 pairs
+16 axes	no pairs
+32 axes	no pairs
+64 axes	no pairs
+=== vp1s300, neighbouring rungs, same seed and round (finer judged against coarser)
+8 vs 4 axes	ARI median 0.584 (range 0.481-0.905)	homogeneity 0.989	completeness 0.651	7 pairs
+16 vs 8 axes	no pairs
+32 vs 16 axes	no pairs
+64 vs 32 axes	ARI median 0.722 (range 0.681-0.742)	homogeneity 0.963	completeness 0.832	4 pairs
+=== vp1s300, different seeds at the same rung, same round
+4 axes	ARI median 0.938 (range 0.937-0.954)	homogeneity 0.914	completeness 0.986	3 pairs
+8 axes	ARI median 0.781 (range 0.616-0.863)	homogeneity 0.852	completeness 0.902	4 pairs
+16 axes	no pairs
+32 axes	no pairs
+64 axes	ARI median 0.859 (range 0.805-0.882)	homogeneity 0.943	completeness 0.935	4 pairs

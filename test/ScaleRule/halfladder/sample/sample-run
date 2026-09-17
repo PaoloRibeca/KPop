@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+
+# sample-run -- whether a later round's sample drawn another way keeps the first round's quality
+#
+#   sample-run <kpop_autotuner_binary> <output_directory>
+#
+# The loop held at the number of axes the bracketed search picked -- RdRp 16, VP2 11, VP1 11 -- with
+# the later rounds' sample chosen three other ways: shared by size with no slot guaranteed to every
+# class (by-size, members still the centre and extremes), every class guaranteed a slot but members
+# drawn at random (random), and both (bysizerandom).  The way used so far, every class and extremes,
+# is the held runs'.  The calibrated detector, seeds 17, 18 and 19, otherwise stage 1's settings:
+# one thread, --iterations 8 --montecarlo-steps 1000 --montecarlo-replicas 4 --montecarlo-level
+# finest, samples of 200 (RdRp), 220 (VP2) and 244 (VP1).  Two runs at a time, each at nice 19 and
+# in the idle I/O class, from a frozen copy of the binary; a run already logged is not run again.
+
+set -u
+
+BIN_SRC="${1:?usage: sample-run <kpop_autotuner_binary> <output_directory>}"
+OUT="${2:?usage: sample-run <kpop_autotuner_binary> <output_directory>}"
+T=/home/ribeca/.claude/jobs/29a54aa8/tmp
+
+mkdir -p "$OUT"
+BIN="$OUT/KPop-autotuner"
+[[ -x "$BIN" ]] || { cp "$BIN_SRC" "$BIN"; chmod 755 "$BIN"; }
+IDLE=""
+command -v ionice > /dev/null && IDLE="ionice -c 3"
+
+one() {
+  local corpus="$1" d="$2" db="$3" sample="$4" arm="$5" allocation="$6" members="$7" seed="$8"
+  local tag="$corpus.$arm.s$seed"
+  grep -q "^$tag	" "$OUT/runs.log" 2> /dev/null && return 0
+  local start=$SECONDS
+  $IDLE nice -n 19 "$BIN" -i "$db" -o "$OUT/$tag" -T 1 --iterations 8 --montecarlo-steps 1000 \
+    --montecarlo-replicas 4 --montecarlo-level finest -v --valleys-method calibrated \
+    --dimensions "$d" --projection-sample "$sample" --partition-sample "$sample" --seed "$seed" \
+    --partition-sample-allocation "$allocation" --partition-sample-members "$members" \
+    > "$OUT/$tag.stdout" 2> "$OUT/$tag.stderr"
+  printf '%s\texit=%d\t%ds\n' "$tag" $? $(( SECONDS - start )) >> "$OUT/runs.log"
+}
+export -f one
+export OUT BIN IDLE
+
+for arm in "bysizerandom by-size random" "bysize by-size extremes" "random every-class random"; do
+  for corpus in "rdrp 16 $T/regions/rdrp 200" "vp2 11 $T/vp2rand/all 220" "vp1 11 $T/regions/vp1 244"; do
+    for seed in 17 18 19; do
+      set -- $arm
+      printf '%s %s %s %s %s\n' "$corpus" "$1" "$2" "$3" "$seed"
+    done
+  done
+done | xargs -P 2 -L 1 bash -c 'one "$@"' _
+echo "sample runs finished at $(date '+%d-%b-%Y %H:%M')"

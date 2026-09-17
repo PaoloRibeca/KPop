@@ -1,0 +1,12 @@
+rdrps300.doubling.s17	exit=0	287s
+rdrps300.doubling.s18	exit=0	300s
+rdrps300.doubling.s19	exit=0	243s
+rdrps300.halfpowers.s17	exit=0	272s
+rdrps300.halfpowers.s19	exit=0	129s
+rdrps300.halfpowers.s18	exit=0	356s
+vp1s300.doubling.s17	exit=0	520s
+vp1s300.doubling.s18	exit=0	758s
+vp1s300.halfpowers.s17	exit=0	361s
+vp1s300.doubling.s19	exit=0	918s
+vp1s300.halfpowers.s18	exit=0	319s
+vp1s300.halfpowers.s19	exit=0	407s

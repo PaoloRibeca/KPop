@@ -1,0 +1,1008 @@
+(*
+    KPop_autotuner.ml -- (c) 2026 Paolo Ribeca, <paolo.ribeca@gmail.com>
+
+    Find a partition of a spectrum database without being told what to look for.
+
+    This is the whole de-novo pipeline as one program: a projection to embed the
+    spectra in, a Monte-Carlo search for the partition that best fits them, and
+    then the loop that feeds the partition back to define the projection and
+    searches again, until the two agree.  Each half already existed --
+    KPopTwist builds a twister, KPopTwistDB clusters a twisted register -- and
+    what did not was the loop between them, which spans three registers and so
+    belonged in a program of its own rather than inside either of theirs.
+
+    This program was designed and developed by the author(s),
+    with the assistance of the following AI tool(s):
+      2026 Claude (Anthropic).
+    The final logic and implementation were reviewed and verified in
+    their entirety by the author(s).
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*)
+
+open BiOCamLib
+open Better
+open KPop
+
+(* THE NUMBER OF AXES A ROUND WORKS IN: a fixed number, 0 taking as many as the analysis yields, or
+   [Auto], which lets the valleys choose it afresh at every round *)
+module Dimensions =
+  struct
+    type t =
+      | Auto
+      | Fixed of int
+    let of_string = function
+      | "auto" -> Auto
+      | s ->
+        match int_of_string_opt s with
+        | Some d when d >= 0 -> Fixed d
+        | _ -> Exception.raise_unrecognized_initializer __FUNCTION__ "number of dimensions" s
+    let to_string = function
+      | Auto -> "auto"
+      | Fixed d -> string_of_int d
+  end
+
+(* How a later round's sample of spectra is chosen with the partition: how the budget is shared
+   among the classes, and which members stand for a class *)
+module PartitionSample =
+  struct
+    module Allocation =
+      struct
+        type t =
+          | EveryClass
+          | BySize
+        let of_string = function
+          | "every-class" -> EveryClass
+          | "by-size" -> BySize
+          | s -> Exception.raise_unrecognized_initializer __FUNCTION__ "partition sample allocation" s
+        let to_string = function
+          | EveryClass -> "every-class"
+          | BySize -> "by-size"
+      end
+    module Members =
+      struct
+        type t =
+          | Extremes
+          | AtRandom
+        let of_string = function
+          | "extremes" -> Extremes
+          | "random" -> AtRandom
+          | s -> Exception.raise_unrecognized_initializer __FUNCTION__ "partition sample members" s
+        let to_string = function
+          | Extremes -> "extremes"
+          | AtRandom -> "random"
+      end
+  end
+
+module Defaults =
+  struct
+    let projection_sample = 0
+    let partition_sample = 0
+    let partition_sample_allocation = PartitionSample.Allocation.EveryClass
+    let partition_sample_members = PartitionSample.Members.Extremes
+    let iterations = 12
+    let dimensions = Dimensions.Fixed 0
+    let dimensions_max = 256
+    let dimensions_inertia = 0.
+    let report_anyway = false
+    let valleys_method = Clustering.ValleysMethod.HalfHeight
+    let valleys_resamples = 50
+    let metric = Space.Distance.Metric.of_string "powers(1,1,1)"
+    let distance = Space.Distance.of_string "euclidean"
+    let distance_normalize = false
+    let combination_criterion = KMerDB.CombinationCriterion.of_string "mean"
+    let montecarlo_replicas = 4
+    let montecarlo_steps = 2000
+    let montecarlo_sample = 250
+    let montecarlo_temperature = 0.002
+    let montecarlo_decades = 3.
+    let montecarlo_cooling = 0.999
+    let montecarlo_level = Clustering.Level.Finest
+    let seed = 17
+    let threads = Processes.Parallel.get_nproc ()
+    let verbose = false
+  end
+
+module Parameters =
+  struct
+    let input = ref ""
+    let output = ref ""
+    let projection_sample = ref Defaults.projection_sample
+    let partition_sample = ref Defaults.partition_sample
+    let partition_sample_allocation = ref Defaults.partition_sample_allocation
+    let partition_sample_members = ref Defaults.partition_sample_members
+    let iterations = ref Defaults.iterations
+    let dimensions = ref Defaults.dimensions
+    let dimensions_max = ref Defaults.dimensions_max
+    let dimensions_inertia = ref Defaults.dimensions_inertia
+    let report_anyway = ref Defaults.report_anyway
+    let valleys_method = ref Defaults.valleys_method
+    let valleys_resamples = ref Defaults.valleys_resamples
+    let metric = ref Defaults.metric
+    let distance = ref Defaults.distance
+    let distance_normalize = ref Defaults.distance_normalize
+    let combination_criterion = ref Defaults.combination_criterion
+    let montecarlo_replicas = ref Defaults.montecarlo_replicas
+    let montecarlo_steps = ref Defaults.montecarlo_steps
+    let montecarlo_sample = ref Defaults.montecarlo_sample
+    let montecarlo_temperature = ref Defaults.montecarlo_temperature
+    let montecarlo_decades = ref Defaults.montecarlo_decades
+    let montecarlo_cooling = ref Defaults.montecarlo_cooling
+    let montecarlo_level = ref Defaults.montecarlo_level
+    let seed = ref Defaults.seed
+    let threads = ref Defaults.threads
+    let verbose = ref Defaults.verbose
+  end
+
+let info = { Tools.Argv.name = "KPop-autotuner"; version = Info.version; date = Info.date }
+and authors = [
+  "2026", "Paolo Ribeca", "paolo.ribeca@gmail.com"
+]
+
+(* THE ANALYSIS EVERY ROUND RUNS, truncated to a fixed number of axes when one is asked for.
+   Left to itself the loop has no say in how many it works with: an analysis of k class
+   representatives yields k-1 axes, so each round is handed whatever the round before happened
+   to find, and the granularity of the answer follows the dimensionality rather than the other
+   way about.  Measured over norovirus VP1, that is the difference between 19 classes and 64
+   from two projections of one corpus, both of which pass every test the program has.  Asking
+   for d axes pins it: every round works in the same space and the number returned is the number
+   that space supports, which is a choice the caller has made rather than one the first
+   projection made for them *)
+(* HOW MANY OF THE AXES AN ANALYSIS RETURNS ARE WORTH KEEPING, by the share of the inertia they
+   carry.  Correspondence analysis over k class representatives spreads its inertia across k-1
+   axes with a long flat tail, so a threshold set near the top counts the noise floor and returns
+   almost whatever was on offer; a threshold in the middle counts the structure *)
+let inertia_cut fraction inertia =
+  let d = Float.Array.length inertia in
+  let total = ref 0. in
+  for k = 0 to d - 1 do total := !total +. Float.Array.get inertia k done;
+  if !total <= 0. then d
+  else begin
+    let acc = ref 0. and cut = ref d in
+    (try
+      for k = 0 to d - 1 do
+        acc := !acc +. Float.Array.get inertia k;
+        if !acc /. !total >= fraction then begin cut := k + 1; raise Exit end
+      done
+    with Exit -> ());
+    max 1 !cut
+  end
+
+(* THE SKETCH A RANDOMISED DECOMPOSITION BUILDS MUST FIT THE MATRIX IT SKETCHES.  It works on
+   the axes asked for plus an oversampling, and refuses a sketch wider than the analysis has
+   columns -- which the default oversampling of ten makes easy to reach here, the analyses from
+   the second round on having one column per class, so that a round which found a dozen classes
+   has a dozen columns in all.  The oversampling is lowered to what is there rather than the
+   request being refused *)
+let decompose ~threads ~verbose db dimensions =
+  let n_oversampling = max 1 (min 10 (db.KMerDB_Base.core.KMerDB_Base.n_cols - dimensions)) in
+  CA.rsvd ~n_oversampling ~threads ~verbose db dimensions
+
+let analyse ?(what = "") ~threads ~verbose ~dimensions db =
+  (* An analysis of m spectra yields at most m-1 axes, so what is asked for cannot always be
+     given: from the second round on the analysis runs over one spectrum per class, and a round
+     that found fewer classes than the axes requested leaves fewer to ask for.  The request is
+     lowered to what is there rather than refused, and the lowering is reported, because it says
+     the level asked for was not reached and the run below it is a different run *)
+  let available = db.KMerDB_Base.core.KMerDB_Base.n_cols - 1 in
+  (* 'auto' decomposes into as many axes as it may search, the ladder cutting them down, so being
+     given fewer is not a shortfall but simply all there are *)
+  let asked =
+    match dimensions with
+    | Dimensions.Fixed d -> d
+    | Auto -> !Parameters.dimensions_max in
+  let wanted = if asked > 0 then min asked available else 0 in
+  if dimensions <> Dimensions.Auto && asked > 0 && wanted < asked && verbose then
+    Printf.eprintf
+      "(%s): %s%d axes were asked for and only %d are available, the analysis having %d rows.\n%!"
+      __FUNCTION__ (if what = "" then "" else what ^ ": ") asked wanted (available + 1);
+  if wanted > 0 then decompose ~threads ~verbose db wanted
+  else begin
+    let (twister, _, _) as full = CA.twist ~threads ~verbose db in
+    (* THE CUT IS TAKEN AFTER THE ANALYSIS AND NOT INSTEAD OF IT.  What each axis is worth is not
+       known until the decomposition has been done, so the whole of it is computed and then
+       repeated over the axes that earned their place -- which costs a second analysis of one
+       spectrum per class, and those are few *)
+    let fraction = !Parameters.dimensions_inertia in
+    if fraction <= 0. then full
+    else begin
+      let inertia = twister.Twister.inertia.Matrix.matrix.Matrix.Base.data.(0) in
+      let cut = inertia_cut fraction inertia in
+      if cut >= Float.Array.length inertia then full
+      else begin
+        if verbose then
+          Printf.eprintf
+            "(%s): %skeeping %d of %d axes, which carry %g of the inertia.\n%!"
+            __FUNCTION__ (if what = "" then "" else what ^ ": ")
+            cut (Float.Array.length inertia) fraction;
+        decompose ~threads ~verbose db cut
+      end
+    end
+  end
+
+(* THE CANONICAL FORM OF A PARTITION, which is what the loop compares to decide it has
+   finished.  Two partitions are the same partition when they induce the same equivalence
+   relation, whatever they call their classes, and the labels here are the names of
+   representative samples and so change whenever the representative does -- comparing them
+   directly would report a difference every round.  Mapping each element to the position of the
+   first element of its own class erases the naming and leaves the relation *)
+let canonical assign =
+  let n = Array.length assign in
+  let first = Hashtbl.create 64 and canon = Array.make n 0 in
+  Array.iteri
+    (fun i a ->
+      canon.(i) <-
+        (match Hashtbl.find_opt first a with
+        | Some j -> j
+        | None -> Hashtbl.add first a i; i))
+    assign;
+  canon
+
+(* How much larger than the sample the pool it is chosen from is.  Four is enough for the choice
+   to have something to reject and small enough that analysing the pool stays cheap *)
+let pool_factor = 4
+
+(* HOW LARGE THAT SAMPLE IS WHEN THE CALLER DOES NOT SAY.  What it has to be large enough for is
+   the thing that is not yet known -- the number of classes -- so the choice is made on the one
+   quantity that IS known, the size of the database, and made generously, because the two errors
+   are not symmetric: axes the structure does not need cost a little arithmetic, where too few of
+   them lose the structure altogether and nothing downstream can recover it.
+   Generously also because the failure is not gradual.  Measured over norovirus VP1, a sample of
+   55 finds the groups and one of 110 finds none at all, the outcome turning on which pool
+   happened to be drawn rather than on the size; only around four times the square root of the
+   database does it become reliable -- 220 of 3027 VP2 spectra and 244 of 3752 VP1 ones, both
+   putting about 28% of pairs inside the valley.  The cap is there because the pool this is
+   chosen from is four times larger again, and it is the analysis of THAT which sets the cost *)
+let automatic_sample n =
+  let root = int_of_float (sqrt (float_of_int n)) in
+  min n (max 50 (min 500 (4 * root)))
+
+(* THE SAMPLE THE FIRST PROJECTION IS BUILT FROM, chosen to SPAN the corpus rather than to
+   represent it -- and those are opposite things here.  A corpus whose classes differ greatly in
+   size is mostly its big ones, half of the norovirus VP2 set being a single genotype, so a
+   uniform sample is mostly that genotype too and the analysis of it spans that genotype's
+   internal variation instead of what tells one class from another, which is the structure the
+   search is looking for.  Measured on that corpus, a uniform sample of 150 gives a projection
+   in which the whole set shows no groups at all, where a spanning sample of about the same size
+   gives one in which it falls into 87.
+   So a larger pool is drawn at random, analysed on its own, and the sample taken from it by
+   farthest-point: the first member is arbitrary and each one after it is whichever of the pool
+   lies furthest from everything taken so far.  The pool's own projection is skewed in exactly
+   the same way, and does not need not to be: all it has to show is that an unusual sequence
+   lies far from the bulk, which a projection dominated by the bulk shows perfectly well.
+   Returns the spectra the sample does NOT name, those being what has to go for the database to
+   become the sample, [remove_selected] being the way to keep a subset *)
+let complement_of_diverse_sample ~threads ~verbose state db n =
+  let names = db.KMerDB_Base.core.KMerDB_Base.idx_to_col_names
+  and n_cols = db.KMerDB_Base.core.KMerDB_Base.n_cols in
+  (* A pass over the whole set taking each with the probability that leaves the selection the
+     size it should be, so that no name can be drawn twice and the cost does not depend on how
+     much of the set is wanted *)
+  let take_random m =
+    let picked = Array.make n_cols false and left = ref (min m n_cols) and rest = ref n_cols in
+    for i = 0 to n_cols - 1 do
+      if Random.State.int state !rest < !left then begin picked.(i) <- true; decr left end;
+      decr rest
+    done;
+    picked in
+  let complement_of picked =
+    let acc = ref StringSet.empty in
+    for i = 0 to n_cols - 1 do
+      if not picked.(i) then acc := StringSet.add names.(i) !acc
+    done;
+    !acc in
+  if n * pool_factor >= n_cols then
+    (* The pool would be the whole database, and analysing all of it to choose part of it costs
+       what analysing all of it costs, which is what taking a sample was avoiding *)
+    complement_of (take_random n)
+  else begin
+    let pool = KMerDB_Base.remove_selected db (complement_of (take_random (n * pool_factor))) in
+    let _, pool_twisted, _ = CA.twist ~threads ~verbose pool in
+    let mat = pool_twisted.Twisted.twisted.Matrix.matrix in
+    let coords = mat.Matrix.Base.data and pool_names = mat.Matrix.Base.row_names in
+    let m = Array.length pool_names in
+    let d = if m > 0 then Float.Array.length coords.(0) else 0 in
+    (* IN PRINCIPAL COORDINATES AND NOT IN THE STORED STANDARD ONES.  A pool of p spectra is
+       analysed into p-1 axes of which only the leading few carry any structure, and standard
+       coordinates weigh all of them alike -- so a distance taken over them is mostly noise,
+       and farthest-point, which seeks whatever is most extreme, then selects whatever is most
+       extreme in that noise.  Measured on norovirus VP1, a sample chosen that way yields a
+       projection in which the corpus shows no groups at all.  Weighting each axis by its
+       inertia puts the structure back in charge of the distance, which is the same reason
+       every clustering here is done in principal coordinates *)
+    let iv = pool_twisted.Twisted.inertia.Matrix.matrix.Matrix.Base.data.(0) in
+    let w = Float.Array.init d (fun k -> sqrt (Float.Array.get iv k)) in
+    let dist i j =
+      let acc = ref 0. in
+      for k = 0 to d - 1 do
+        let v =
+          (Float.Array.get coords.(i) k -. Float.Array.get coords.(j) k)
+            *. Float.Array.get w k in
+        acc := !acc +. (v *. v)
+      done;
+      sqrt !acc in
+    (* [near] is each candidate's distance to the nearest member already taken, which is what
+       farthest-point maximises, and it is updated rather than recomputed: adding a member can
+       only bring a candidate's nearest closer *)
+    let chosen = Array.make m false and near = Array.make m infinity in
+    let cur = ref (if m > 0 then Random.State.int state m else 0) in
+    for _ = 1 to min n m do
+      chosen.(!cur) <- true;
+      let best = ref (-1) and best_d = ref neg_infinity in
+      for i = 0 to m - 1 do
+        if not chosen.(i) then begin
+          let dd = dist i !cur in
+          if dd < near.(i) then near.(i) <- dd;
+          if near.(i) > !best_d then begin best_d := near.(i); best := i end
+        end
+      done;
+      if !best >= 0 then cur := !best
+    done;
+    let keep = ref StringSet.empty in
+    Array.iteri (fun i nm -> if chosen.(i) then keep := StringSet.add nm !keep) pool_names;
+    let acc = ref StringSet.empty in
+    for i = 0 to n_cols - 1 do
+      if not (StringSet.mem names.(i) !keep) then acc := StringSet.add names.(i) !acc
+    done;
+    !acc
+  end
+
+(* THE SPECTRA A LATER ROUND'S PROJECTION IS BUILT FROM, when it is built from spectra rather
+   than from one combined spectrum per class.  Combining leaves the analysis a column per class,
+   and an analysis of k columns has k-1 axes to offer, so every round works in a space the round
+   before it sized -- and a search in d axes comes back with rather fewer than d classes, so the
+   space shrinks round on round and takes the granularity of the answer down with it.  Measured
+   on norovirus VP1 keeping half of the inertia, the axes ran 25, 13, 8, 4 and the classes 43,
+   24, 12 over four rounds, which is a halving a round and not a convergence.  Choosing a fixed
+   number of REAL spectra with the partition keeps the column count the same in every round, so
+   that what a round changes is which directions matter rather than how many there can be.
+   By default the choice is stratified: every class contributes at least one spectrum whatever
+   the budget, a class with none being a class the axes cannot see, and the rest go one at a
+   time to whichever class is furthest behind on its share, which apportions them by size
+   without a rounding rule.  Within a class they are taken by farthest-point starting from the
+   member nearest its centroid, so a class enters as its centre and its extremes rather than as
+   an arbitrary member of it.  The coordinates are the ones the round before worked in, which
+   are to hand and cost nothing.
+   BOTH HALVES OF THAT ARE ALSO OFFERED THE OTHER WAY ROUND, because the first projection built
+   this way was measured to split types: held at a fixed number of axes, completeness against
+   the norovirus CDC types fell by 0.10 to 0.17 between the first round and the second on RdRp,
+   VP2 and VP1 alike, and stayed down.  [BySize] shares the whole budget by size, so that the
+   sample keeps the density contrast the partition has rather than being spread evenly over the
+   classes; [AtRandom] draws a class's members at random from the run's stream, so that a class
+   enters with its bulk rather than with its extremes.
+   Returns the spectra the sample does NOT name, those being what has to go for the database to
+   become the sample, [remove_selected] being the way to keep a subset *)
+let complement_of_partition_sample ~budget ~allocation ~members state coords iv names assign db =
+  let n = Array.length assign in
+  let d = if n > 0 then Float.Array.length coords.(0) else 0 in
+  (* In principal coordinates, for the reason [complement_of_diverse_sample] gives *)
+  let w = Float.Array.init d (fun k -> sqrt (Float.Array.get iv k)) in
+  let dist_to i p =
+    let acc = ref 0. in
+    for k = 0 to d - 1 do
+      let v = (Float.Array.get coords.(i) k -. Float.Array.get p k) *. Float.Array.get w k in
+      acc := !acc +. (v *. v)
+    done;
+    sqrt !acc in
+  let dist i j = dist_to i coords.(j) in
+  (* The classes, held as arrays of the rows in them and ordered by their representative, so
+     that what comes back does not depend on the order some table happened to iterate in *)
+  let counts = Array.make n 0 in
+  Array.iter (fun a -> counts.(a) <- counts.(a) + 1) assign;
+  let reps = List.init n Fun.id |> List.filter (fun i -> counts.(i) > 0) |> Array.of_list in
+  let k = Array.length reps in
+  let slot = Array.make n (-1) in
+  Array.iteri (fun c r -> slot.(r) <- c) reps;
+  let classes = Array.init k (fun c -> Array.make counts.(reps.(c)) 0)
+  and filled = Array.make k 0 in
+  Array.iteri
+    (fun i a ->
+      let c = slot.(a) in
+      classes.(c).(filled.(c)) <- i;
+      filled.(c) <- filled.(c) + 1)
+    assign;
+  (* ONE SLOT PER CLASS WHILE THERE ARE SLOTS FOR THEM ALL, and not once there are not.  Giving
+     every class a spectrum whatever the budget is right while the classes are the fewer of the
+     two and defeats the budget the moment they are not: a round that shatters would otherwise
+     hand the next an analysis of one column per class, which is precisely what a fixed budget
+     exists to prevent -- measured at 2741 columns, and half an hour of decomposition, after a
+     round of norovirus RdRp came back with 2742 classes.  The budget holds and the smallest
+     classes go without, they being the ones the axes can least afford a column for *)
+  let quota = Array.make k 0 and order = Array.init k Fun.id in
+  Array.sort (fun a b -> compare (Array.length classes.(b)) (Array.length classes.(a))) order;
+  let floor =
+    match allocation with PartitionSample.Allocation.EveryClass -> min budget k | BySize -> 0 in
+  let slots = ref floor in
+  Array.iter (fun c -> if !slots > 0 then begin quota.(c) <- 1; decr slots end) order;
+  let left = ref (budget - floor) and room = ref true in
+  while !left > 0 && !room do
+    let best = ref (-1) and best_share = ref neg_infinity in
+    for c = 0 to k - 1 do
+      let size = Array.length classes.(c) in
+      if quota.(c) < size then begin
+        let share = float_of_int size /. float_of_int (quota.(c) + 1) in
+        if share > !best_share then begin best_share := share; best := c end
+      end
+    done;
+    if !best < 0 then room := false
+    else begin quota.(!best) <- quota.(!best) + 1; decr left end
+  done;
+  let keep = ref StringSet.empty in
+  Array.iteri
+    (fun c cls ->
+      let m = Array.length cls in
+      match members with
+      | PartitionSample.Members.AtRandom ->
+        (* A partial shuffle, whose first places are a draw without replacement *)
+        let pool = Array.copy cls in
+        for j = 0 to min quota.(c) m - 1 do
+          let r = j + Random.State.int state (m - j) in
+          let t = pool.(j) in
+          pool.(j) <- pool.(r);
+          pool.(r) <- t;
+          keep := StringSet.add names.(pool.(j)) !keep
+        done
+      | Extremes ->
+        let centroid = Float.Array.make d 0. in
+        Array.iter
+          (fun i ->
+            for k = 0 to d - 1 do
+              Float.Array.set centroid k (Float.Array.get centroid k +. Float.Array.get coords.(i) k)
+            done)
+          cls;
+        for k = 0 to d - 1 do
+          Float.Array.set centroid k (Float.Array.get centroid k /. float_of_int m)
+        done;
+        let cur = ref 0 and nearest = ref infinity in
+        Array.iteri
+          (fun j i ->
+            let dd = dist_to i centroid in
+            if dd < !nearest then begin nearest := dd; cur := j end)
+          cls;
+        let chosen = Array.make m false and near = Array.make m infinity in
+        for _ = 1 to min quota.(c) m do
+          chosen.(!cur) <- true;
+          keep := StringSet.add names.(cls.(!cur)) !keep;
+          let best = ref (-1) and best_d = ref neg_infinity in
+          for j = 0 to m - 1 do
+            if not chosen.(j) then begin
+              let dd = dist cls.(j) cls.(!cur) in
+              if dd < near.(j) then near.(j) <- dd;
+              if near.(j) > !best_d then begin best_d := near.(j); best := j end
+            end
+          done;
+          if !best >= 0 then cur := !best
+        done)
+    classes;
+  let all = db.KMerDB_Base.core.KMerDB_Base.idx_to_col_names
+  and n_cols = db.KMerDB_Base.core.KMerDB_Base.n_cols in
+  let acc = ref StringSet.empty in
+  for i = 0 to n_cols - 1 do
+    if not (StringSet.mem all.(i) !keep) then acc := StringSet.add all.(i) !acc
+  done;
+  !acc
+
+let () =
+  let module TA = Tools.Argv in
+  let prefix = Printf.sprintf "(%s):" __FUNCTION__ in
+  TA.set_header (info, authors, [ BiOCamLib.Info.info; KPop.Info.info ]);
+  TA.set_synopsis "-i <binary_file_prefix> -o <output_file_prefix> [OPTIONS]";
+  TA.parse [
+    TA.make_separator "Input/Output.";
+    [ "-i"; "--input" ],
+      Some "<binary_file_prefix>",
+      [ "load the specified binary database of k-mer spectra.";
+        "File extension is automatically assigned (will be '.KPopSpectra')" ],
+      TA.Mandatory,
+      (fun _ -> Parameters.input := TA.get_parameter ());
+    [ "-o"; "--output" ],
+      Some "<output_file_prefix>",
+      [ "prefix for the three results, their extensions being assigned rather than typed:";
+        "the twister the loop settled on ('.KPopTwister'), the spectra as it embeds them";
+        "('.KPopTwisted'), and the partition ('.KPopClasses.txt'), the last in the two-line";
+        "form 'KPopCountDB -m <file> -c CLASS' reads" ],
+      TA.Mandatory,
+      (fun _ -> Parameters.output := TA.get_parameter ());
+    TA.make_separator "Algorithm.";
+    [ "--projection-sample" ],
+      Some "<non_negative_integer>",
+      [ "number of spectra the first projection is built from, 0 choosing a number from the";
+        "size of the database.  They are picked to span the corpus rather than to represent";
+        "it, so that a class holding half of it does not take half of the sample.";
+        "This matters only for the first round: from the second onwards the axes come from";
+        "the partition rather than from a sample.";
+        "Give a number as large as the database to build the projection from all of it" ],
+      TA.Default (Fun.const "about four times the square root of the number of spectra"),
+      (fun _ -> Parameters.projection_sample := TA.get_parameter_int_non_neg ());
+    [ "--partition-sample" ],
+      Some "<non_negative_integer>",
+      [ "number of spectra a later round's projection is built from, chosen with the partition:";
+        "every class contributes at least one, and the rest are shared out by size, each class";
+        "entering as the member nearest its centre and then its extremes.  Should a round return";
+        "more classes than this, the budget holds and the smallest of them go unrepresented.";
+        "0, the default, combines each class into the one spectrum that stands for it instead.";
+        "That leaves the analysis a column per class and so as many axes as there are classes,";
+        "which is how a round comes to work in a space the round before it sized; a fixed number";
+        "of spectra keeps the space the same size in every round." ],
+      TA.Default (string_of_int Defaults.partition_sample |> Fun.const),
+      (fun _ -> Parameters.partition_sample := TA.get_parameter_int_non_neg ());
+    [ "--partition-sample-allocation" ],
+      Some "'every-class'|'by-size'",
+      [ "how a later round's sample is shared among the classes: 'every-class' gives each class";
+        "a spectrum before sharing the rest out by size, so that no class goes unseen, while";
+        "'by-size' shares all of it out by size, so that the sample keeps the density the";
+        "partition has" ],
+      TA.Default
+        (PartitionSample.Allocation.to_string Defaults.partition_sample_allocation |> Fun.const),
+      (fun _ ->
+        Parameters.partition_sample_allocation :=
+          TA.get_parameter () |> PartitionSample.Allocation.of_string);
+    [ "--partition-sample-members" ],
+      Some "'extremes'|'random'",
+      [ "which spectra stand for a class in a later round's sample: 'extremes' takes the member";
+        "nearest its centre and then its most distant ones, 'random' draws them at random" ],
+      TA.Default
+        (PartitionSample.Members.to_string Defaults.partition_sample_members |> Fun.const),
+      (fun _ ->
+        Parameters.partition_sample_members := TA.get_parameter () |> PartitionSample.Members.of_string);
+    [ "--iterations" ],
+      Some "<positive_integer>",
+      [ "maximum number of rounds.  The loop stops earlier, and usually does, when a round";
+        "returns the partition it was given -- that being a fixed point of the whole";
+        "procedure and the answer it is looking for" ],
+      TA.Default (string_of_int Defaults.iterations |> Fun.const),
+      (fun _ -> Parameters.iterations := TA.get_parameter_int_pos ());
+    [ "--dimensions" ],
+      Some "'auto'|<non_negative_integer>",
+      [ "number of axes every round works in, 0 taking as many as the analysis yields.";
+        "Left to itself the loop has no say in this: an analysis of k classes yields k-1 axes,";
+        "so each round inherits whatever the round before happened to find, and the";
+        "granularity of the answer follows the dimensionality rather than the other way about.";
+        "Fixing it makes the level of the partition something chosen rather than inherited,";
+        "and makes two runs over the same data comparable.";
+        "'auto' lets the valleys choose instead: every round decomposes into as many axes";
+        "as --dimensions-max allows, finds the valleys in 1, 2, 3, 4, 6, 8, 11, 16 and so on";
+        "of them, the powers of two and between each two their geometric mean rounded, and";
+        "searches at the first of those rungs showing the most valleys with at most half of";
+        "the pairs below, or at the last of the rungs after it showing as many.  It requires";
+        "the calibrated --valleys-method and a --partition-sample above 1, cannot start from";
+        "a --projection-sample of 1, and refuses --report-anyway" ],
+      TA.Default (Dimensions.to_string Defaults.dimensions |> Fun.const),
+      (fun _ -> Parameters.dimensions := TA.get_parameter () |> Dimensions.of_string);
+    [ "--dimensions-max" ],
+      Some "<positive_integer>",
+      [ "largest number of axes 'auto' may decompose into and search in" ],
+      TA.Default (string_of_int Defaults.dimensions_max |> Fun.const),
+      (fun _ -> Parameters.dimensions_max := TA.get_parameter_int_pos ());
+    [ "--dimensions-inertia" ],
+      Some "<fractional_float>",
+      [ "keep only the leading axes carrying this share of the inertia, 0 keeping all of them.";
+        "An analysis of k classes returns k-1 axes whatever the data needs, so the number of";
+        "axes a round works in is inherited from the round before rather than chosen.  Keeping";
+        "the ones that carry the structure makes it a property of the data instead.";
+        "A threshold near 1 does not do this: the tail of the spectrum is nearly flat, so 0.95";
+        "counts the noise floor and returns most of whatever was on offer.";
+        "Ignored when --dimensions is not 0, and under 'auto' with a warning." ],
+      TA.Default (string_of_float Defaults.dimensions_inertia |> Fun.const),
+      (fun _ -> Parameters.dimensions_inertia := TA.get_parameter_float_fraction ());
+    [ "--report-anyway" ],
+      None,
+      [ "write a partition out even when the samples show no group structure.  Off by default,";
+        "because a partition of a set that does not cluster says more about the criterion that";
+        "produced it than about the data, and the one thing this program should not do is hand";
+        "one over without saying so" ],
+      TA.Default (fun () -> string_of_bool Defaults.report_anyway),
+      (fun _ -> Parameters.report_anyway := true);
+    [ "--valleys-method" ],
+      Some "'half-height'|'calibrated'",
+      [ "how valleys in the distance histogram are found: 'half-height' finds one, judged by the";
+        "depth of its dip, and 'calibrated' measures every valley against resamples of the";
+        "spectra, which gives each a significance and allows several" ],
+      TA.Default (Clustering.ValleysMethod.to_string Defaults.valleys_method |> Fun.const),
+      (fun _ ->
+        Parameters.valleys_method := TA.get_parameter () |> Clustering.ValleysMethod.of_string);
+    [ "--valleys-resamples" ],
+      Some "<positive_integer>",
+      [ "number of resamples of the spectra the calibrated detector measures each valley";
+        "against.  At least 2, a standard deviation needing two" ],
+      TA.Default (string_of_int Defaults.valleys_resamples |> Fun.const),
+      (fun _ ->
+        let resamples = TA.get_parameter_int_pos () in
+        if resamples < 2 then
+          TA.parse_error
+            (Printf.sprintf
+               "option '--valleys-resamples' needs at least 2 resamples, a standard deviation \
+                needing two, and was given %d" resamples);
+        Parameters.valleys_resamples := resamples);
+    [ "-m"; "--metric" ],
+      Some "<metric>",
+      [ "metric the search measures distances under" ],
+      TA.Default (Space.Distance.Metric.to_string Defaults.metric |> Fun.const),
+      (fun _ -> Parameters.metric := TA.get_parameter () |> Space.Distance.Metric.of_string);
+    [ "-d"; "--distance" ],
+      Some "<distance>",
+      [ "distance the search measures distances with" ],
+      TA.Default (Space.Distance.to_string Defaults.distance |> Fun.const),
+      (fun _ -> Parameters.distance := TA.get_parameter () |> Space.Distance.of_string);
+    [ "--distance-normalize" ],
+      Some "<bool>",
+      [ "whether to normalise vectors before measuring the distance between them" ],
+      TA.Default (string_of_bool Defaults.distance_normalize |> Fun.const),
+      (fun _ -> Parameters.distance_normalize := TA.get_parameter_boolean ());
+    [ "--combination-criterion" ],
+      Some "'mean'|'median'",
+      [ "criterion combining the spectra of a class into the one representing it when the";
+        "partition is fed back to define the next projection" ],
+      TA.Default (KMerDB.CombinationCriterion.to_string Defaults.combination_criterion
+                  |> Fun.const),
+      (fun _ ->
+        Parameters.combination_criterion :=
+          TA.get_parameter () |> KMerDB.CombinationCriterion.of_string);
+    TA.make_separator_multiline
+      [ "The search."; "These mirror the '--clusters-montecarlo-*' family of KPopTwistDB." ];
+    [ "--montecarlo-replicas" ],
+      Some "<positive_integer>",
+      [ "number of chains run in parallel at a ladder of temperatures" ],
+      TA.Default (string_of_int Defaults.montecarlo_replicas |> Fun.const),
+      (fun _ -> Parameters.montecarlo_replicas := TA.get_parameter_int_pos ());
+    [ "--montecarlo-steps" ],
+      Some "<positive_integer>",
+      [ "number of moves each round of the search attempts" ],
+      TA.Default (string_of_int Defaults.montecarlo_steps |> Fun.const),
+      (fun _ -> Parameters.montecarlo_steps := TA.get_parameter_int_pos ());
+    [ "--montecarlo-sample" ],
+      Some "<positive_integer>",
+      [ "number of points a chain scores a partition on" ],
+      TA.Default (string_of_int Defaults.montecarlo_sample |> Fun.const),
+      (fun _ -> Parameters.montecarlo_sample := TA.get_parameter_int_pos ());
+    [ "--montecarlo-temperature" ],
+      Some "<positive_float>",
+      [ "coldest rung of the temperature ladder, which retunes itself from there" ],
+      TA.Default (string_of_float Defaults.montecarlo_temperature |> Fun.const),
+      (fun _ -> Parameters.montecarlo_temperature := TA.get_parameter_float_pos ());
+    [ "--montecarlo-decades" ],
+      Some "<positive_float>",
+      [ "number of decades of temperature the ladder spans" ],
+      TA.Default (string_of_float Defaults.montecarlo_decades |> Fun.const),
+      (fun _ -> Parameters.montecarlo_decades := TA.get_parameter_float_pos ());
+    [ "--montecarlo-cooling" ],
+      Some "<fractional_float>",
+      [ "factor the temperature is multiplied by after each move" ],
+      TA.Default (string_of_float Defaults.montecarlo_cooling |> Fun.const),
+      (fun _ -> Parameters.montecarlo_cooling := TA.get_parameter_float_fraction ());
+    [ "--montecarlo-level" ],
+      Some "'finest'|'coarsest'|'share('<fractional_float>')'",
+      [ "which valley the search is held to when several are found: the finest, the coarsest,";
+        "or the one nearest a given share of pairs below, only a valley with at most half of";
+        "the pairs below it counting.  Inert under --valleys-method half-height, which finds";
+        "one valley" ],
+      TA.Default (Clustering.Level.to_string Defaults.montecarlo_level |> Fun.const),
+      (fun _ -> Parameters.montecarlo_level := TA.get_parameter () |> Clustering.Level.of_string);
+    TA.make_separator "Miscellaneous.";
+    [ "--seed" ],
+      Some "<integer>",
+      [ "seed for the random number generator" ],
+      TA.Default (string_of_int Defaults.seed |> Fun.const),
+      (fun _ -> Parameters.seed := TA.get_parameter_int ());
+    [ "-T"; "--threads" ],
+      Some "<computing_threads>",
+      [ "number of concurrent computing threads to be spawned" ],
+      TA.Default (string_of_int Defaults.threads |> Fun.const),
+      (fun _ -> Parameters.threads := TA.get_parameter_int_pos ());
+    [ "-v"; "--verbose" ],
+      None,
+      [ "set verbose execution" ],
+      TA.Default (fun () -> string_of_bool Defaults.verbose),
+      (fun _ -> Parameters.verbose := true);
+    [ "-V"; "--version" ],
+      None,
+      [ "print version and exit" ],
+      TA.Optional,
+      (fun _ -> Printf.printf "%s\n%!" info.TA.version; exit 0);
+    [ "--markdown" ], None, [], TA.Optional, (fun _ -> TA.markdown (); exit 0);
+    [ "-h"; "--help" ],
+      None,
+      [ "print syntax and exit" ],
+      TA.Optional,
+      (fun _ -> TA.usage (); exit 1)
+  ];
+  (* WHAT 'auto' CANNOT WORK WITH, refused before anything is read.  It chooses among valleys,
+     which only the calibrated detector reports.  A round that combines each class into one
+     spectrum hands the next an analysis of k-1 axes, which is the dependence it exists to break,
+     and an analysis of one spectrum has no axes at all.  And a round showing no groups at any
+     number of axes has no space to search in, so there is nothing a partition could be written
+     out from *)
+  if !Parameters.dimensions = Dimensions.Auto then begin
+    if !Parameters.valleys_method <> Clustering.ValleysMethod.Calibrated then
+      TA.parse_error
+        "option '--dimensions auto' requires '--valleys-method calibrated', the half-height \
+         detector finding one valley and so giving the axis ladder nothing to count";
+    if !Parameters.partition_sample = 0 then
+      TA.parse_error
+        "option '--dimensions auto' requires '--partition-sample' above 0: combining each class \
+         into one spectrum leaves an analysis of k classes k-1 axes, the dependence 'auto' exists \
+         to break";
+    if !Parameters.partition_sample = 1 then
+      TA.parse_error
+        "option '--dimensions auto' cannot work with '--partition-sample 1', an analysis of one \
+         spectrum having no axes";
+    if !Parameters.projection_sample = 1 then
+      TA.parse_error
+        "option '--dimensions auto' cannot work with '--projection-sample 1', an analysis of one \
+         spectrum having no axes";
+    if !Parameters.report_anyway then
+      TA.parse_error
+        "option '--dimensions auto' refuses '--report-anyway': a round showing no groups at any \
+         number of axes stops, having no space in which a partition could be sought";
+    if !Parameters.dimensions_inertia > 0. then
+      Printf.eprintf "%s %s\n%!" prefix
+        (String.TermIO.red "Option '--dimensions-inertia' is ignored under '--dimensions auto'.")
+  end;
+  let verbose = !Parameters.verbose and threads = !Parameters.threads in
+  let state = Random.State.make [| !Parameters.seed |] in
+  (* HELD IN A REF AND NOT IN A PLAIN BINDING, because `set_metadata` takes one and REPLACES
+     what it points at: adding a metadata field grows the arrays that hold them, and the tables
+     mapping a field's name to its index are shared with what was there before.  A binding that
+     keeps the old value therefore ends up naming arrays too short for indices the tables now
+     hand out, and the round after the one that added the field walks off the end of them *)
+  let db = ref (KMerDB.of_binary ~verbose !Parameters.input) in
+  (* ROUND ZERO NEEDS AXES AND HAS NO PARTITION TO TAKE THEM FROM, so it takes them from the
+     spectra themselves.  A sample of them will do -- see --projection-sample -- and the
+     database becomes that sample by removing everything the sample does not name *)
+  let twister_of_sample () =
+    let n =
+      if !Parameters.projection_sample > 0 then !Parameters.projection_sample
+      else automatic_sample (!db).KMerDB_Base.core.KMerDB_Base.n_cols in
+    if verbose then
+      Printf.eprintf "%s Building the first projection from %d of %d spectra.\n%!"
+        prefix n (!db).KMerDB_Base.core.KMerDB_Base.n_cols;
+    let sampled =
+      if n >= (!db).KMerDB_Base.core.KMerDB_Base.n_cols then !db
+      else
+        KMerDB_Base.remove_selected !db
+          (complement_of_diverse_sample ~threads ~verbose state !db n) in
+    if verbose then
+      Printf.eprintf "%s Building the initial projection...\n%!" prefix;
+    let twister, _, _ = analyse ~what:"first projection" ~threads ~verbose
+        ~dimensions:!Parameters.dimensions sampled in
+    twister
+  (* AND EVERY LATER ROUND TAKES THEM FROM THE PARTITION, combining the spectra of each class
+     into the one that stands for it and running the analysis on those, so that the axes become
+     the directions telling the classes apart rather than the directions a sample happened to
+     span.  Every spectrum is named by [names], those being the rows of the register the whole
+     database was projected into, so none is left without a class -- which matters, the
+     combination putting everything unnamed into a single class of its own that would then sit
+     in the middle of the space and win queries against the real ones *)
+  (* DRIVEN OFF THE ASSIGNMENT AND NOT OFF THE NAMES.  A matrix's array of row names can be
+     longer than the matrix has rows, being grown in steps and left with room to spare, so
+     walking the names and indexing the assignment by the same counter runs off the end of the
+     assignment -- and the two lengths agreeing in one round is no promise that they will in the
+     next.  The assignment has exactly one entry per row, and every value in it is a row index,
+     so both lookups below are in range by construction *)
+  and twister_of_partition twisted names assign =
+    (* READ AFRESH RATHER THAN CARRIED OVER FROM THE ROUND BEFORE.  `split_spectra` builds its
+       class representatives INSIDE the database it is given -- it starts from that database and
+       adds a spectrum per class to it -- so one carried from round to round keeps them, and the
+       round after next stops with `is also the name of a spectrum in the database` when a fresh
+       class label meets a representative an old round left behind.  It bites from the third
+       round on, which is every run that iterates at all.  Reading the spectra again costs a
+       fraction of the analysis that follows, and is the only way to be sure of starting from
+       what was counted rather than from what the last round made of it *)
+    let db = ref (KMerDB.of_binary ~verbose !Parameters.input) in
+    let analysed =
+      if !Parameters.partition_sample = 0 then begin
+        Array.iteri
+          (fun i a ->
+            KMerDB_Base.set_metadata db names.(i) "CLASS" (Printf.sprintf "C@%s" names.(a)))
+          assign;
+        KMerDB.split_spectra ~threads ~verbose !db "CLASS" !Parameters.combination_criterion
+      end else begin
+        let n_cols = (!db).KMerDB_Base.core.KMerDB_Base.n_cols in
+        let complement =
+          complement_of_partition_sample ~budget:!Parameters.partition_sample
+            ~allocation:!Parameters.partition_sample_allocation
+            ~members:!Parameters.partition_sample_members state
+            twisted.Twisted.twisted.Matrix.matrix.Matrix.Base.data
+            twisted.Twisted.inertia.Matrix.matrix.Matrix.Base.data.(0) names assign !db in
+        let kept = n_cols - StringSet.cardinal complement in
+        if verbose then
+          Printf.eprintf "%s Building the projection from %d of %d spectra, chosen with the \
+                          partition.\n%!" prefix kept n_cols;
+        if kept >= n_cols then !db else KMerDB_Base.remove_selected !db complement
+      end in
+    let twister, _, _ = analyse ~what:"projection from the partition" ~threads ~verbose
+        ~dimensions:!Parameters.dimensions analysed in
+    twister in
+  let cluster ~round twister =
+    let twisted =
+      Twister.add_twisted_from_database ~threads ~verbose twister Twisted.empty
+        !Parameters.input in
+    (* THE SPACE THE ROUND SEARCHES IN, and the valleys it is held to.  Under 'auto' the ladder
+       picks how many of the axes the analysis gave, and everything after it -- the structure
+       test, the search and the partition sample the next round draws -- works in that many.
+       Otherwise it is all of them, and the calibrated detector, when asked for, looks once, the
+       structure test and the search both reading what it found *)
+    let twisted, rung, valleys =
+      let mat = twisted.Twisted.twisted.Matrix.matrix
+      and iv = twisted.Twisted.inertia.Matrix.matrix.Matrix.Base.data.(0) in
+      match !Parameters.dimensions, !Parameters.valleys_method with
+      | Dimensions.Auto, _ ->
+        let axes = Float.Array.length iv in
+        let l =
+          Clustering.ladder ~verbose ~seed:!Parameters.seed
+            ~resamples:!Parameters.valleys_resamples ~level:!Parameters.montecarlo_level
+            ~dmax:axes ~metric:!Parameters.metric ~distance:!Parameters.distance
+            ~distance_normalize:!Parameters.distance_normalize mat.Matrix.Base.data iv in
+        begin match l.Clustering.pick with
+        | None ->
+          Exception.raise __FUNCTION__ IO_Format
+            (Printf.sprintf
+               "round %d shows no groups at a usable level: in none of 1 to %d axes does a valley \
+                have at most half of the pairs below it" round axes)
+        | Some i ->
+          let d = l.Clustering.rungs.(i) in
+          Twisted.truncate twisted d, Some d, Some l.Clustering.valleys.(i)
+        end
+      | Fixed _, Clustering.ValleysMethod.HalfHeight -> twisted, None, None
+      | Fixed _, Calibrated ->
+        twisted, None,
+        Some
+          (Clustering.find_valleys ~verbose ~seed:!Parameters.seed
+             ~resamples:!Parameters.valleys_resamples ~metric:!Parameters.metric
+             ~distance:!Parameters.distance ~distance_normalize:!Parameters.distance_normalize
+             mat.Matrix.Base.data iv) in
+    let mat = twisted.Twisted.twisted.Matrix.matrix
+    and iv = twisted.Twisted.inertia.Matrix.matrix.Matrix.Base.data.(0) in
+    (* ASKED BEFORE THE SEARCH RATHER THAN AFTER IT, because the search cannot answer it: some
+       partition always maximises the criterion, so one always comes back, and over a set that
+       does not fall into groups that partition is a property of the criterion.  What decides
+       is whether the distances are two-moded at all *)
+    let structured, _ =
+      Clustering.assess_structure ~verbose ~seed:!Parameters.seed ?valleys ~what_label:"samples"
+        ~metric:!Parameters.metric ~distance:!Parameters.distance
+        ~distance_normalize:!Parameters.distance_normalize mat.Matrix.Base.data iv in
+    (* A SINGLE MODE HAS TWO READINGS AND THEY ARE DIFFERENT CLAIMS, so the message says which
+       one applies rather than asserting the stronger.  An embedding built from a sample can
+       miss groups that are really there: a sample drawn uniformly from a corpus whose classes
+       differ greatly in size is mostly the big ones, and its axes then span their internal
+       variation rather than what separates one class from another *)
+    if not structured && not !Parameters.report_anyway then
+      Exception.raise __FUNCTION__ IO_Format
+        (if Option.is_some valleys then
+           "the samples show no groups at a usable level: no valley the calibrated detector keeps \
+            in their pairwise distances has at most half of the pairs below it.  Pass \
+            --report-anyway to have a partition written out regardless"
+         else if !Parameters.projection_sample > 0 then
+           Printf.sprintf
+             "the embedding built from a sample of %d spectra shows no groups: its pairwise \
+              distances have a single mode and no valley between two.  The sample may simply \
+              not span the corpus -- raise --projection-sample, a number as large as the \
+              database using every spectrum -- or pass --report-anyway to have a partition \
+              written out regardless"
+             !Parameters.projection_sample
+         else
+           "the samples do not fall into groups: their pairwise distances have a single mode \
+            and no valley between two, so any partition of them would be an artefact of the \
+            criterion used to find it rather than a property of the data.  Pass --report-anyway \
+            to have one written out regardless");
+    let assign =
+      Clustering.run_montecarlo ~verbose ~threads ~seed:!Parameters.seed ?valleys
+        ~level:!Parameters.montecarlo_level ~replicas:!Parameters.montecarlo_replicas
+        ~what_label:"samples"
+        ~steps:!Parameters.montecarlo_steps ~sample:!Parameters.montecarlo_sample
+        ~temperature:!Parameters.montecarlo_temperature ~decades:!Parameters.montecarlo_decades
+        ~cooling:!Parameters.montecarlo_cooling ~metric:!Parameters.metric
+        ~distance:!Parameters.distance ~distance_normalize:!Parameters.distance_normalize
+        mat.Matrix.Base.data mat.Matrix.Base.row_names iv in
+    twisted, mat.Matrix.Base.row_names, assign, rung in
+  (* THE LOOP, which is the program.  It stops when a round hands back what it was given, that
+     partition reproducing itself through a projection built from it, which settles which of the
+     sequences round zero happened to sample -- and no more than that.  What the partition is
+     still a property of is the size of the space it was sought in: runs differing in nothing
+     but the number of axes each round works in settle on different partitions, 1, 2, 4, 8, 16,
+     32, 64, 128 and 199 axes giving 4, 7, 5, 11, 21, 22, 64, 19 and 53 classes of norovirus VP1
+     and each of those reproducing itself *)
+  let twisted = ref (Twisted.empty: Twisted.t)
+  and twister = ref Twister.empty and names = ref [||] and assign = ref [||]
+  and settled = ref false and round = ref 0 and last_rung = ref None in
+  while not !settled && !round < !Parameters.iterations do
+    incr round;
+    let tw =
+      if !round = 1 then twister_of_sample ()
+      else twister_of_partition !twisted !names !assign in
+    let tws, nms, asg, rung = cluster ~round:!round tw in
+    let n_classes = canonical asg |> Array.to_list |> IntSet.of_list |> IntSet.cardinal in
+    settled := !round > 1 && canonical asg = canonical !assign;
+    (* HOW FAR THE ROUND MOVED, and not only whether it moved at all.  A loop that does not
+       settle returns one partition and no account of the others it passed through, so the count
+       of classes is all there is to go on -- and two rounds finding the same number of classes
+       can be finding quite different partitions, while two rounds differing by a few can be
+       finding nearly the same one.  The index is computed on the canonical forms, which name
+       each element by the first of its own class and so do not depend on which sample a round
+       happened to name a class after *)
+    let moved =
+      if !round = 1 || Array.length asg <> Array.length !assign then ""
+      else begin
+        let ari, _, _ =
+          Clustering.compare_partitions
+            (canonical asg |> Array.map string_of_int)
+            (canonical !assign |> Array.map string_of_int) in
+        Printf.sprintf ", ARI %.4f against the round before" ari
+      end in
+    twister := tw; twisted := tws; names := nms; assign := asg; last_rung := rung;
+    if verbose then
+      Printf.eprintf "%s Round %d: %d %s%s%s%s.\n%!" prefix !round n_classes
+        (String.pluralize_int ~plural:"classes" "class" n_classes)
+        (Option.fold ~none:""
+           ~some:(fun d ->
+             Printf.sprintf " in %d %s" d (String.pluralize_int ~plural:"axes" "axis" d))
+           rung)
+        moved
+        (if !settled then ", which is the one it was given -- settled" else "")
+  done;
+  if verbose && not !settled then
+    Printf.eprintf "%s Stopped at the %d-round limit without settling.\n%!" prefix !round;
+  (* ONE MORE ANALYSIS, ON THE PARTITION BEING RETURNED RATHER THAN ON THE ONE THAT PRODUCED IT.
+     Every round searches in a space built from the round before, so the twister the loop ends
+     holding is always one step behind the partition it ends holding -- and a twister is half of
+     what a classifier is, its axes being chosen to separate the classes it was built from.
+     Written as they stand, the two would disagree about which classes those are.
+     It is worth what it costs.  Measured on norovirus VP1, returning each sequence to its own
+     class scores 0.9646 through the stale twister and 0.9888 through one built from the
+     partition being written beside it, and the same holds for RdRp (0.9802 against 0.9879) and
+     VP2 (0.9845 against 0.9954).  A partition that settled is its own predecessor and this
+     changes nothing for it; a run that stopped at the round limit is exactly where it matters *)
+  if verbose then
+    Printf.eprintf "%s Rebuilding the projection from the partition being returned...\n%!"
+      prefix;
+  twister := twister_of_partition !twisted !names !assign;
+  (* IN THE AXES THE LAST ROUND SEARCHED IN, the ladder not being run again: the partition being
+     written was found in that many, and the twister written beside it has to separate it there *)
+  Option.iter
+    (fun d ->
+      let axes = Float.Array.length (!twister).Twister.inertia.Matrix.matrix.Matrix.Base.data.(0) in
+      twister := Twister.truncate !twister (min d axes))
+    !last_rung;
+  twisted :=
+    Twister.add_twisted_from_database ~threads ~verbose !twister Twisted.empty
+      !Parameters.input;
+  (* The labels below are positions into [names], so a reprojection that reordered the register
+     would silently relabel every sample *)
+  if (!twisted).Twisted.twisted.Matrix.matrix.Matrix.Base.row_names <> !names then
+    Exception.raise __FUNCTION__ Algorithm
+      "the final projection returned the samples in a different order from the one clustered";
+  Twister.to_binary ~verbose !twister !Parameters.output;
+  Twisted.to_binary ~verbose !twisted !Parameters.output;
+  (* The partition, in the two-line form KPopCountDB reads back *)
+  let classes = !Parameters.output ^ ".KPopClasses.txt" in
+  Exception.catch_unexpected_end_of_output __FUNCTION__
+    (fun () ->
+      let output = open_out classes in
+      (* As many names as there are entries in the assignment, and no more: the array holding
+         them can be longer than the register has rows, and a header naming samples the body
+         then has no label for is a class file no reader can line up *)
+      Array.iteri
+        (fun i _ -> output_char output '\t'; output_string output (!names).(i)) !assign;
+      output_char output '\n';
+      output_string output "CLASS";
+      Array.iter
+        (fun a ->
+          output_char output '\t';
+          output_string output (Printf.sprintf "C@%s" (!names).(a)))
+        !assign;
+      output_char output '\n';
+      close_out output);
+  if verbose then
+    Printf.eprintf "%s Partition written to '%s'.\n%!" prefix classes
+

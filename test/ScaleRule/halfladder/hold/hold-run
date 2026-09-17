@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+
+# hold-run -- the whole loop held at the number of axes the bracketed search picked
+#
+#   hold-run <kpop_autotuner_binary> <output_directory>
+#
+# Eight rounds with --dimensions fixed at the rung the golden-section search on seed agreement picked
+# inside each corpus's upper bound: VP2 at 11 axes, VP1 at 8 (the search's pick) and at 11 (the finer
+# of two rungs agreeing within seed noise).  RdRp at 16 is the fixed-rung control already run.  The
+# calibrated detector, seeds 17, 18 and 19, otherwise stage 1's settings: one thread,
+# --iterations 8 --montecarlo-steps 1000 --montecarlo-replicas 4 --montecarlo-level finest, projection
+# and partition samples of 220 (VP2) and 244 (VP1).  Two runs at a time, each at nice 19 and in the
+# idle I/O class, from a frozen copy of the binary; a run already logged is not run again.
+
+set -u
+
+BIN_SRC="${1:?usage: hold-run <kpop_autotuner_binary> <output_directory>}"
+OUT="${2:?usage: hold-run <kpop_autotuner_binary> <output_directory>}"
+T=/home/ribeca/.claude/jobs/29a54aa8/tmp
+
+mkdir -p "$OUT"
+BIN="$OUT/KPop-autotuner"
+[[ -x "$BIN" ]] || { cp "$BIN_SRC" "$BIN"; chmod 755 "$BIN"; }
+IDLE=""
+command -v ionice > /dev/null && IDLE="ionice -c 3"
+
+one() {
+  local corpus="$1" d="$2" db="$3" sample="$4" seed="$5"
+  local tag="$corpus.fixed$d.s$seed"
+  grep -q "^$tag	" "$OUT/runs.log" 2> /dev/null && return 0
+  local start=$SECONDS
+  $IDLE nice -n 19 "$BIN" -i "$db" -o "$OUT/$tag" -T 1 --iterations 8 --montecarlo-steps 1000 \
+    --montecarlo-replicas 4 --montecarlo-level finest -v --valleys-method calibrated \
+    --dimensions "$d" --projection-sample "$sample" --partition-sample "$sample" --seed "$seed" \
+    > "$OUT/$tag.stdout" 2> "$OUT/$tag.stderr"
+  printf '%s\texit=%d\t%ds\n' "$tag" $? $(( SECONDS - start )) >> "$OUT/runs.log"
+}
+export -f one
+export OUT BIN IDLE
+
+for job in "vp2 11 $T/vp2rand/all 220" "vp1 11 $T/regions/vp1 244" "vp1 8 $T/regions/vp1 244"; do
+  for seed in 17 18 19; do
+    printf '%s %s\n' "$job" "$seed"
+  done
+done | xargs -P 2 -L 1 bash -c 'one "$@"' _
+echo "hold runs finished at $(date '+%d-%b-%Y %H:%M')"

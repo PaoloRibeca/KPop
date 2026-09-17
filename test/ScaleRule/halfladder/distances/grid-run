@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+
+# grid-run -- the valley detector and the silhouettes under other metrics and distances
+#
+#   grid-run <output_directory> <metric>:<distance> [<metric>:<distance> ...]
+#
+# For every setting named -- metric flat or powers, distance euclidean, manhattan or angle -- and
+# every one of the eight embeddings of the axis-ladder page, in turn: detect4 at every rung of the
+# half-powers ladder and the most axes there are, 50 resamples, labelled spectra only; then silhgrid
+# at the same rungs with four shuffled copies, holding each rung's own partition to the valleys that
+# detect4 run found.  Under powers and euclidean the two reproduce detect3 and silhnull exactly.  One
+# job at a time, nice 19; a setting whose outputs exist is not run again.
+
+set -u
+
+OUT="${1:?usage: grid-run <output_directory> <metric>:<distance> ...}"
+shift
+T=/home/ribeca/.claude/jobs/29a54aa8/tmp
+B="$T/stage1/room-build"
+C="$T/collapse/real-data"
+V="$T/simpson/vp2"
+SM="$T/stage1/small"
+LB="$T/stage1/subsample/labels"
+L=/home/ribeca/Development/Git/NailIt/test/data/denovo
+HALF=1,2,3,4,6,8,11,16,23,32,45,64,91,128,181
+
+one() {
+  local dir="$1" metric="$2" distance="$3" tag="$4" tw="$5" iv="$6" labels="$7" avail="$8"
+  [[ -s "$dir/$tag.tsv" ]] && return 0
+  local start=$SECONDS
+  nice -n 19 "$B/detect4" "$tw" "$iv" "$labels" "$tag" "$HALF,$avail" 50 1 "$metric" "$distance" \
+    > "$dir/$tag.out" 2> "$dir/$tag.cand"
+  nice -n 19 "$B/silhgrid" "$tw" "$iv" "$labels" "$tag" "$dir/$tag.cand" 4 "$HALF,$avail" "$metric" "$distance" \
+    > "$dir/$tag.tsv" 2> "$dir/$tag.err"
+  echo "$metric:$distance $tag exit=$? $(( SECONDS - start ))s"
+}
+
+for setting in "$@"; do
+  metric="${setting%%:*}" distance="${setting##*:}"
+  dir="$OUT/$metric.$distance"
+  mkdir -p "$dir"
+  one "$dir" "$metric" "$distance" vp1s300 "$SM/vp1s300.T_rand.all.KPopTwisted.txt" "$SM/vp1s300.T_rand.all.KPopInertia.txt" "$LB/vp1s300.cdc" 67
+  one "$dir" "$metric" "$distance" rdrps300 "$SM/rdrps300.T_rand.all.KPopTwisted.txt" "$SM/rdrps300.T_rand.all.KPopInertia.txt" "$LB/rdrps300.cdc" 67
+  one "$dir" "$metric" "$distance" vp2.T_rand "$V/vp2.T_rand.all.KPopTwisted.txt" "$V/vp2.T_rand.all.KPopInertia.txt" "$L/vp2.cdc" 219
+  one "$dir" "$metric" "$distance" rdrp.T_rand "$C/rdrp.T_rand.all.KPopTwisted.txt" "$C/rdrp.T_rand.all.KPopInertia.txt" "$L/rdrp.cdc" 199
+  one "$dir" "$metric" "$distance" rdrp.T_strat "$C/rdrp.T_strat.all.KPopTwisted.txt" "$C/rdrp.T_strat.all.KPopInertia.txt" "$L/rdrp.cdc" 199
+  one "$dir" "$metric" "$distance" vp1.T_rand "$C/vp1.T_rand.all.KPopTwisted.txt" "$C/vp1.T_rand.all.KPopInertia.txt" "$L/vp1.cdc" 243
+  one "$dir" "$metric" "$distance" vp1.T_strat "$C/vp1.T_strat.all.KPopTwisted.txt" "$C/vp1.T_strat.all.KPopInertia.txt" "$L/vp1.cdc" 243
+  one "$dir" "$metric" "$distance" vp1.T_core "$C/vp1.T_core.all.KPopTwisted.txt" "$C/vp1.T_core.all.KPopInertia.txt" "$L/vp1.cdc" 243
+done
+echo "grid finished at $(date '+%H:%M')"

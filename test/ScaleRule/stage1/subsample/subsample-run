@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+
+# subsample-run -- whether partitions agree best between neighbouring rungs where the partition is best
+#
+#   subsample-run <kpop_autotuner_binary> <output_directory>
+#
+# On 300-sequence subsamples of VP1 and RdRp (subsample/<corpus>s300, drawn uniformly at random from
+# the labelled spectra with a fixed seed), runs the calibrated detector with the number of axes
+# fixed at 4, 8, 16, 32 and 64, seeds 17, 18 and 19: one thread each, nice 19, two at a time,
+# --iterations 8 --montecarlo-steps 1000 --montecarlo-replicas 4 --montecarlo-level finest, and
+# projection and partition samples of 68, the autotuner's automatic size for 300 spectra, which
+# leaves 67 axes.  Then it scores every round against the CDC types, and compares rounds 5-8 of
+# the same seed between neighbouring rungs and of different seeds at the same rung.
+
+set -u
+
+BIN_SRC="${1:?usage: subsample-run <kpop_autotuner_binary> <output_directory>}"
+OUT="${2:?usage: subsample-run <kpop_autotuner_binary> <output_directory>}"
+T=/home/ribeca/.claude/jobs/29a54aa8/tmp/stage1
+S="$T/subsample"
+TW=/home/ribeca/Development/Git/KPop.Claude/.build/KPopTwistDB
+RUNGS="4 8 16 32 64"
+CORPORA="rdrp vp1"
+
+mkdir -p "$OUT"
+BIN="$OUT/KPop-autotuner"
+[[ -x "$BIN" ]] || cp "$BIN_SRC" "$BIN"
+
+one() {
+  local corpus="$1" d="$2" seed="$3"
+  local tag="${corpus}s300.fixed$d.s$seed"
+  [[ -s "$OUT/$tag.KPopClasses.txt" ]] && return 0
+  local start=$SECONDS
+  nice -n 19 "$BIN" -i "$S/${corpus}s300" -o "$OUT/$tag" -T 1 --iterations 8 --montecarlo-steps 1000 \
+    --montecarlo-replicas 4 --montecarlo-level finest -v --valleys-method calibrated \
+    --dimensions "$d" --projection-sample 68 --partition-sample 68 --seed "$seed" \
+    > "$OUT/$tag.stdout" 2> "$OUT/$tag.stderr"
+  printf '%s\texit=%d\t%ds\n' "$tag" $? $(( SECONDS - start )) >> "$OUT/runs.log"
+}
+export -f one
+export OUT BIN S
+
+for corpus in $CORPORA; do
+  for d in $RUNGS; do
+    for seed in 17 18 19; do
+      printf '%s %s %s\n' "$corpus" "$d" "$seed"
+    done
+  done
+done | xargs -P 2 -L 1 bash -c 'one "$@"' _
+
+echo "runs finished at $(date '+%d-%b-%Y %H:%M')"
+bash "$T/stage1-score" "$OUT" "$S/labels" > "$OUT/scores.tsv"
+bash "$T/stage1-summary" < "$OUT/scores.tsv" | tee "$OUT/summary.tsv"
+
+# Rounds 5-8 of every run as two-line class files, then the comparisons
+W="$OUT/classes"
+mkdir -p "$W"
+for f in "$OUT"/*.stdout; do
+  tag="$(basename "$f" .stdout)"
+  gawk -v out="$W/$tag" 'BEGIN { FS = "\t" }
+    /^=== Clustering/ { r++; next } /^# n=/ || /^name\t/ { next }
+    NF == 3 && r >= 5 { names[r] = names[r] "\t" $1; labs[r] = labs[r] "\t" $2 }
+    END { for (x = 5; x <= 8; x++) if (x in names) { fn = out ".r" x ".classes"; print names[x] > fn; print "CLASS" labs[x] > fn; close(fn) } }' "$f"
+done
+compare() { nice -n 19 "$TW" -T 1 --clusters-compare "$1" "$2" 2>/dev/null | tail -n 1; }
+median3() { gawk -v what="$1" '{ a[NR] = $1; h[NR] = $2; c[NR] = $3 } END { n = asort(a); asort(h); asort(c); if (n == 0) { print what ": no pairs"; exit } printf "%s: ARI median %.3f (range %.3f-%.3f), homogeneity %.3f, completeness %.3f, %d pairs\n", what, a[int((n+1)/2)], a[1], a[n], h[int((n+1)/2)], c[int((n+1)/2)], n }'; }
+for corpus in $CORPORA; do
+  echo "=== $corpus, neighbouring rungs, same seed and round (finer judged against coarser)"
+  prev=""
+  for d in $RUNGS; do
+    if [[ -n "$prev" ]]; then
+      for s in 17 18 19; do for r in 5 6 7 8; do
+        a="$W/${corpus}s300.fixed$d.s$s.r$r.classes"; b="$W/${corpus}s300.fixed$prev.s$s.r$r.classes"
+        [[ -s "$a" && -s "$b" ]] && compare "$a" "$b"
+      done; done | median3 "$d vs $prev axes"
+    fi
+    prev=$d
+  done
+  echo "=== $corpus, different seeds at the same rung, same round"
+  for d in $RUNGS; do
+    for pr in "17 18" "17 19" "18 19"; do set -- $pr; for r in 5 6 7 8; do
+      a="$W/${corpus}s300.fixed$d.s$1.r$r.classes"; b="$W/${corpus}s300.fixed$d.s$2.r$r.classes"
+      [[ -s "$a" && -s "$b" ]] && compare "$a" "$b"
+    done; done | median3 "$d axes"
+  done
+done

@@ -1,0 +1,66 @@
+# vp1.T_rand: 3745 labelled spectra, 1000 queries, k = 10, 243 axes available
+tag	rung	intrinsic_dimension	kept_at_next_rung	shared_with_full	same_label
+vp1.T_rand	1	0.99	0.168	0.052	0.738
+vp1.T_rand	2	1.98	0.276	0.146	0.858
+vp1.T_rand	4	3.55	0.458	0.308	0.947
+vp1.T_rand	8	3.91	0.589	0.426	0.972
+vp1.T_rand	16	3.81	0.657	0.507	0.980
+vp1.T_rand	32	3.70	0.692	0.598	0.986
+vp1.T_rand	64	3.62	0.768	0.705	0.984
+vp1.T_rand	128	3.45	0.823	0.823	0.985
+vp1.T_rand	243	3.37	-	1.000	0.985
+# vp1.T_strat: 3745 labelled spectra, 1000 queries, k = 10, 243 axes available
+tag	rung	intrinsic_dimension	kept_at_next_rung	shared_with_full	same_label
+vp1.T_strat	1	1.03	0.178	0.049	0.710
+vp1.T_strat	2	1.99	0.319	0.154	0.861
+vp1.T_strat	4	3.46	0.455	0.308	0.955
+vp1.T_strat	8	3.97	0.564	0.421	0.975
+vp1.T_strat	16	3.87	0.683	0.530	0.982
+vp1.T_strat	32	3.75	0.743	0.625	0.986
+vp1.T_strat	64	3.60	0.766	0.721	0.985
+vp1.T_strat	128	3.51	0.840	0.840	0.984
+vp1.T_strat	243	3.53	-	1.000	0.985
+# vp1.T_core: 3745 labelled spectra, 1000 queries, k = 10, 243 axes available
+tag	rung	intrinsic_dimension	kept_at_next_rung	shared_with_full	same_label
+vp1.T_core	1	1.02	0.212	0.070	0.762
+vp1.T_core	2	1.95	0.315	0.158	0.852
+vp1.T_core	4	3.43	0.449	0.309	0.936
+vp1.T_core	8	3.71	0.583	0.419	0.973
+vp1.T_core	16	3.78	0.665	0.519	0.980
+vp1.T_core	32	3.68	0.712	0.617	0.985
+vp1.T_core	64	3.50	0.766	0.719	0.985
+vp1.T_core	128	3.40	0.828	0.828	0.985
+vp1.T_core	243	3.58	-	1.000	0.985
+# rdrp.T_rand: 3228 labelled spectra, 1000 queries, k = 10, 199 axes available
+tag	rung	intrinsic_dimension	kept_at_next_rung	shared_with_full	same_label
+rdrp.T_rand	1	0.98	0.186	0.082	0.746
+rdrp.T_rand	2	2.04	0.363	0.199	0.902
+rdrp.T_rand	4	3.31	0.521	0.316	0.950
+rdrp.T_rand	8	3.83	0.583	0.412	0.962
+rdrp.T_rand	16	3.77	0.641	0.507	0.964
+rdrp.T_rand	32	3.57	0.726	0.605	0.962
+rdrp.T_rand	64	3.45	0.751	0.705	0.961
+rdrp.T_rand	128	3.19	0.853	0.853	0.960
+rdrp.T_rand	199	3.18	-	1.000	0.960
+# rdrp.T_strat: 3228 labelled spectra, 1000 queries, k = 10, 199 axes available
+tag	rung	intrinsic_dimension	kept_at_next_rung	shared_with_full	same_label
+rdrp.T_strat	1	1.00	0.180	0.070	0.748
+rdrp.T_strat	2	1.95	0.362	0.197	0.895
+rdrp.T_strat	4	3.23	0.469	0.308	0.943
+rdrp.T_strat	8	3.65	0.579	0.423	0.956
+rdrp.T_strat	16	3.61	0.697	0.524	0.962
+rdrp.T_strat	32	3.63	0.724	0.617	0.963
+rdrp.T_strat	64	3.49	0.766	0.719	0.965
+rdrp.T_strat	128	3.35	0.851	0.851	0.965
+rdrp.T_strat	199	3.24	-	1.000	0.965
+# vp2.T_rand: 3021 labelled spectra, 1000 queries, k = 10, 219 axes available
+tag	rung	intrinsic_dimension	kept_at_next_rung	shared_with_full	same_label
+vp2.T_rand	1	0.96	0.176	0.051	0.706
+vp2.T_rand	2	2.00	0.282	0.141	0.884
+vp2.T_rand	4	3.41	0.468	0.262	0.954
+vp2.T_rand	8	4.12	0.516	0.363	0.969
+vp2.T_rand	16	4.15	0.606	0.463	0.980
+vp2.T_rand	32	4.11	0.652	0.555	0.979
+vp2.T_rand	64	4.06	0.719	0.666	0.977
+vp2.T_rand	128	3.79	0.817	0.817	0.977
+vp2.T_rand	219	3.76	-	1.000	0.978

@@ -1,0 +1,18 @@
+# rdrp.T_rand: 3228 labelled spectra, 54 label classes, 199 axes available, 4 shuffles, flat angle
+tag	rung	sil_labels	own_clusters	sil_own	sil_null_mean	sil_null_sd	null_clusters_mean	excess
+rdrp.T_rand	1	-0.9492	-	-	-	-	-	-
+rdrp.T_rand	2	0.2216	4	0.8841	0.5114	0.0149	4.0	0.3727
+rdrp.T_rand	3	0.4952	5	0.8149	0.4263	0.0292	5.0	0.3886
+rdrp.T_rand	4	0.6759	25	0.7089	0.2860	0.0194	25.0	0.4228
+rdrp.T_rand	6	0.7058	28	0.7198	0.1976	0.0192	28.0	0.5222
+rdrp.T_rand	8	0.5176	26	0.6937	0.1212	0.0152	25.8	0.5725
+rdrp.T_rand	11	0.5058	42	0.6869	0.0780	0.0106	42.0	0.6089
+rdrp.T_rand	16	0.4586	57	0.6936	0.0430	0.0022	57.0	0.6505
+rdrp.T_rand	23	0.3837	27	0.6580	0.0344	0.0070	26.8	0.6236
+rdrp.T_rand	32	0.3319	78	0.5969	0.0229	0.0042	78.0	0.5740
+rdrp.T_rand	45	0.3041	101	0.4998	0.0170	0.0029	101.0	0.4828
+rdrp.T_rand	64	0.2322	109	0.5105	0.0116	0.0075	109.2	0.4989
+rdrp.T_rand	91	0.1498	-	-	-	-	-	-
+rdrp.T_rand	128	0.0971	-	-	-	-	-	-
+rdrp.T_rand	181	0.0422	-	-	-	-	-	-
+rdrp.T_rand	199	-0.0088	-	-	-	-	-	-

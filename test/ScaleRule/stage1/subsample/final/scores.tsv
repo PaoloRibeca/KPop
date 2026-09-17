@@ -1,0 +1,109 @@
+rdrps300.fixed16.s17	FAILED	exit=2	rounds=0
+rdrps300.fixed16.s18	round 1	D=16	clusters=22	silhouette=0.836231018325123 fv=0.123177257525084 fp=0.137212931995541	homogeneity=0.9442	completeness=0.9341	labelled=300
+rdrps300.fixed16.s18	FAILED	exit=2	rounds=1
+rdrps300.fixed16.s19	round 1	D=16	clusters=19	silhouette=0.848460397497202 fv=0.129877369007804 fp=0.139509476031215	homogeneity=0.9241	completeness=0.9376	labelled=300
+rdrps300.fixed16.s19	FAILED	exit=2	rounds=1
+rdrps300.fixed32.s17	FAILED	exit=2	rounds=0
+rdrps300.fixed32.s18	round 1	D=32	clusters=20	silhouette=0.797683111574958 fv=0.066778149386845 fp=0.131884057971014	homogeneity=0.9048	completeness=0.9005	labelled=300
+rdrps300.fixed32.s18	FAILED	exit=2	rounds=1
+rdrps300.fixed32.s19	FAILED	exit=2	rounds=0
+rdrps300.fixed4.s17	FAILED	exit=2	rounds=0
+rdrps300.fixed4.s18	round 1	D=4	clusters=8	silhouette=0.82676093814526 fv=0.270657748049052 fp=0.25536231884058	homogeneity=0.6431	completeness=0.9822	labelled=300
+rdrps300.fixed4.s18	round 2	D=4	clusters=5	silhouette=0.82577223041046 fv=0.2479375696767 fp=0.260178372352285	homogeneity=0.6136	completeness=0.9864	labelled=300
+rdrps300.fixed4.s18	FAILED	exit=2	rounds=2
+rdrps300.fixed4.s19	round 1	D=4	clusters=8	silhouette=0.841928780243242 fv=0.230468227424749 fp=0.220289855072464	homogeneity=0.7244	completeness=0.9885	labelled=300
+rdrps300.fixed4.s19	FAILED	exit=2	rounds=1
+rdrps300.fixed64.s17	FAILED	exit=2	rounds=0
+rdrps300.fixed64.s18	round 1	D=64	clusters=37	silhouette=0.730145351383199 fv=0.0938907469342252 fp=0.0921293199554069	homogeneity=0.9597	completeness=0.7745	labelled=300
+rdrps300.fixed64.s18	round 2	D=64	clusters=41	silhouette=0.701970316221273 fv=0.0483946488294314 fp=0.0688740245261984	homogeneity=0.9279	completeness=0.6890	labelled=300
+rdrps300.fixed64.s18	FAILED	exit=2	rounds=2
+rdrps300.fixed64.s19	FAILED	exit=2	rounds=0
+rdrps300.fixed8.s17	round 1	D=8	clusters=9	silhouette=0.830835397026678 fv=0.224526198439242 fp=0.229030100334448	homogeneity=0.7109	completeness=0.9882	labelled=300
+rdrps300.fixed8.s17	round 2	D=8	clusters=14	silhouette=0.837014479024971 fv=0.13736900780379 fp=0.151928651059086	homogeneity=0.8660	completeness=0.9505	labelled=300
+rdrps300.fixed8.s17	round 3	D=8	clusters=10	silhouette=0.824226883827127 fv=0.135841694537347 fp=0.168026755852843	homogeneity=0.8121	completeness=0.9864	labelled=300
+rdrps300.fixed8.s17	round 4	D=8	clusters=15	silhouette=0.833455232737864 fv=0.132820512820513 fp=0.135451505016722	homogeneity=0.8884	completeness=0.9374	labelled=300
+rdrps300.fixed8.s17	round 5	D=8	clusters=16	silhouette=0.836923172209193 fv=0.13345596432553 fp=0.136811594202899	homogeneity=0.8977	completeness=0.9462	labelled=300
+rdrps300.fixed8.s17	round 6	D=8	clusters=15	silhouette=0.820051227507501 fv=0.136666666666667 fp=0.136989966555184	homogeneity=0.8711	completeness=0.9300	labelled=300
+rdrps300.fixed8.s17	round 7	D=8	clusters=17	silhouette=0.834533374375285 fv=0.135997770345596 fp=0.132508361204013	homogeneity=0.9085	completeness=0.9319	labelled=300
+rdrps300.fixed8.s17	round 8	D=8	clusters=19	silhouette=0.834310933791492 fv=0.124704570791527 fp=0.134314381270903	homogeneity=0.9246	completeness=0.9409	labelled=300
+rdrps300.fixed8.s17	SUMMARY	rounds=8	homogeneity=0.9031	completeness=0.9364
+rdrps300.fixed8.s18	round 1	D=8	clusters=11	silhouette=0.837847324631936 fv=0.145250836120401 fp=0.213935340022297	homogeneity=0.7630	completeness=0.9849	labelled=300
+rdrps300.fixed8.s18	round 2	D=8	clusters=11	silhouette=0.834706533500941 fv=0.137391304347826 fp=0.137324414715719	homogeneity=0.8616	completeness=0.9416	labelled=300
+rdrps300.fixed8.s18	round 3	D=8	clusters=14	silhouette=0.827691828821471 fv=0.128695652173913 fp=0.146622073578595	homogeneity=0.8863	completeness=0.9734	labelled=300
+rdrps300.fixed8.s18	round 4	D=8	clusters=13	silhouette=0.832302921416814 fv=0.134983277591973 fp=0.14494983277592	homogeneity=0.8837	completeness=0.9695	labelled=300
+rdrps300.fixed8.s18	round 5	D=8	clusters=19	silhouette=0.843174236981137 fv=0.133756967670011 fp=0.120334448160535	homogeneity=0.9237	completeness=0.8968	labelled=300
+rdrps300.fixed8.s18	round 6	D=8	clusters=22	silhouette=0.823286843406652 fv=0.129163879598662 fp=0.125707915273133	homogeneity=0.9199	completeness=0.8774	labelled=300
+rdrps300.fixed8.s18	FAILED	exit=2	rounds=6
+rdrps300.fixed8.s19	round 1	D=8	clusters=14	silhouette=0.849658997025122 fv=0.217045707915273 fp=0.146666666666667	homogeneity=0.9143	completeness=0.9908	labelled=300
+rdrps300.fixed8.s19	FAILED	exit=2	rounds=1
+vp1s300.fixed16.s17	FAILED	exit=2	rounds=0
+vp1s300.fixed16.s18	FAILED	exit=2	rounds=0
+vp1s300.fixed16.s19	FAILED	exit=2	rounds=0
+vp1s300.fixed32.s17	FAILED	exit=2	rounds=0
+vp1s300.fixed32.s18	FAILED	exit=2	rounds=0
+vp1s300.fixed32.s19	round 1	D=32	clusters=17	silhouette=0.749429813013691 fv=0.236555183946488 fp=0.314604236343367	homogeneity=0.7948	completeness=0.9142	labelled=300
+vp1s300.fixed32.s19	round 2	D=32	clusters=31	silhouette=0.768845403856994 fv=0.23340022296544 fp=0.233690078037904	homogeneity=0.9866	completeness=0.8862	labelled=300
+vp1s300.fixed32.s19	round 3	D=32	clusters=26	silhouette=0.749620076215971 fv=0.0969119286510591 fp=0.120245261984392	homogeneity=0.9540	completeness=0.7576	labelled=300
+vp1s300.fixed32.s19	round 4	D=32	clusters=31	silhouette=0.761487937099092 fv=0.270891861761427 fp=0.0651950947603122	homogeneity=0.9083	completeness=0.6174	labelled=300
+vp1s300.fixed32.s19	round 5	D=32	clusters=28	silhouette=0.777804057463176 fv=0.0697101449275362 fp=0.0690078037904125	homogeneity=0.9063	completeness=0.6379	labelled=300
+vp1s300.fixed32.s19	round 6	D=32	clusters=31	silhouette=0.776046683309141 fv=0.0603344481605351 fp=0.0664437012263099	homogeneity=0.9116	completeness=0.6261	labelled=300
+vp1s300.fixed32.s19	round 7	D=32	clusters=30	silhouette=0.772791101938354 fv=0.0650836120401338 fp=0.065819397993311	homogeneity=0.9032	completeness=0.6187	labelled=300
+vp1s300.fixed32.s19	round 8	D=32	clusters=34	silhouette=0.767709297193563 fv=0.0488963210702341 fp=0.063701226309922	homogeneity=0.9282	completeness=0.6204	labelled=300
+vp1s300.fixed32.s19	SUMMARY	rounds=8	homogeneity=0.9089	completeness=0.6233
+vp1s300.fixed4.s17	round 1	D=4	clusters=6	silhouette=0.860201653769053 fv=0.305663322185061 fp=0.332151616499443	homogeneity=0.6407	completeness=1.0000	labelled=300
+vp1s300.fixed4.s17	round 2	D=4	clusters=6	silhouette=0.786881972219837 fv=0.140646599777035 fp=0.213355629877369	homogeneity=0.6330	completeness=0.7930	labelled=300
+vp1s300.fixed4.s17	round 3	D=4	clusters=6	silhouette=0.850161462628052 fv=0.275897435897436 fp=0.285239687848383	homogeneity=0.6972	completeness=0.9749	labelled=300
+vp1s300.fixed4.s17	round 4	D=4	clusters=5	silhouette=0.862243913812248 fv=0.103511705685619 fp=0.289966555183946	homogeneity=0.6735	completeness=0.9740	labelled=300
+vp1s300.fixed4.s17	round 5	D=4	clusters=5	silhouette=0.839380072555831 fv=0.275886287625418 fp=0.288182831661093	homogeneity=0.6652	completeness=0.9601	labelled=300
+vp1s300.fixed4.s17	round 6	D=4	clusters=7	silhouette=0.848997872597678 fv=0.108450390189521 fp=0.282296544035674	homogeneity=0.7104	completeness=0.9680	labelled=300
+vp1s300.fixed4.s17	round 7	D=4	clusters=6	silhouette=0.8134962039166 fv=0.1117502787068 fp=0.286911928651059	homogeneity=0.6735	completeness=0.9606	labelled=300
+vp1s300.fixed4.s17	round 8	D=4	clusters=8	silhouette=0.859024486759712 fv=0.312608695652174 fp=0.275540691192865	homogeneity=0.7455	completeness=0.9679	labelled=300
+vp1s300.fixed4.s17	SUMMARY	rounds=8	homogeneity=0.6919	completeness=0.9642
+vp1s300.fixed4.s18	FAILED	exit=2	rounds=0
+vp1s300.fixed4.s19	round 1	D=4	clusters=7	silhouette=0.866216250117555 fv=0.309342251950948 fp=0.309832775919732	homogeneity=0.6983	completeness=0.9955	labelled=300
+vp1s300.fixed4.s19	round 2	D=4	clusters=7	silhouette=0.829686345519026 fv=0.278851727982163 fp=0.288940914158305	homogeneity=0.7262	completeness=1.0000	labelled=300
+vp1s300.fixed4.s19	round 3	D=4	clusters=11	silhouette=0.81868482042428 fv=0.332107023411371 fp=0.261270903010033	homogeneity=0.8256	completeness=0.9746	labelled=300
+vp1s300.fixed4.s19	round 4	D=4	clusters=6	silhouette=0.848285082876139 fv=0.268717948717949 fp=0.27273132664437	homogeneity=0.7223	completeness=0.9631	labelled=300
+vp1s300.fixed4.s19	round 5	D=4	clusters=8	silhouette=0.834185808048927 fv=0.330289855072464 fp=0.269364548494983	homogeneity=0.7653	completeness=0.9771	labelled=300
+vp1s300.fixed4.s19	round 6	D=4	clusters=6	silhouette=0.857917866057704 fv=0.288272017837235 fp=0.27273132664437	homogeneity=0.7223	completeness=0.9631	labelled=300
+vp1s300.fixed4.s19	round 7	D=4	clusters=7	silhouette=0.808311650050921 fv=0.148639910813824 fp=0.274448160535117	homogeneity=0.7366	completeness=0.9762	labelled=300
+vp1s300.fixed4.s19	FAILED	exit=2	rounds=7
+vp1s300.fixed64.s17	round 1	D=64	clusters=25	silhouette=0.667039288819784 fv=0.194459308807135 fp=0.309275362318841	homogeneity=0.7804	completeness=0.7962	labelled=300
+vp1s300.fixed64.s17	round 2	D=64	clusters=28	silhouette=0.656303854980441 fv=0.184314381270903 fp=0.087670011148272	homogeneity=0.8154	completeness=0.5954	labelled=300
+vp1s300.fixed64.s17	round 3	D=64	clusters=46	silhouette=0.694126951346497 fv=0.0288182831661093 fp=0.0530434782608696	homogeneity=0.8513	completeness=0.5266	labelled=300
+vp1s300.fixed64.s17	round 4	D=64	clusters=49	silhouette=0.678800830254351 fv=0.0309698996655518 fp=0.0479598662207358	homogeneity=0.9427	completeness=0.5630	labelled=300
+vp1s300.fixed64.s17	round 5	D=64	clusters=50	silhouette=0.716153674214493 fv=0.0300780379041249 fp=0.0489632107023411	homogeneity=0.9166	completeness=0.5484	labelled=300
+vp1s300.fixed64.s17	round 6	D=64	clusters=60	silhouette=0.711282769236346 fv=0.0296209587513935 fp=0.0363656633221851	homogeneity=0.9736	completeness=0.5436	labelled=300
+vp1s300.fixed64.s17	round 7	D=64	clusters=55	silhouette=0.708071558921842 fv=0.0308584169453735 fp=0.0385061315496098	homogeneity=0.9563	completeness=0.5445	labelled=300
+vp1s300.fixed64.s17	round 8	D=64	clusters=45	silhouette=0.69946066875062 fv=0.028494983277592 fp=0.0437458193979933	homogeneity=0.9099	completeness=0.5436	labelled=300
+vp1s300.fixed64.s17	SUMMARY	rounds=8	homogeneity=0.9364	completeness=0.5441
+vp1s300.fixed64.s18	round 1	D=64	clusters=48	silhouette=0.632830795249173 fv=0.0441025641025641 fp=0.0542251950947603	homogeneity=0.9646	completeness=0.5879	labelled=300
+vp1s300.fixed64.s18	FAILED	exit=2	rounds=1
+vp1s300.fixed64.s19	round 1	D=64	clusters=37	silhouette=0.657195241659818 fv=0.0424191750278707 fp=0.0716833890746934	homogeneity=0.9554	completeness=0.6312	labelled=300
+vp1s300.fixed64.s19	round 2	D=64	clusters=38	silhouette=0.710582293259556 fv=0.0291527313266444 fp=0.0543589743589744	homogeneity=0.8784	completeness=0.5540	labelled=300
+vp1s300.fixed64.s19	round 3	D=64	clusters=48	silhouette=0.685654879672224 fv=0.0257413600891862 fp=0.0463768115942029	homogeneity=0.9562	completeness=0.5653	labelled=300
+vp1s300.fixed64.s19	round 4	D=64	clusters=45	silhouette=0.70636470737679 fv=0.0302787068004459 fp=0.0459085841694537	homogeneity=0.9004	completeness=0.5437	labelled=300
+vp1s300.fixed64.s19	round 5	D=64	clusters=45	silhouette=0.702349766888627 fv=0.0278037904124861 fp=0.0458639910813824	homogeneity=0.8896	completeness=0.5379	labelled=300
+vp1s300.fixed64.s19	round 6	D=64	clusters=45	silhouette=0.712896623426679 fv=0.0268896321070234 fp=0.0440802675585284	homogeneity=0.9036	completeness=0.5398	labelled=300
+vp1s300.fixed64.s19	round 7	D=64	clusters=54	silhouette=0.711907458211791 fv=0.0262876254180602 fp=0.0393311036789298	homogeneity=0.9459	completeness=0.5423	labelled=300
+vp1s300.fixed64.s19	round 8	D=64	clusters=49	silhouette=0.714696338413176 fv=0.0282051282051282 fp=0.0449721293199554	homogeneity=0.9356	completeness=0.5549	labelled=300
+vp1s300.fixed64.s19	SUMMARY	rounds=8	homogeneity=0.9196	completeness=0.5411
+vp1s300.fixed8.s17	round 1	D=8	clusters=12	silhouette=0.847494279444007 fv=0.257948717948718 fp=0.260178372352285	homogeneity=0.8631	completeness=0.9796	labelled=300
+vp1s300.fixed8.s17	round 2	D=8	clusters=11	silhouette=0.760768713787737 fv=0.0524860646599777 fp=0.15092530657748	homogeneity=0.8503	completeness=0.8360	labelled=300
+vp1s300.fixed8.s17	round 3	D=8	clusters=17	silhouette=0.773780042783831 fv=0.290144927536232 fp=0.13933110367893	homogeneity=0.8914	completeness=0.7925	labelled=300
+vp1s300.fixed8.s17	round 4	D=8	clusters=16	silhouette=0.787410125773663 fv=0.16809364548495 fp=0.143745819397993	homogeneity=0.8711	completeness=0.8043	labelled=300
+vp1s300.fixed8.s17	round 5	D=8	clusters=13	silhouette=0.769191410892406 fv=0.180858416945373 fp=0.142497212931996	homogeneity=0.8596	completeness=0.8065	labelled=300
+vp1s300.fixed8.s17	round 6	D=8	clusters=12	silhouette=0.787267370355623 fv=0.190356744704571 fp=0.14711259754738	homogeneity=0.8609	completeness=0.8313	labelled=300
+vp1s300.fixed8.s17	round 7	D=8	clusters=13	silhouette=0.795151299762013 fv=0.284147157190635 fp=0.151705685618729	homogeneity=0.8237	completeness=0.8032	labelled=300
+vp1s300.fixed8.s17	round 8	D=8	clusters=21	silhouette=0.791288141380369 fv=0.140602006688963 fp=0.135763656633222	homogeneity=0.9254	completeness=0.7910	labelled=300
+vp1s300.fixed8.s17	SUMMARY	rounds=8	homogeneity=0.8602	completeness=0.8048
+vp1s300.fixed8.s18	FAILED	exit=2	rounds=0
+vp1s300.fixed8.s19	round 1	D=8	clusters=14	silhouette=0.82766239930737 fv=0.288896321070234 fp=0.25273132664437	homogeneity=0.9118	completeness=0.9940	labelled=300
+vp1s300.fixed8.s19	round 2	D=8	clusters=15	silhouette=0.757676885335325 fv=0.16247491638796 fp=0.11783723522854	homogeneity=0.7613	completeness=0.6756	labelled=300
+vp1s300.fixed8.s19	round 3	D=8	clusters=17	silhouette=0.762230995242334 fv=0.087056856187291 fp=0.143768115942029	homogeneity=0.8800	completeness=0.8063	labelled=300
+vp1s300.fixed8.s19	round 4	D=8	clusters=12	silhouette=0.755676272685611 fv=0.160512820512821 fp=0.148494983277592	homogeneity=0.8331	completeness=0.8101	labelled=300
+vp1s300.fixed8.s19	round 5	D=8	clusters=14	silhouette=0.767518841593036 fv=0.163121516164994 fp=0.253645484949833	homogeneity=0.8421	completeness=0.9318	labelled=300
+vp1s300.fixed8.s19	round 6	D=8	clusters=16	silhouette=0.788503260368386 fv=0.141293199554069 fp=0.120445930880713	homogeneity=0.8565	completeness=0.7438	labelled=300
+vp1s300.fixed8.s19	round 7	D=8	clusters=25	silhouette=0.782326232100902 fv=0.125629877369008 fp=0.107357859531773	homogeneity=0.9474	completeness=0.7451	labelled=300
+vp1s300.fixed8.s19	round 8	D=8	clusters=15	silhouette=0.807226559480166 fv=0.115094760312152 fp=0.116945373467113	homogeneity=0.8762	completeness=0.7537	labelled=300
+vp1s300.fixed8.s19	SUMMARY	rounds=8	homogeneity=0.8663	completeness=0.7494

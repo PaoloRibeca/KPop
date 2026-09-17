@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+
+# stage1-score -- the primary metric of stage 1, run by run and round by round
+#
+#   stage1-score <runs_directory> <labels_directory>
+#
+# For every <corpus>.<arm>.s<seed>.stdout in the runs directory, reads the partition each round's
+# search printed and scores it against <labels_directory>/<corpus>.cdc, the two-column CDC
+# labelling: homogeneity (every cluster inside one class) and completeness (every class inside
+# one cluster), over the sequences that carry a label.  A run's figure is the median over its last
+# four rounds, or over all of them when it settled in fewer.  A run whose exit status in runs.log is
+# not 0 has no figure and is reported as failed.
+
+set -u
+
+RUNS="${1:?usage: stage1-score <runs_directory> <labels_directory>}"
+LABELS="${2:?usage: stage1-score <runs_directory> <labels_directory>}"
+
+for out in "$RUNS"/*.stdout; do
+  [[ -e "$out" ]] || continue
+  tag="$(basename "$out" .stdout)"
+  corpus="${tag%%.*}"
+  status="$(gawk -F'\t' -v tag="$tag" '$1 == tag { s = $2 } END { print s }' "$RUNS/runs.log" 2>/dev/null)"
+  gawk -v tag="$tag" -v labels="$LABELS/$corpus.cdc" -v status="$status" '
+    function score(   name, c, l, key, kk, v, p, hl, hc, hlc, hcl, N) {
+      N = 0
+      delete nc; delete nl; delete ncl
+      for (name in part)
+        if (name in lab) {
+          c = part[name]; l = lab[name]
+          N++; nc[c]++; nl[l]++; ncl[c SUBSEP l]++
+        }
+      labelled[round] = N
+      if (N == 0) { H[round] = -1; C[round] = -1; return }
+      hl = 0; for (l in nl) { p = nl[l] / N; hl -= p * log(p) }
+      hc = 0; for (c in nc) { p = nc[c] / N; hc -= p * log(p) }
+      hlc = 0; hcl = 0
+      for (key in ncl) {
+        split(key, kk, SUBSEP); v = ncl[key]; p = v / N
+        hlc -= p * log(v / nc[kk[1]])
+        hcl -= p * log(v / nl[kk[2]])
+      }
+      H[round] = hl > 0 ? 1 - hlc / hl : 1
+      C[round] = hc > 0 ? 1 - hcl / hc : 1
+    }
+    function median(a, from, to,   vals, m, i) {
+      m = 0
+      for (i = from; i <= to; i++) vals[++m] = a[i]
+      asort(vals)
+      return m % 2 ? vals[(m + 1) / 2] : (vals[m / 2] + vals[m / 2 + 1]) / 2
+    }
+    BEGIN {
+      FS = "\t"
+      while ((getline line < labels) > 0) { split(line, f, "\t"); lab[f[1]] = f[2] }
+    }
+    /^=== Clustering of / {
+      if (round) score()
+      round++; delete part
+      D[round] = match($0, /D=([0-9]+)/, m) ? m[1] : "?"
+      next
+    }
+    /^# n=/ {
+      K[round] = match($0, /n_clusters=([0-9]+)/, m) ? m[1] : "?"
+      S[round] = match($0, /silhouette=([-0-9.e+]+)/, m) ? m[1] : "?"
+      F[round] = match($0, / fv=([^ ]+) fp=([^ ]+)/, m) ? " fv=" m[1] " fp=" m[2] : ""
+      next
+    }
+    /^name\trepresentative\tstatus$/ { next }
+    round && NF == 3 { part[$1] = $2 }
+    END {
+      if (round) score()
+      for (r = 1; r <= round; r++)
+        printf "%s\tround %d\tD=%s\tclusters=%s\tsilhouette=%s%s\thomogeneity=%.4f\tcompleteness=%.4f\tlabelled=%d\n",
+          tag, r, D[r], K[r], S[r], F[r], H[r], C[r], labelled[r]
+      if (status != "exit=0" || round == 0)
+        printf "%s\tFAILED\t%s\trounds=%d\n", tag, (status == "" ? "not finished" : status), round
+      else {
+        from = round > 4 ? round - 3 : 1
+        printf "%s\tSUMMARY\trounds=%d\thomogeneity=%.4f\tcompleteness=%.4f\n",
+          tag, round, median(H, from, round), median(C, from, round)
+      }
+    }
+  ' "$out"
+done

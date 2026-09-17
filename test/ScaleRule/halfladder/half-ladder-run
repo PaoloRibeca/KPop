@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+
+# half-ladder-run -- what the half-powers-of-two ladder picks, beside the doubling one
+#
+#   half-ladder-run <output_directory>
+#
+# Compiles test/ScaleRule/detect3.ml, which now carries a third ladder -- 1, 2, 3, 4, 6, 8, 11, 16,
+# 23, 32, 45, 64, 91, 128, 181 and the most axes there are, two to the power k/2 rounded -- and runs
+# it over the six embeddings the scale-rule document measured, on the union of the three ladders'
+# rungs so that every rule is read off one set of detections.  One run at a time, nice 19, 50
+# resamples, labelled spectra only, as the document's tables were made.
+
+set -u
+
+OUT="${1:?usage: half-ladder-run <output_directory>}"
+SRC=/home/ribeca/Development/Git/KPop.Claude/test/ScaleRule/detect3.ml
+DET=/home/ribeca/.claude/jobs/29a54aa8/tmp/simpson/detector
+C=/home/ribeca/.claude/jobs/29a54aa8/tmp/collapse/real-data
+V=/home/ribeca/.claude/jobs/29a54aa8/tmp/simpson/vp2
+L=/home/ribeca/Development/Git/NailIt/test/data/denovo
+RUNGS=1,2,3,4,5,6,8,10,11,16,20,23,32,40,45,64,80,91,128,160,181
+
+mkdir -p "$OUT"
+cp "$SRC" "$OUT/detect3.ml"
+cp "$DET/kio.ml" "$OUT/kio.ml"
+( cd "$OUT" && nice -n 19 ocamlfind ocamlopt -O3 -unsafe -package unix -linkpkg kio.ml detect3.ml \
+    -o detect3 > compile.log 2>&1 ) || { echo "compile failed"; tail -20 "$OUT/compile.log"; exit 1; }
+
+one() {
+  local tag="$1" tw="$2" iv="$3" labels="$4" avail="$5"
+  nice -n 19 "$OUT/detect3" "$tw" "$iv" "$labels" "$tag" "$RUNGS,$avail" 50 1 \
+    >> "$OUT/half.out" 2>> "$OUT/half.cand"
+  echo "$tag done at $(date '+%H:%M')"
+}
+
+one vp1.T_rand "$C/vp1.T_rand.all.KPopTwisted.txt" "$C/vp1.T_rand.all.KPopInertia.txt" "$L/vp1.cdc" 243
+one vp1.T_strat "$C/vp1.T_strat.all.KPopTwisted.txt" "$C/vp1.T_strat.all.KPopInertia.txt" "$L/vp1.cdc" 243
+one vp1.T_core "$C/vp1.T_core.all.KPopTwisted.txt" "$C/vp1.T_core.all.KPopInertia.txt" "$L/vp1.cdc" 243
+one rdrp.T_rand "$C/rdrp.T_rand.all.KPopTwisted.txt" "$C/rdrp.T_rand.all.KPopInertia.txt" "$L/rdrp.cdc" 199
+one rdrp.T_strat "$C/rdrp.T_strat.all.KPopTwisted.txt" "$C/rdrp.T_strat.all.KPopInertia.txt" "$L/rdrp.cdc" 199
+one vp2.T_rand "$V/vp2.T_rand.all.KPopTwisted.txt" "$V/vp2.T_rand.all.KPopInertia.txt" "$L/vp2.cdc" 219
+grep -E 'RULE|LADDER|####' "$OUT/half.out"

@@ -1,0 +1,12 @@
+rdrps300.doubling.s17	SUMMARY	rounds=8	homogeneity=0.8765	completeness=0.8604
+rdrps300.doubling.s18	SUMMARY	rounds=8	homogeneity=0.8700	completeness=0.9188
+rdrps300.doubling.s19	SUMMARY	rounds=8	homogeneity=0.7735	completeness=0.9221
+rdrps300.halfpowers.s17	SUMMARY	rounds=8	homogeneity=0.7986	completeness=0.9414
+rdrps300.halfpowers.s18	SUMMARY	rounds=8	homogeneity=0.7967	completeness=0.8724
+rdrps300.halfpowers.s19	SUMMARY	rounds=8	homogeneity=0.6276	completeness=0.9866
+vp1s300.doubling.s17	SUMMARY	rounds=8	homogeneity=0.7692	completeness=0.7175
+vp1s300.doubling.s18	SUMMARY	rounds=8	homogeneity=0.9021	completeness=0.7521
+vp1s300.doubling.s19	SUMMARY	rounds=8	homogeneity=0.7907	completeness=0.6466
+vp1s300.halfpowers.s17	SUMMARY	rounds=8	homogeneity=0.7520	completeness=0.7368
+vp1s300.halfpowers.s18	SUMMARY	rounds=8	homogeneity=0.7512	completeness=0.7028
+vp1s300.halfpowers.s19	SUMMARY	rounds=8	homogeneity=0.7434	completeness=0.8923

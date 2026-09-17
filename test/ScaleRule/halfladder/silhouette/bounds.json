@@ -1,0 +1,82 @@
+{
+ "vp1.T_rand": {
+  "bound": 11,
+  "splitAfter": 11,
+  "t": 6.19,
+  "p": 0.0002,
+  "labPeak": 3,
+  "misBest": 243,
+  "rhoAll": 0.83,
+  "rhoBelow": 0.09
+ },
+ "vp1.T_strat": {
+  "bound": 6,
+  "splitAfter": 6,
+  "t": 5.28,
+  "p": 0.0005,
+  "labPeak": 4,
+  "misBest": 45,
+  "rhoAll": 0.89,
+  "rhoBelow": 0.8
+ },
+ "vp1.T_core": {
+  "bound": null,
+  "splitAfter": 6,
+  "t": 2.32,
+  "p": 0.1057,
+  "labPeak": 6,
+  "misBest": 243,
+  "rhoAll": 0.03,
+  "rhoBelow": 0.03
+ },
+ "rdrp.T_rand": {
+  "bound": 64,
+  "splitAfter": 64,
+  "t": 6.42,
+  "p": 0.0005,
+  "labPeak": 6,
+  "misBest": 6,
+  "rhoAll": 0.41,
+  "rhoBelow": -0.03
+ },
+ "rdrp.T_strat": {
+  "bound": 45,
+  "splitAfter": 45,
+  "t": 4.87,
+  "p": 0.002,
+  "labPeak": 6,
+  "misBest": 6,
+  "rhoAll": 0.37,
+  "rhoBelow": 0.15
+ },
+ "vp2.T_rand": {
+  "bound": 11,
+  "splitAfter": 11,
+  "t": 7.98,
+  "p": 0.0002,
+  "labPeak": 6,
+  "misBest": 11,
+  "rhoAll": 0.59,
+  "rhoBelow": -0.43
+ },
+ "vp1s300": {
+  "bound": 4,
+  "splitAfter": 4,
+  "t": 15.83,
+  "p": 0.0042,
+  "labPeak": 4,
+  "misBest": 4,
+  "rhoAll": 0.92,
+  "rhoBelow": null
+ },
+ "rdrps300": {
+  "bound": 23,
+  "splitAfter": 23,
+  "t": 7.43,
+  "p": 0.0015,
+  "labPeak": 11,
+  "misBest": 11,
+  "rhoAll": -0.05,
+  "rhoBelow": -0.05
+ }
+}

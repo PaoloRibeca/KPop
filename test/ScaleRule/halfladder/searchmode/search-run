@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+
+# search-run -- KPop-autotuner --dimensions search on the three norovirus corpora
+#
+#   search-run <kpop_autotuner_binary> <output_directory>
+#
+# One run per corpus, seed 17 (so the seeds searched with are 17, 18 and 19, those of the scans), the
+# calibrated detector, otherwise stage 1's settings: one thread, --montecarlo-steps 1000
+# --montecarlo-replicas 4 --montecarlo-level finest, projection and partition samples of 200 (RdRp),
+# 220 (VP2) and 244 (VP1).  Two runs at a time, each at nice 19 and in the idle I/O class, from a
+# frozen copy of the binary; a run already logged is not run again.
+
+set -u
+
+BIN_SRC="${1:?usage: search-run <kpop_autotuner_binary> <output_directory>}"
+OUT="${2:?usage: search-run <kpop_autotuner_binary> <output_directory>}"
+T=/home/ribeca/.claude/jobs/29a54aa8/tmp
+
+mkdir -p "$OUT"
+BIN="$OUT/KPop-autotuner"
+[[ -x "$BIN" ]] || { cp "$BIN_SRC" "$BIN"; chmod 755 "$BIN"; }
+IDLE=""
+command -v ionice > /dev/null && IDLE="ionice -c 3"
+
+one() {
+  local corpus="$1" db="$2" sample="$3"
+  grep -q "^$corpus	" "$OUT/runs.log" 2> /dev/null && return 0
+  local start=$SECONDS
+  $IDLE nice -n 19 "$BIN" -i "$db" -o "$OUT/$corpus" -T 1 -v --dimensions search \
+    --valleys-method calibrated --montecarlo-steps 1000 --montecarlo-replicas 4 \
+    --montecarlo-level finest --projection-sample "$sample" --partition-sample "$sample" --seed 17 \
+    > "$OUT/$corpus.stdout" 2> "$OUT/$corpus.stderr"
+  printf '%s\texit=%d\t%ds\n' "$corpus" $? $(( SECONDS - start )) >> "$OUT/runs.log"
+}
+export -f one
+export OUT BIN IDLE
+
+printf '%s\n' "rdrp $T/regions/rdrp 200" "vp2 $T/vp2rand/all 220" "vp1 $T/regions/vp1 244" \
+  | xargs -P 2 -L 1 bash -c 'one "$@"' _
+echo "search runs finished at $(date '+%d-%b-%Y %H:%M')"

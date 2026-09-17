@@ -1,0 +1,29 @@
+#### rdrp.T_strat: 3228 spectra (labelled), 5208378 pairs, 199 axes available, rungs 1,2,3,4,6,8,11,16,23,32,45,64,91,128,181,199, 50 resamples
+  d=1   | 5 candidates, 4 kept | 25.8%(z8.7,re100%,dep0.38) 47.0%(z14.8,re100%,dep0.62) 64.9%(z26.7,re100%,dep0.99) 83.4%(z6.0,re100%,dep0.40) [share 90.2%(z11.2,re100%,dep0.69)] | score 2 | misordered 8.38% | 1 s
+  d=2   | 3 candidates, 3 kept | 23.1%(z11.4,re100%,dep0.67) 37.1%(z16.6,re100%,dep0.84) 62.7%(z10.1,re100%,dep0.60) | score 2 | misordered 3.63% | 1 s
+  d=3   | 6 candidates, 4 kept | 17.5%(z10.9,re100%,dep0.66) 28.7%(z14.0,re100%,dep0.75) 44.4%(z7.9,re96%,dep0.31) 67.2%(z5.9,re96%,dep0.35) [share 91.8%(z7.0,re100%,dep0.36)] [share 97.8%(z8.3,re100%,dep0.48)] | score 3 | misordered 1.72% | 1 s
+  d=4   | 5 candidates, 5 kept | 16.1%(z14.4,re100%,dep0.78) 27.4%(z16.0,re100%,dep0.82) 57.3%(z6.9,re100%,dep0.39) 65.4%(z10.2,re100%,dep0.37) 75.1%(z5.6,re80%,dep0.28) | score 2 | misordered 1.08% | 1 s
+  d=6   | 3 candidates, 3 kept | 14.3%(z22.3,re100%,dep0.93) 37.3%(z10.2,re100%,dep0.47) 86.9%(z5.5,re68%,dep0.27) | score 2 | misordered 0.49% | 1 s
+  d=8   | 2 candidates, 2 kept | 14.6%(z26.9,re100%,dep0.94) 35.1%(z9.6,re100%,dep0.37) | score 2 | misordered 1.40% | 1 s
+  d=11  | 2 candidates, 2 kept | 11.4%(z23.9,re100%,dep0.87) 62.1%(z7.9,re90%,dep0.29) | score 1 | misordered 7.44% | 2 s
+  d=16  | 1 candidates, 1 kept | 9.2%(z23.7,re100%,dep0.89) | score 1 | misordered 6.90% | 2 s
+  d=23  | 1 candidates, 1 kept | 8.9%(z26.4,re100%,dep0.93) | score 1 | misordered 6.82% | 2 s
+  d=32  | 3 candidates, 2 kept | 8.9%(z24.9,re100%,dep0.91) 29.2%(z9.1,re100%,dep0.47) [z 94.6%(z2.2,re72%,dep0.37)] | score 2 | misordered 7.25% | 2 s
+  d=45  | 2 candidates, 2 kept | 8.6%(z23.5,re100%,dep0.80) 25.2%(z12.9,re100%,dep0.51) | score 2 | misordered 8.75% | 2 s
+  d=64  | 1 candidates, 1 kept | 6.2%(z13.1,re100%,dep0.62) | score 1 | misordered 12.45% | 2 s
+  d=91  | 1 candidates, 1 kept | 5.2%(z10.8,re100%,dep0.48) | score 1 | misordered 16.54% | 2 s
+  d=128 | 0 candidates, 0 kept |  | score 0 | misordered 21.03% | 3 s
+  d=181 | 0 candidates, 0 kept |  | score 0 | misordered 26.49% | 4 s
+  d=199 | 0 candidates, 0 kept |  | score 0 | misordered 27.47% | 3 s
+  COUNT LADDER scores 199:0 | best rung by labels 199 (27.47%)
+  DOUBLING LADDER scores 1:2 2:2 4:2 8:2 16:1 32:2 64:1 128:0 199:0 | best rung by labels 4 (1.08%)
+  HALF-POWERS LADDER scores 1:2 2:2 3:3 4:2 6:2 8:2 11:1 16:1 23:1 32:2 45:2 64:1 91:1 128:0 181:0 199:0 | best rung by labels 6 (0.49%)
+  RULE count, ties to fewer axes          pick none | resamples: picks none:100%; no level
+  RULE doubling, until valleys vanish     pick  64 (misordered 12.45%) | leftmost 6.2% (z 13.1, re 100%) | resamples: picks 64:100%; level median 6.2%, 5-95% 6.2-6.2%
+  RULE doubling, last rung with valleys   pick  64 (misordered 12.45%) | leftmost 6.2% (z 13.1, re 100%) | resamples: picks 64:100%; level median 6.2%, 5-95% 6.2-6.2%
+  RULE doubling ladder, most valleys, ties to more pick  32 (misordered 7.25%) | leftmost 8.9% (z 24.9, re 100%) | resamples: picks 32:100%; level median 8.9%, 5-95% 8.9-8.9%
+  RULE doubling ladder, most valleys, ties to fewer pick   1 (misordered 8.38%) | leftmost 25.8% (z 8.7, re 100%) | resamples: picks 1:100%; level median 25.8%, 5-95% 25.8-25.8%
+  RULE doubling ladder, most valleys, first plateau pick   8 (misordered 1.40%) | leftmost 14.6% (z 26.9, re 100%) | resamples: picks 8:100%; level median 14.6%, 5-95% 14.6-14.6%
+  RULE half-powers ladder, most valleys, first plateau pick   3 (misordered 1.72%) | leftmost 17.5% (z 10.9, re 100%) | resamples: picks 3:96% 8:4%; level median 17.5%, 5-95% 17.5-17.5%
+  RULE half-powers ladder, most valleys, ties to fewer pick   3 (misordered 1.72%) | leftmost 17.5% (z 10.9, re 100%) | resamples: picks 3:96% 1:4%; level median 17.5%, 5-95% 17.5-17.5%
+

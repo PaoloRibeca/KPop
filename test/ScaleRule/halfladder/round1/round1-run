@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+
+# round1-run -- the first round's search at every rung of the half-powers ladder up to a bound
+#
+#   round1-run <kpop_autotuner_binary> <output_directory>
+#
+# RdRp, the calibrated detector, --dimensions fixed at each of 1, 2, 3, 4, 6, 8, 11, 16, 23, 32, 45
+# and 64 axes -- 64 being the upper bound the valley strength gives on RdRp -- seeds 17, 18 and 19,
+# one round only (--iterations 1), otherwise the settings of the fixed-rung controls: one thread,
+# --montecarlo-steps 1000 --montecarlo-replicas 4 --montecarlo-level finest, projection and
+# partition samples of 200.  Two runs at a time, each at nice 19 and in the idle I/O class, from a
+# frozen copy of the binary; a run whose output exists is not run again.
+
+set -u
+
+BIN_SRC="${1:?usage: round1-run <kpop_autotuner_binary> <output_directory>}"
+OUT="${2:?usage: round1-run <kpop_autotuner_binary> <output_directory>}"
+DB=/home/ribeca/.claude/jobs/29a54aa8/tmp/regions/rdrp
+RUNGS="1 2 3 4 6 8 11 16 23 32 45 64"
+
+mkdir -p "$OUT"
+BIN="$OUT/KPop-autotuner"
+[[ -x "$BIN" ]] || { cp "$BIN_SRC" "$BIN"; chmod 755 "$BIN"; }
+IDLE=""
+command -v ionice > /dev/null && IDLE="ionice -c 3"
+
+one() {
+  local d="$1" seed="$2"
+  local tag="rdrp.r1d$d.s$seed"
+  [[ -s "$OUT/$tag.stdout" ]] && grep -q "^$tag	" "$OUT/runs.log" 2> /dev/null && return 0
+  local start=$SECONDS
+  $IDLE nice -n 19 "$BIN" -i "$DB" -o "$OUT/$tag" -T 1 --iterations 1 --montecarlo-steps 1000 \
+    --montecarlo-replicas 4 --montecarlo-level finest -v --valleys-method calibrated \
+    --dimensions "$d" --projection-sample 200 --partition-sample 200 --seed "$seed" \
+    > "$OUT/$tag.stdout" 2> "$OUT/$tag.stderr"
+  printf '%s\texit=%d\t%ds\n' "$tag" $? $(( SECONDS - start )) >> "$OUT/runs.log"
+}
+export -f one
+export OUT BIN DB IDLE
+
+for d in $RUNGS; do
+  for seed in 17 18 19; do
+    printf '%s %s\n' "$d" "$seed"
+  done
+done | xargs -P 2 -L 1 bash -c 'one "$@"' _
+echo "runs finished at $(date '+%d-%b-%Y %H:%M')"

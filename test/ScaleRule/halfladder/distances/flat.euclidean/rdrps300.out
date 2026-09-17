@@ -1,0 +1,26 @@
+#### rdrps300: 300 spectra (labelled), 44850 pairs, 67 axes available, rungs 1,2,3,4,6,8,11,16,23,32,45,64,67, 50 resamples
+  d=1   | 3 candidates, 3 kept | 33.5%(z5.7,re100%,dep0.92) 65.3%(z4.8,re100%,dep0.70) 84.0%(z6.7,re100%,dep0.91) | score 1 | misordered 9.71% | 0 s
+  d=2   | 5 candidates, 3 kept | 17.3%(z3.8,re100%,dep0.57) 35.7%(z6.0,re100%,dep0.71) [z 49.5%(z2.1,re68%,dep0.32)] 66.4%(z3.2,re86%,dep0.37) [z 93.2%(z1.7,re58%,dep0.30)] | score 2 | misordered 3.78% | 0 s
+  d=3   | 6 candidates, 2 kept | 18.3%(z3.5,re100%,dep0.72) 29.2%(z4.1,re100%,dep0.72) [z 40.1%(z2.1,re66%,dep0.30)] [z 74.5%(z2.8,re92%,dep0.45)] [z 89.9%(z1.7,re54%,dep0.26)] [z 98.8%(z1.1,re84%,dep0.55)] | score 2 | misordered 2.25% | 0 s
+  d=4   | 5 candidates, 1 kept | 22.2%(z8.1,re100%,dep0.90) [z 83.4%(z2.9,re98%,dep0.55)] [z 98.3%(z0.9,re66%,dep0.39)] [z 98.5%(z1.0,re58%,dep0.32)] [z 98.7%(z1.6,re44%,dep0.35)] | score 1 | misordered 1.37% | 0 s
+  d=6   | 5 candidates, 1 kept | 12.9%(z9.1,re100%,dep0.94) [z 93.1%(z1.6,re88%,dep0.52)] [z 94.9%(z1.8,re86%,dep0.51)] [z 97.1%(z2.3,re86%,dep0.49)] [z 98.7%(z1.2,re60%,dep0.33)] | score 1 | misordered 0.42% | 0 s
+  d=8   | 4 candidates, 1 kept | 15.0%(z7.6,re100%,dep0.94) [z 55.5%(z2.7,re62%,dep0.34)] [z 86.5%(z1.6,re86%,dep0.46)] [share 92.0%(z3.1,re100%,dep0.54)] | score 1 | misordered 0.29% | 0 s
+  d=11  | 7 candidates, 2 kept | 14.6%(z7.2,re100%,dep0.95) 50.0%(z3.1,re74%,dep0.34) [z 88.3%(z1.8,re84%,dep0.38)] [z 94.5%(z1.9,re66%,dep0.37)] [z 97.1%(z1.3,re58%,dep0.68)] [z 97.8%(z1.4,re48%,dep0.60)] [z 98.6%(z1.7,re72%,dep0.83)] | score 1 | misordered 0.32% | 0 s
+  d=16  | 4 candidates, 1 kept | 10.3%(z7.2,re100%,dep0.93) [z 30.1%(z2.7,re90%,dep0.35)] [z 89.1%(z1.8,re92%,dep0.65)] [z 94.7%(z1.9,re66%,dep0.45)] | score 1 | misordered 11.47% | 0 s
+  d=23  | 4 candidates, 3 kept | 5.5%(z3.4,re100%,dep0.65) 42.2%(z3.7,re76%,dep0.36) 86.6%(z3.2,re100%,dep0.72) [z 97.6%(z1.6,re48%,dep0.29)] | score 2 | misordered 19.70% | 0 s
+  d=32  | 4 candidates, 1 kept | [z 2.9%(z2.0,re78%,dep0.37)] 78.1%(z3.5,re100%,dep0.64) [z 98.7%(z1.0,re56%,dep0.39)] [z 98.9%(z1.0,re26%,dep0.30)] | score 0 | misordered 29.64% | 0 s
+  d=45  | 4 candidates, 1 kept | [z 1.2%(z1.7,re78%,dep0.40)] 68.5%(z4.2,re100%,dep0.58) [z 88.7%(z1.9,re56%,dep0.25)] [z 97.8%(z1.3,re76%,dep0.50)] | score 0 | misordered 34.74% | 0 s
+  d=64  | 5 candidates, 0 kept | [z 0.0%(z0.7,re56%,dep0.33)] [z 0.3%(z1.0,re46%,dep0.28)] [z 0.7%(z1.7,re64%,dep0.44)] [z 0.9%(z0.9,re70%,dep0.33)] [share 95.0%(z5.4,re100%,dep0.84)] | score 0 | misordered 38.21% | 0 s
+  d=67  | 6 candidates, 0 kept | [z 0.0%(z0.6,re62%,dep0.29)] [z 0.3%(z1.6,re58%,dep0.42)] [z 0.6%(z1.4,re76%,dep0.50)] [z 1.3%(z1.4,re70%,dep0.37)] [z 1.6%(z0.9,re44%,dep0.27)] [share 93.0%(z10.7,re100%,dep0.85)] | score 0 | misordered 35.88% | 0 s
+  COUNT LADDER scores 67:0 | best rung by labels 67 (35.88%)
+  DOUBLING LADDER scores 1:1 2:2 4:1 8:1 16:1 32:0 64:0 67:0 | best rung by labels 8 (0.29%)
+  HALF-POWERS LADDER scores 1:1 2:2 3:2 4:1 6:1 8:1 11:1 16:1 23:2 32:0 45:0 64:0 67:0 | best rung by labels 8 (0.29%)
+  RULE count, ties to fewer axes          pick none | resamples: picks none:100%; no level
+  RULE doubling, until valleys vanish     pick  16 (misordered 11.47%) | leftmost 10.3% (z 7.2, re 100%) | resamples: picks 16:100%; level median 10.3%, 5-95% 10.3-10.3%
+  RULE doubling, last rung with valleys   pick  16 (misordered 11.47%) | leftmost 10.3% (z 7.2, re 100%) | resamples: picks 16:100%; level median 10.3%, 5-95% 10.3-10.3%
+  RULE doubling ladder, most valleys, ties to more pick   2 (misordered 3.78%) | leftmost 17.3% (z 3.8, re 100%) | resamples: picks 2:100%; level median 17.3%, 5-95% 17.3-17.3%
+  RULE doubling ladder, most valleys, ties to fewer pick   2 (misordered 3.78%) | leftmost 17.3% (z 3.8, re 100%) | resamples: picks 2:100%; level median 17.3%, 5-95% 17.3-17.3%
+  RULE doubling ladder, most valleys, first plateau pick   2 (misordered 3.78%) | leftmost 17.3% (z 3.8, re 100%) | resamples: picks 2:100%; level median 17.3%, 5-95% 17.3-17.3%
+  RULE half-powers ladder, most valleys, first plateau pick   3 (misordered 2.25%) | leftmost 18.3% (z 3.5, re 100%) | resamples: picks 3:100%; level median 18.3%, 5-95% 18.3-18.3%
+  RULE half-powers ladder, most valleys, ties to fewer pick   2 (misordered 3.78%) | leftmost 17.3% (z 3.8, re 100%) | resamples: picks 2:100%; level median 17.3%, 5-95% 17.3-17.3%
+

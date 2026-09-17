@@ -1,0 +1,257 @@
+diff --git a/bin/KPop_autotuner.ml b/bin/KPop_autotuner.ml
+index 6800711..5833dcc 100644
+--- a/bin/KPop_autotuner.ml
++++ b/bin/KPop_autotuner.ml
+@@ -53,10 +53,44 @@ module Dimensions =
+       | Fixed d -> string_of_int d
+   end
+ 
++(* How a later round's sample of spectra is chosen with the partition: how the budget is shared
++   among the classes, and which members stand for a class *)
++module PartitionSample =
++  struct
++    module Allocation =
++      struct
++        type t =
++          | EveryClass
++          | BySize
++        let of_string = function
++          | "every-class" -> EveryClass
++          | "by-size" -> BySize
++          | s -> Exception.raise_unrecognized_initializer __FUNCTION__ "partition sample allocation" s
++        let to_string = function
++          | EveryClass -> "every-class"
++          | BySize -> "by-size"
++      end
++    module Members =
++      struct
++        type t =
++          | Extremes
++          | AtRandom
++        let of_string = function
++          | "extremes" -> Extremes
++          | "random" -> AtRandom
++          | s -> Exception.raise_unrecognized_initializer __FUNCTION__ "partition sample members" s
++        let to_string = function
++          | Extremes -> "extremes"
++          | AtRandom -> "random"
++      end
++  end
++
+ module Defaults =
+   struct
+     let projection_sample = 0
+     let partition_sample = 0
++    let partition_sample_allocation = PartitionSample.Allocation.EveryClass
++    let partition_sample_members = PartitionSample.Members.Extremes
+     let iterations = 12
+     let dimensions = Dimensions.Fixed 0
+     let dimensions_max = 256
+@@ -86,6 +120,8 @@ module Parameters =
+     let output = ref ""
+     let projection_sample = ref Defaults.projection_sample
+     let partition_sample = ref Defaults.partition_sample
++    let partition_sample_allocation = ref Defaults.partition_sample_allocation
++    let partition_sample_members = ref Defaults.partition_sample_members
+     let iterations = ref Defaults.iterations
+     let dimensions = ref Defaults.dimensions
+     let dimensions_max = ref Defaults.dimensions_max
+@@ -331,16 +367,23 @@ let complement_of_diverse_sample ~threads ~verbose state db n =
+    24, 12 over four rounds, which is a halving a round and not a convergence.  Choosing a fixed
+    number of REAL spectra with the partition keeps the column count the same in every round, so
+    that what a round changes is which directions matter rather than how many there can be.
+-   The choice is stratified: every class contributes at least one spectrum whatever the budget,
+-   a class with none being a class the axes cannot see, and the rest go one at a time to
+-   whichever class is furthest behind on its share, which apportions them by size without a
+-   rounding rule.  Within a class they are taken by farthest-point starting from the member
+-   nearest its centroid, so a class enters as its centre and its extremes rather than as an
+-   arbitrary member of it.  The coordinates are the ones the round before worked in, which are
+-   to hand and cost nothing.
++   By default the choice is stratified: every class contributes at least one spectrum whatever
++   the budget, a class with none being a class the axes cannot see, and the rest go one at a
++   time to whichever class is furthest behind on its share, which apportions them by size
++   without a rounding rule.  Within a class they are taken by farthest-point starting from the
++   member nearest its centroid, so a class enters as its centre and its extremes rather than as
++   an arbitrary member of it.  The coordinates are the ones the round before worked in, which
++   are to hand and cost nothing.
++   BOTH HALVES OF THAT ARE ALSO OFFERED THE OTHER WAY ROUND, because the first projection built
++   this way was measured to split types: held at a fixed number of axes, completeness against
++   the norovirus CDC types fell by 0.10 to 0.17 between the first round and the second on RdRp,
++   VP2 and VP1 alike, and stayed down.  [BySize] shares the whole budget by size, so that the
++   sample keeps the density contrast the partition has rather than being spread evenly over the
++   classes; [AtRandom] draws a class's members at random from the run's stream, so that a class
++   enters with its bulk rather than with its extremes.
+    Returns the spectra the sample does NOT name, those being what has to go for the database to
+    become the sample, [remove_selected] being the way to keep a subset *)
+-let complement_of_partition_sample ~budget coords iv names assign db =
++let complement_of_partition_sample ~budget ~allocation ~members state coords iv names assign db =
+   let n = Array.length assign in
+   let d = if n > 0 then Float.Array.length coords.(0) else 0 in
+   (* In principal coordinates, for the reason [complement_of_diverse_sample] gives *)
+@@ -378,9 +421,11 @@ let complement_of_partition_sample ~budget coords iv names assign db =
+      classes go without, they being the ones the axes can least afford a column for *)
+   let quota = Array.make k 0 and order = Array.init k Fun.id in
+   Array.sort (fun a b -> compare (Array.length classes.(b)) (Array.length classes.(a))) order;
+-  let slots = ref (min budget k) in
++  let floor =
++    match allocation with PartitionSample.Allocation.EveryClass -> min budget k | BySize -> 0 in
++  let slots = ref floor in
+   Array.iter (fun c -> if !slots > 0 then begin quota.(c) <- 1; decr slots end) order;
+-  let left = ref (budget - min budget k) and room = ref true in
++  let left = ref (budget - floor) and room = ref true in
+   while !left > 0 && !room do
+     let best = ref (-1) and best_share = ref neg_infinity in
+     for c = 0 to k - 1 do
+@@ -397,36 +442,48 @@ let complement_of_partition_sample ~budget coords iv names assign db =
+   Array.iteri
+     (fun c cls ->
+       let m = Array.length cls in
+-      let centroid = Float.Array.make d 0. in
+-      Array.iter
+-        (fun i ->
+-          for k = 0 to d - 1 do
+-            Float.Array.set centroid k (Float.Array.get centroid k +. Float.Array.get coords.(i) k)
+-          done)
+-        cls;
+-      for k = 0 to d - 1 do
+-        Float.Array.set centroid k (Float.Array.get centroid k /. float_of_int m)
+-      done;
+-      let cur = ref 0 and nearest = ref infinity in
+-      Array.iteri
+-        (fun j i ->
+-          let dd = dist_to i centroid in
+-          if dd < !nearest then begin nearest := dd; cur := j end)
+-        cls;
+-      let chosen = Array.make m false and near = Array.make m infinity in
+-      for _ = 1 to min quota.(c) m do
+-        chosen.(!cur) <- true;
+-        keep := StringSet.add names.(cls.(!cur)) !keep;
+-        let best = ref (-1) and best_d = ref neg_infinity in
+-        for j = 0 to m - 1 do
+-          if not chosen.(j) then begin
+-            let dd = dist cls.(j) cls.(!cur) in
+-            if dd < near.(j) then near.(j) <- dd;
+-            if near.(j) > !best_d then begin best_d := near.(j); best := j end
+-          end
++      match members with
++      | PartitionSample.Members.AtRandom ->
++        (* A partial shuffle, whose first places are a draw without replacement *)
++        let pool = Array.copy cls in
++        for j = 0 to min quota.(c) m - 1 do
++          let r = j + Random.State.int state (m - j) in
++          let t = pool.(j) in
++          pool.(j) <- pool.(r);
++          pool.(r) <- t;
++          keep := StringSet.add names.(pool.(j)) !keep
++        done
++      | Extremes ->
++        let centroid = Float.Array.make d 0. in
++        Array.iter
++          (fun i ->
++            for k = 0 to d - 1 do
++              Float.Array.set centroid k (Float.Array.get centroid k +. Float.Array.get coords.(i) k)
++            done)
++          cls;
++        for k = 0 to d - 1 do
++          Float.Array.set centroid k (Float.Array.get centroid k /. float_of_int m)
+         done;
+-        if !best >= 0 then cur := !best
+-      done)
++        let cur = ref 0 and nearest = ref infinity in
++        Array.iteri
++          (fun j i ->
++            let dd = dist_to i centroid in
++            if dd < !nearest then begin nearest := dd; cur := j end)
++          cls;
++        let chosen = Array.make m false and near = Array.make m infinity in
++        for _ = 1 to min quota.(c) m do
++          chosen.(!cur) <- true;
++          keep := StringSet.add names.(cls.(!cur)) !keep;
++          let best = ref (-1) and best_d = ref neg_infinity in
++          for j = 0 to m - 1 do
++            if not chosen.(j) then begin
++              let dd = dist cls.(j) cls.(!cur) in
++              if dd < near.(j) then near.(j) <- dd;
++              if near.(j) > !best_d then begin best_d := near.(j); best := j end
++            end
++          done;
++          if !best >= 0 then cur := !best
++        done)
+     classes;
+   let all = db.KMerDB_Base.core.KMerDB_Base.idx_to_col_names
+   and n_cols = db.KMerDB_Base.core.KMerDB_Base.n_cols in
+@@ -480,6 +537,25 @@ let () =
+         "of spectra keeps the space the same size in every round." ],
+       TA.Default (string_of_int Defaults.partition_sample |> Fun.const),
+       (fun _ -> Parameters.partition_sample := TA.get_parameter_int_non_neg ());
++    [ "--partition-sample-allocation" ],
++      Some "'every-class'|'by-size'",
++      [ "how a later round's sample is shared among the classes: 'every-class' gives each class";
++        "a spectrum before sharing the rest out by size, so that no class goes unseen, while";
++        "'by-size' shares all of it out by size, so that the sample keeps the density the";
++        "partition has" ],
++      TA.Default
++        (PartitionSample.Allocation.to_string Defaults.partition_sample_allocation |> Fun.const),
++      (fun _ ->
++        Parameters.partition_sample_allocation :=
++          TA.get_parameter () |> PartitionSample.Allocation.of_string);
++    [ "--partition-sample-members" ],
++      Some "'extremes'|'random'",
++      [ "which spectra stand for a class in a later round's sample: 'extremes' takes the member";
++        "nearest its centre and then its most distant ones, 'random' draws them at random" ],
++      TA.Default
++        (PartitionSample.Members.to_string Defaults.partition_sample_members |> Fun.const),
++      (fun _ ->
++        Parameters.partition_sample_members := TA.get_parameter () |> PartitionSample.Members.of_string);
+     [ "--iterations" ],
+       Some "<positive_integer>",
+       [ "maximum number of rounds.  The loop stops earlier, and usually does, when a round";
+@@ -496,7 +572,8 @@ let () =
+         "Fixing it makes the level of the partition something chosen rather than inherited,";
+         "and makes two runs over the same data comparable.";
+         "'auto' lets the valleys choose instead: every round decomposes into as many axes";
+-        "as --dimensions-max allows, finds the valleys in 1, 2, 4 and so on of them, and";
++        "as --dimensions-max allows, finds the valleys in 1, 2, 3, 4, 6, 8, 11, 16 and so on";
++        "of them, the powers of two and between each two their geometric mean rounded, and";
+         "searches at the first of those rungs showing the most valleys with at most half of";
+         "the pairs below, or at the last of the rungs after it showing as many.  It requires";
+         "the calibrated --valleys-method and a --partition-sample above 1, cannot start from";
+@@ -734,6 +811,8 @@ let () =
+         let n_cols = (!db).KMerDB_Base.core.KMerDB_Base.n_cols in
+         let complement =
+           complement_of_partition_sample ~budget:!Parameters.partition_sample
++            ~allocation:!Parameters.partition_sample_allocation
++            ~members:!Parameters.partition_sample_members state
+             twisted.Twisted.twisted.Matrix.matrix.Matrix.Base.data
+             twisted.Twisted.inertia.Matrix.matrix.Matrix.Base.data.(0) names assign !db in
+         let kept = n_cols - StringSet.cardinal complement in
+diff --git a/test/integration_autotuner.sh b/test/integration_autotuner.sh
+index 4728f27..ea2cb31 100644
+--- a/test/integration_autotuner.sh
++++ b/test/integration_autotuner.sh
+@@ -190,6 +190,25 @@ refused "--dimensions auto with --report-anyway is refused" "refuses '--report-a
+ refused "a number of dimensions of no known kind is refused" \
+   "Unrecognized number of dimensions 'sideways'" --dimensions sideways
+ 
++# ----------------------------------------------------------------------------
++# Part 4: how a later round's sample is chosen with the partition
++# ----------------------------------------------------------------------------
++echo
++echo "=== Part 4: --partition-sample-allocation and --partition-sample-members ==="
++"$BIN" -i "$DATA" -o "$TMP/s" "${FLAGS[@]}" --partition-sample 50 --partition-sample-allocation by-size \
++  --partition-sample-members random > "$TMP/s.stdout" 2> "$TMP/s.stderr"
++rc=$?
++if [[ $rc -eq 0 && "$(grep -c '^=== Clustering' "$TMP/s.stdout")" -ge 2 ]]; then
++  pass "a sample shared by size, members at random, runs its rounds"
++else
++  fail "a sample shared by size, members at random, runs its rounds" \
++    "exit status $rc; $(tail -n 1 "$TMP/s.stderr")"
++fi
++refused "an allocation of no known kind is refused" \
++  "Unrecognized partition sample allocation 'evenly'" --partition-sample-allocation evenly
++refused "members of no known kind are refused" \
++  "Unrecognized partition sample members 'best'" --partition-sample-members best
++
+ echo
+ if [[ $failed -eq 0 ]]; then
+   echo "All autotuner integration tests passed."

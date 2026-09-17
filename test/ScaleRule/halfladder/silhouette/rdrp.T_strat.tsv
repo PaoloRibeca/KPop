@@ -1,0 +1,18 @@
+# rdrp.T_strat: 3228 labelled spectra, 54 label classes, 199 axes available, pick 4 (18 clusters carried)
+tag	rung	sil_labels	own_share	own_clusters	sil_own	pick	pick_clusters	sil_carried
+rdrp.T_strat	1	0.0687	0.2583	10	0.6074	4	18	0.4302
+rdrp.T_strat	2	0.3215	0.2206	8	0.7355	4	18	0.5325
+rdrp.T_strat	3	0.5127	0.1758	11	0.7478	4	18	0.6308
+rdrp.T_strat	4	0.5566	0.1619	18	0.6932	4	18	0.6932
+rdrp.T_strat	6	0.6553	0.1600	13	0.7625	4	18	0.6306
+rdrp.T_strat	8	0.6479	0.1526	17	0.7012	4	18	0.5836
+rdrp.T_strat	11	0.5452	0.1243	22	0.7169	4	18	0.5058
+rdrp.T_strat	16	0.5161	0.1122	35	0.7091	4	18	0.4178
+rdrp.T_strat	23	0.5186	0.1073	52	0.6939	4	18	0.4034
+rdrp.T_strat	32	0.5328	0.1067	66	0.6958	4	18	0.4064
+rdrp.T_strat	45	0.5389	0.1019	87	0.6747	4	18	0.4168
+rdrp.T_strat	64	0.5447	0.0711	158	0.5448	4	18	0.3922
+rdrp.T_strat	91	0.5265	0.0682	168	0.5099	4	18	0.3591
+rdrp.T_strat	128	0.4847	0.0647	180	0.4599	4	18	0.3119
+rdrp.T_strat	181	0.4532	0.0538	234	0.3126	4	18	0.2840
+rdrp.T_strat	199	0.4473	0.0533	244	0.3094	4	18	0.2793

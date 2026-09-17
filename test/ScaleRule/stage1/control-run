@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+
+# control-run -- the fixed-rung control of stage 1, on RdRp
+#
+#   control-run <kpop_autotuner_binary> <output_directory>
+#
+# The calibrated detector with the number of axes fixed at 16 and at 32, the rungs the axis ladder
+# turned down on RdRp, over the seeds and settings of stage1-run: one thread each, nice 19, at most
+# two runs at a time, --iterations 8 --montecarlo-steps 1000 --montecarlo-replicas 4, projection
+# and partition samples of 200, --montecarlo-level finest.  The binary is copied first; a run whose
+# partition is already written is not run again.
+
+set -u
+
+BIN_SRC="${1:?usage: control-run <kpop_autotuner_binary> <output_directory>}"
+OUT="${2:?usage: control-run <kpop_autotuner_binary> <output_directory>}"
+DB=/home/ribeca/.claude/jobs/29a54aa8/tmp/regions/rdrp
+
+mkdir -p "$OUT"
+BIN="$OUT/KPop-autotuner"
+[[ -x "$BIN" ]] || cp "$BIN_SRC" "$BIN"
+
+one() {
+  local d="$1" seed="$2"
+  local tag="rdrp.fixed$d.s$seed"
+  [[ -s "$OUT/$tag.KPopClasses.txt" ]] && return 0
+  local start=$SECONDS
+  nice -n 19 "$BIN" -i "$DB" -o "$OUT/$tag" -T 1 --iterations 8 --montecarlo-steps 1000 \
+    --montecarlo-replicas 4 --montecarlo-level finest -v --valleys-method calibrated \
+    --dimensions "$d" --projection-sample 200 --partition-sample 200 --seed "$seed" \
+    > "$OUT/$tag.stdout" 2> "$OUT/$tag.stderr"
+  printf '%s\texit=%d\t%ds\n' "$tag" $? $(( SECONDS - start )) >> "$OUT/runs.log"
+}
+export -f one
+export OUT BIN DB
+
+for d in 16 32; do
+  for seed in 17 18 19; do
+    printf '%s %s\n' "$d" "$seed"
+  done
+done | xargs -P 2 -L 1 bash -c 'one "$@"' _

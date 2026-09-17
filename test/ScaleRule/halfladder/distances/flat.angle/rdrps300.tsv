@@ -1,0 +1,15 @@
+# rdrps300: 300 labelled spectra, 29 label classes, 67 axes available, 4 shuffles, flat angle
+tag	rung	sil_labels	own_clusters	sil_own	sil_null_mean	sil_null_sd	null_clusters_mean	excess
+rdrps300	1	-0.7967	-	-	-	-	-	-
+rdrps300	2	0.2275	7	0.7733	0.5839	0.0715	7.0	0.1894
+rdrps300	3	0.4531	5	0.8279	0.2966	0.0521	5.0	0.5313
+rdrps300	4	0.5550	-	-	-	-	-	-
+rdrps300	6	0.6770	11	0.7964	0.1513	0.0293	11.0	0.6451
+rdrps300	8	0.7099	-	-	-	-	-	-
+rdrps300	11	0.7070	20	0.7765	0.0972	0.0140	20.0	0.6793
+rdrps300	16	0.5118	16	0.7118	0.0395	0.0283	16.0	0.6724
+rdrps300	23	0.3148	40	0.5963	0.0282	0.0255	40.0	0.5681
+rdrps300	32	0.1915	-	-	-	-	-	-
+rdrps300	45	0.1283	-	-	-	-	-	-
+rdrps300	64	0.0662	-	-	-	-	-	-
+rdrps300	67	0.0326	-	-	-	-	-	-

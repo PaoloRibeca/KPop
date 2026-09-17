@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+
+# subsample-compare -- label scores and partition agreement of the subsample runs, from what they printed
+#
+#   subsample-compare <runs_directory> <labels_directory> <output_directory>
+#
+# Reads every <corpus>.fixed<d>.s<seed>.stdout, whether the run finished or refused, since a refused
+# run has still printed the rounds before its refusal.  Writes per-round label scores (stage1-score)
+# and, over rounds 5-8 wherever both partitions exist: the agreement of the same seed and round at
+# neighbouring rungs among those present (the finer judged against the coarser), and of different
+# seeds at the same rung and round.  Also, per run, the rounds printed, the exit status and the
+# median label scores over the rounds 5-8 it printed.
+
+set -u
+
+RUNS="${1:?usage: subsample-compare <runs_directory> <labels_directory> <output_directory>}"
+LABELS="${2:?usage: subsample-compare <runs_directory> <labels_directory> <output_directory>}"
+OUT="${3:?usage: subsample-compare <runs_directory> <labels_directory> <output_directory>}"
+T=/home/ribeca/.claude/jobs/29a54aa8/tmp/stage1
+TW=/home/ribeca/Development/Git/KPop.Claude/.build/KPopTwistDB
+RUNGS="4 8 16 32 64"
+SEEDS="17 18 19"
+
+W="$OUT/classes"
+mkdir -p "$W"
+bash "$T/stage1-score" "$RUNS" "$LABELS" > "$OUT/scores.tsv"
+# Per run: exit status, rounds printed, and the median homogeneity and completeness over rounds 5-8
+gawk -F'\t' '
+  FNR == NR { st[$1] = $2; next }
+  $2 ~ /^round / {
+    r = substr($2, 7) + 0; n[$1] = r > n[$1] ? r : n[$1]
+    if (r >= 5) { k = ++m[$1]; h[$1, k] = substr($6, 13) + 0; c[$1, k] = substr($7, 14) + 0 }
+  }
+  function med(a, t, k,   v, i) { for (i = 1; i <= k; i++) v[i] = a[t, i]; asort(v); return k % 2 ? v[(k + 1) / 2] : (v[k / 2] + v[k / 2 + 1]) / 2 }
+  END {
+    for (t in st) {
+      k = m[t] + 0
+      printf "%s\t%s\trounds=%d\t%s\n", t, st[t], n[t] + 0,
+        k ? sprintf("rounds5-8=%d\thomogeneity=%.3f\tcompleteness=%.3f", k, med(h, t, k), med(c, t, k)) : "rounds5-8=0"
+    }
+  }' "$RUNS/runs.log" "$OUT/scores.tsv" | sort -t. -k1,1 -k2.6n -k3 > "$OUT/runs.tsv"
+for f in "$RUNS"/*.stdout; do
+  tag="$(basename "$f" .stdout)"
+  gawk -v out="$W/$tag" 'BEGIN { FS = "\t" }
+    /^=== Clustering/ { r++; next } /^# n=/ || /^name\t/ { next }
+    NF == 3 && r >= 5 { names[r] = names[r] "\t" $1; labs[r] = labs[r] "\t" $2 }
+    END { for (x = 5; x <= 8; x++) if (x in names) { fn = out ".r" x ".classes"; print names[x] > fn; print "CLASS" labs[x] > fn; close(fn) } }' "$f"
+done
+compare() { nice -n 19 "$TW" -T 1 --clusters-compare "$1" "$2" 2>/dev/null | tail -n 1; }
+summarise() {
+  gawk -v what="$1" '{ a[NR] = $1; h[NR] = $2; c[NR] = $3 }
+    function med(v, n) { return n % 2 ? v[(n + 1) / 2] : (v[n / 2] + v[n / 2 + 1]) / 2 }
+    END { n = asort(a); asort(h); asort(c)
+      if (n == 0) { printf "%s\tno pairs\n", what; exit }
+      printf "%s\tARI median %.3f (range %.3f-%.3f)\thomogeneity %.3f\tcompleteness %.3f\t%d pairs\n", what, med(a, n), a[1], a[n], med(h, n), med(c, n), n }'
+}
+for corpus in $(ls "$RUNS"/*.stdout | xargs -n 1 basename | cut -d. -f1 | sort -u); do
+  echo "=== $corpus, neighbouring rungs, same seed and round (finer judged against coarser)"
+  prev=""
+  for d in $RUNGS; do
+    if [[ -n "$prev" ]]; then
+      for s in $SEEDS; do for r in 5 6 7 8; do
+        a="$W/$corpus.fixed$d.s$s.r$r.classes"; b="$W/$corpus.fixed$prev.s$s.r$r.classes"
+        [[ -s "$a" && -s "$b" ]] && compare "$a" "$b"
+      done; done | summarise "$d vs $prev axes"
+    fi
+    prev=$d
+  done
+  echo "=== $corpus, different seeds at the same rung, same round"
+  for d in $RUNGS; do
+    for pr in "17 18" "17 19" "18 19"; do set -- $pr; for r in 5 6 7 8; do
+      a="$W/$corpus.fixed$d.s$1.r$r.classes"; b="$W/$corpus.fixed$d.s$2.r$r.classes"
+      [[ -s "$a" && -s "$b" ]] && compare "$a" "$b"
+    done; done | summarise "$d axes"
+  done
+done > "$OUT/agreement.txt"
+cat "$OUT/runs.tsv" "$OUT/agreement.txt"

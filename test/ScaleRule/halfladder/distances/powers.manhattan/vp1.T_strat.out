@@ -1,0 +1,29 @@
+#### vp1.T_strat: 3745 spectra (labelled), 7010640 pairs, 243 axes available, rungs 1,2,3,4,6,8,11,16,23,32,45,64,91,128,181,243, 50 resamples
+  d=1   | 1 candidates, 1 kept | 50.0%(z55.6,re100%,dep1.00) | score 0 | misordered 13.94% | 2 s
+  d=2   | 5 candidates, 5 kept | 35.0%(z7.8,re100%,dep0.54) 37.1%(z6.0,re100%,dep0.42) 40.1%(z8.1,re100%,dep0.46) 49.0%(z7.8,re100%,dep0.49) 80.0%(z25.2,re100%,dep0.90) | score 4 | misordered 4.91% | 3 s
+  d=3   | 3 candidates, 3 kept | 31.7%(z37.0,re100%,dep0.96) 67.3%(z10.7,re100%,dep0.65) 72.9%(z13.0,re100%,dep0.71) | score 1 | misordered 2.76% | 2 s
+  d=4   | 2 candidates, 2 kept | 31.5%(z35.1,re100%,dep0.98) 73.1%(z29.8,re100%,dep0.92) | score 1 | misordered 1.58% | 2 s
+  d=6   | 3 candidates, 3 kept | 17.4%(z10.7,re100%,dep0.52) 31.6%(z25.6,re100%,dep0.90) 73.1%(z19.8,re100%,dep0.69) | score 2 | misordered 2.30% | 3 s
+  d=8   | 4 candidates, 4 kept | 16.0%(z14.8,re100%,dep0.65) 30.2%(z23.2,re100%,dep0.88) 46.2%(z15.9,re100%,dep0.39) 68.0%(z10.2,re100%,dep0.43) | score 3 | misordered 1.47% | 3 s
+  d=11  | 3 candidates, 3 kept | 16.9%(z15.5,re100%,dep0.71) 29.6%(z17.7,re100%,dep0.84) 53.6%(z13.6,re100%,dep0.43) | score 2 | misordered 1.25% | 3 s
+  d=16  | 3 candidates, 3 kept | 11.3%(z15.5,re100%,dep0.68) 28.9%(z25.1,re100%,dep0.86) 56.3%(z11.6,re100%,dep0.33) | score 2 | misordered 1.03% | 3 s
+  d=23  | 2 candidates, 2 kept | 6.4%(z17.5,re100%,dep0.72) 27.7%(z25.9,re100%,dep0.92) | score 2 | misordered 0.60% | 3 s
+  d=32  | 3 candidates, 2 kept | 6.6%(z19.3,re100%,dep0.83) 26.8%(z27.4,re100%,dep0.91) [z 97.6%(z2.6,re74%,dep0.31)] | score 2 | misordered 0.36% | 3 s
+  d=45  | 2 candidates, 2 kept | 6.5%(z20.1,re100%,dep0.86) 26.6%(z27.5,re100%,dep0.93) | score 2 | misordered 0.28% | 3 s
+  d=64  | 2 candidates, 2 kept | 6.4%(z18.2,re100%,dep0.85) 26.4%(z27.1,re100%,dep0.94) | score 2 | misordered 0.46% | 4 s
+  d=91  | 2 candidates, 2 kept | 5.9%(z15.4,re100%,dep0.79) 26.4%(z25.5,re100%,dep0.91) | score 2 | misordered 0.71% | 5 s
+  d=128 | 2 candidates, 2 kept | 5.6%(z12.4,re100%,dep0.69) 26.3%(z22.2,re100%,dep0.85) | score 2 | misordered 0.80% | 4 s
+  d=181 | 2 candidates, 2 kept | 5.1%(z9.1,re100%,dep0.53) 24.9%(z18.2,re100%,dep0.77) | score 2 | misordered 0.82% | 4 s
+  d=243 | 2 candidates, 2 kept | 5.1%(z8.1,re100%,dep0.46) 24.9%(z16.9,re100%,dep0.75) | score 2 | misordered 0.81% | 5 s
+  COUNT LADDER scores 243:2 | best rung by labels 243 (0.81%)
+  DOUBLING LADDER scores 1:0 2:4 4:1 8:3 16:2 32:2 64:2 128:2 243:2 | best rung by labels 32 (0.36%)
+  HALF-POWERS LADDER scores 1:0 2:4 3:1 4:1 6:2 8:3 11:2 16:2 23:2 32:2 45:2 64:2 91:2 128:2 181:2 243:2 | best rung by labels 45 (0.28%)
+  RULE count, ties to fewer axes          pick 243 (misordered 0.81%) | leftmost 5.1% (z 8.1, re 100%) | resamples: picks 243:100%; level median 5.1%, 5-95% 5.1-5.1%
+  RULE doubling, until valleys vanish     pick 243 (misordered 0.81%) | leftmost 5.1% (z 8.1, re 100%) | resamples: picks 243:100%; level median 5.1%, 5-95% 5.1-5.1%
+  RULE doubling, last rung with valleys   pick 243 (misordered 0.81%) | leftmost 5.1% (z 8.1, re 100%) | resamples: picks 243:100%; level median 5.1%, 5-95% 5.1-5.1%
+  RULE doubling ladder, most valleys, ties to more pick   2 (misordered 4.91%) | leftmost 35.0% (z 7.8, re 100%) | resamples: picks 2:100%; level median 35.0%, 5-95% 35.0-35.0%
+  RULE doubling ladder, most valleys, ties to fewer pick   2 (misordered 4.91%) | leftmost 35.0% (z 7.8, re 100%) | resamples: picks 2:100%; level median 35.0%, 5-95% 35.0-35.0%
+  RULE doubling ladder, most valleys, first plateau pick   2 (misordered 4.91%) | leftmost 35.0% (z 7.8, re 100%) | resamples: picks 2:100%; level median 35.0%, 5-95% 35.0-35.0%
+  RULE half-powers ladder, most valleys, first plateau pick   2 (misordered 4.91%) | leftmost 35.0% (z 7.8, re 100%) | resamples: picks 2:100%; level median 35.0%, 5-95% 35.0-35.0%
+  RULE half-powers ladder, most valleys, ties to fewer pick   2 (misordered 4.91%) | leftmost 35.0% (z 7.8, re 100%) | resamples: picks 2:100%; level median 35.0%, 5-95% 35.0-35.0%
+

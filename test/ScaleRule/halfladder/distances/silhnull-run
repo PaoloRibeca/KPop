@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+
+# silhnull-run -- each rung's own silhouette against what as many clusters score with no structure
+#
+#   silhnull-run <output_directory>
+#
+# Compiles room-build/silhnull.ml and runs it over the eight embeddings of the axis-ladder page, at
+# every rung of the half-powers ladder and at the most axes there are, with four shuffled copies of
+# each embedding.  The 300-sequence ones first.  One job at a time, nice 19.
+
+set -u
+
+OUT="${1:?usage: silhnull-run <output_directory>}"
+T=/home/ribeca/.claude/jobs/29a54aa8/tmp
+B="$T/stage1/room-build"
+C="$T/collapse/real-data"
+V="$T/simpson/vp2"
+SM="$T/stage1/small"
+L=/home/ribeca/Development/Git/NailIt/test/data/denovo
+H=/home/ribeca/Development/Git/KPop.Claude/test/ScaleRule/halfladder
+HALF=1,2,3,4,6,8,11,16,23,32,45,64,91,128,181
+REPS=4
+
+mkdir -p "$OUT"
+( cd "$B" && nice -n 19 ocamlfind ocamlopt -O3 -unsafe -package unix -linkpkg kio.ml silhnull.ml \
+    -o silhnull > "$OUT/compile.log" 2>&1 ) || { echo "compile failed"; cat "$OUT/compile.log"; exit 1; }
+xz -dc "$H/half.cand.xz" > "$OUT/half.cand"
+xz -dc "$H/small/small.cand.xz" > "$OUT/small.cand"
+
+one() {
+  local tag="$1" tw="$2" iv="$3" labels="$4" cand="$5" avail="$6"
+  local start=$SECONDS
+  nice -n 19 "$B/silhnull" "$tw" "$iv" "$labels" "$tag" "$cand" "$REPS" "$HALF,$avail" > "$OUT/$tag.tsv" \
+    2> "$OUT/$tag.err"
+  echo "$tag exit=$? $(( SECONDS - start ))s"
+}
+
+one vp1s300 "$SM/vp1s300.T_rand.all.KPopTwisted.txt" "$SM/vp1s300.T_rand.all.KPopInertia.txt" \
+  "$T/stage1/subsample/labels/vp1s300.cdc" "$OUT/small.cand" 67
+one rdrps300 "$SM/rdrps300.T_rand.all.KPopTwisted.txt" "$SM/rdrps300.T_rand.all.KPopInertia.txt" \
+  "$T/stage1/subsample/labels/rdrps300.cdc" "$OUT/small.cand" 67
+one vp2.T_rand "$V/vp2.T_rand.all.KPopTwisted.txt" "$V/vp2.T_rand.all.KPopInertia.txt" "$L/vp2.cdc" "$OUT/half.cand" 219
+one rdrp.T_rand "$C/rdrp.T_rand.all.KPopTwisted.txt" "$C/rdrp.T_rand.all.KPopInertia.txt" "$L/rdrp.cdc" "$OUT/half.cand" 199
+one rdrp.T_strat "$C/rdrp.T_strat.all.KPopTwisted.txt" "$C/rdrp.T_strat.all.KPopInertia.txt" "$L/rdrp.cdc" "$OUT/half.cand" 199
+one vp1.T_rand "$C/vp1.T_rand.all.KPopTwisted.txt" "$C/vp1.T_rand.all.KPopInertia.txt" "$L/vp1.cdc" "$OUT/half.cand" 243
+one vp1.T_strat "$C/vp1.T_strat.all.KPopTwisted.txt" "$C/vp1.T_strat.all.KPopInertia.txt" "$L/vp1.cdc" "$OUT/half.cand" 243
+one vp1.T_core "$C/vp1.T_core.all.KPopTwisted.txt" "$C/vp1.T_core.all.KPopInertia.txt" "$L/vp1.cdc" "$OUT/half.cand" 243

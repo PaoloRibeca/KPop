@@ -1,0 +1,18 @@
+# rdrp.T_strat: 3228 labelled spectra, 54 label classes, 199 axes available, 4 shuffles, flat angle
+tag	rung	sil_labels	own_clusters	sil_own	sil_null_mean	sil_null_sd	null_clusters_mean	excess
+rdrp.T_strat	1	-0.9628	-	-	-	-	-	-
+rdrp.T_strat	2	0.1012	6	0.8655	0.5906	0.0797	6.0	0.2748
+rdrp.T_strat	3	0.4687	5	0.8656	0.4410	0.0593	5.0	0.4247
+rdrp.T_strat	4	0.6024	43	0.6840	0.3340	0.0094	43.0	0.3500
+rdrp.T_strat	6	0.7005	12	0.8305	0.1869	0.0263	12.0	0.6435
+rdrp.T_strat	8	0.6629	52	0.6278	0.1024	0.0150	52.2	0.5254
+rdrp.T_strat	11	0.5161	32	0.7485	0.0704	0.0113	32.2	0.6781
+rdrp.T_strat	16	0.4791	38	0.7279	0.0492	0.0154	37.8	0.6787
+rdrp.T_strat	23	0.4861	44	0.6999	0.0325	0.0142	43.8	0.6674
+rdrp.T_strat	32	0.4888	38	0.7209	0.0244	0.0077	38.0	0.6966
+rdrp.T_strat	45	0.4564	57	0.6737	0.0102	0.0009	57.0	0.6635
+rdrp.T_strat	64	0.3852	82	0.6013	-0.0044	0.0036	82.2	0.6057
+rdrp.T_strat	91	0.3296	103	0.5465	-0.0097	0.0068	103.2	0.5562
+rdrp.T_strat	128	0.2490	-	-	-	-	-	-
+rdrp.T_strat	181	0.1837	-	-	-	-	-	-
+rdrp.T_strat	199	0.1671	-	-	-	-	-	-

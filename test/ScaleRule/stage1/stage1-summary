@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+
+# stage1-summary -- stage 1's verdict per corpus, from what stage1-score printed
+#
+#   stage1-score <runs> <labels> | stage1-summary
+#
+# Per corpus and arm: the median over seeds of each run's homogeneity and completeness, their
+# spread across seeds (largest less smallest), and how many runs failed.  Per corpus, each other
+# arm's difference from the arm called 'today', which counts as an effect only when it exceeds twice
+# the larger of the two arms' spreads -- the document fixes the rule as twice the spread across
+# seeds, and taking the larger spread is the reading that does not favour either arm.
+
+gawk -F'\t' '
+  function median(a, n,   v, i) {
+    for (i = 1; i <= n; i++) v[i] = a[i]
+    asort(v)
+    return n % 2 ? v[(n + 1) / 2] : (v[n / 2] + v[n / 2 + 1]) / 2
+  }
+  function spread(a, n,   i, lo, hi) {
+    lo = a[1]; hi = a[1]
+    for (i = 2; i <= n; i++) { if (a[i] < lo) lo = a[i]; if (a[i] > hi) hi = a[i] }
+    return hi - lo
+  }
+  {
+    split($1, t, "."); key = t[1] SUBSEP t[2]
+    corpora[t[1]] = 1; arms[t[2]] = 1
+    if ($2 == "SUMMARY") {
+      n = ++count[key]
+      sub(/^homogeneity=/, "", $4); sub(/^completeness=/, "", $5)
+      H[key, n] = $4 + 0; C[key, n] = $5 + 0
+    } else if ($2 == "FAILED")
+      failed[key]++
+  }
+  END {
+    for (c in corpora) {
+      for (a in arms) {
+        key = c SUBSEP a; n = count[key] + 0
+        delete h; delete cc
+        for (i = 1; i <= n; i++) { h[i] = H[key, i]; cc[i] = C[key, i] }
+        mh[key] = n ? median(h, n) : -1; sh[key] = n ? spread(h, n) : 0
+        mc[key] = n ? median(cc, n) : -1; sc[key] = n ? spread(cc, n) : 0
+        printf "%s\t%s\truns=%d\tfailed=%d\thomogeneity=%.4f (spread %.4f)\tcompleteness=%.4f (spread %.4f)\n",
+          c, a, n, failed[key] + 0, mh[key], sh[key], mc[key], sc[key]
+      }
+      kt = c SUBSEP "today"
+      for (a in arms) {
+        ku = c SUBSEP a
+        if (a == "today" || !count[kt] || !count[ku]) continue
+        dh = mh[ku] - mh[kt]; dc = mc[ku] - mc[kt]
+        bh = 2 * (sh[ku] > sh[kt] ? sh[ku] : sh[kt]); bc = 2 * (sc[ku] > sc[kt] ? sc[ku] : sc[kt])
+        printf "%s\t%s-today\thomogeneity %+.4f (%s, bar %.4f)\tcompleteness %+.4f (%s, bar %.4f)\n",
+          c, a, dh, (dh > bh || -dh > bh) ? "an effect" : "no effect", bh,
+          dc, (dc > bc || -dc > bc) ? "an effect" : "no effect", bc
+      }
+    }
+  }
+'

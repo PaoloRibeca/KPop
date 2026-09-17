@@ -18,10 +18,13 @@
      reappearance = share of resamples where its relative depth is still at least 0.25;
    - kept when z >= 3 and 0.2% <= share below <= 90%; kept valleys whose shares below are chained
      by gaps under 1.5 points form one group, which keeps its highest z (the lower share on a tie).
-   Both axis rules look only at kept valleys with at most 50% of pairs below:
+   The axis rules look only at kept valleys with at most 50% of pairs below:
    - count: on 5, 10, 20, 40, 80, 160, max, the rung with most valleys, ties to fewer axes;
    - doubling: on 1, 2, 4, ..., 128, max, walking up from the first rung with valleys, the last
-     rung before one without any (and, for comparison, the last rung with valleys anywhere).
+     rung before one without any (and, for comparison, the last rung with valleys anywhere);
+   - half powers of two: on 1, 2, 3, 4, 6, 8, 11, 16, 23, 32, 45, 64, 91, 128, 181, max -- two to
+     the power k/2 rounded, the ladder the autotuner takes -- under the same rules as the doubling
+     one, so that the two are read off the same detections.
    The level is the leftmost such valley at the chosen rung.  The same R resamples give each rule's
    pick and level in every resample, a valley being present in a resample when it reappears there.
    Also reports, at every rung, the label-based share of misordered comparisons between same-class
@@ -321,7 +324,9 @@ let main () =
     rungs;
   let res = List.rev !results in
   let on l = List.filter (fun r -> List.mem r.d l || r.d = avail) res in
-  let count_ladder = on [ 5; 10; 20; 40; 80; 160 ] and doubling_ladder = on [ 1; 2; 4; 8; 16; 32; 64; 128 ] in
+  let count_ladder = on [ 5; 10; 20; 40; 80; 160 ]
+  and doubling_ladder = on [ 1; 2; 4; 8; 16; 32; 64; 128 ]
+  and half_ladder = on [ 1; 2; 3; 4; 6; 8; 11; 16; 23; 32; 45; 64; 91; 128; 181 ] in
   let leftmost = function
     | [] -> None
     | v :: rest -> Some (List.fold_left (fun b v -> if v.share < b.share then v else b) v rest) in
@@ -366,10 +371,12 @@ let main () =
     List.fold_left (fun acc r -> if valleys_of r <> [] then Some r else acc) None ladder in
   let summary l = String.concat " " (List.map (fun r -> Printf.sprintf "%d:%d" r.d (List.length r.ladder)) l) in
   let best l = List.fold_left (fun (bd, bm) r -> if r.mis < bm then (r.d, r.mis) else (bd, bm)) (-1, infinity) l in
-  let bc, bcm = best count_ladder and bd, bdm = best doubling_ladder in
+  let bc, bcm = best count_ladder and bd, bdm = best doubling_ladder and bh, bhm = best half_ladder in
   Printf.printf "  COUNT LADDER scores %s | best rung by labels %d (%.2f%%)\n" (summary count_ladder) bc (100. *. bcm);
   Printf.printf "  DOUBLING LADDER scores %s | best rung by labels %d (%.2f%%)\n" (summary doubling_ladder) bd
     (100. *. bdm);
+  Printf.printf "  HALF-POWERS LADDER scores %s | best rung by labels %d (%.2f%%)\n" (summary half_ladder) bh
+    (100. *. bhm);
   let report name ladder rule =
     let pick = rule ladder (fun r -> r.ladder) in
     let tally = Hashtbl.create 8 and levels = ref [] in
@@ -403,6 +410,8 @@ let main () =
   report "doubling ladder, most valleys, ties to more" doubling_ladder pick_count_more;
   report "doubling ladder, most valleys, ties to fewer" doubling_ladder pick_count;
   report "doubling ladder, most valleys, first plateau" doubling_ladder pick_first_plateau;
+  report "half-powers ladder, most valleys, first plateau" half_ladder pick_first_plateau;
+  report "half-powers ladder, most valleys, ties to fewer" half_ladder pick_count;
   print_endline ""
 
 let () = if Array.length Sys.argv > 1 && Sys.argv.(1) = "--synthetic" then synthetic () else main ()

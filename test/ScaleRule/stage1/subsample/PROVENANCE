@@ -1,0 +1,107 @@
+Subsample experiment, 15-Sep-2026: does agreement between search partitions at neighbouring rungs, and
+between seeds at one rung, peak where the partition scores best against the CDC types?
+
+Subsets
+  vp1s300, rdrps300: 300 names each, drawn uniformly at random from the labelled rows of
+  NailIt/test/data/denovo/{vp1,rdrp}.cdc with `shuf -n 300 --random-source=<(yes 17)`; the names are
+  in {vp1,rdrp}s300.sel and the labels in labels/{vp1,rdrp}s300.cdc.  VP1 has 24 CDC types in the
+  subset, RdRp 29.  Databases built from tmp/regions/{vp1,rdrp} with
+  `KPopCountDB -T 1 -i <full> -L <names> -N -D -o <subset>`; --summary shows 300 spectra each.
+
+Runs (subsample-run)
+  Frozen stage-1 binary (tmp/stage1/runs/KPop-autotuner, copied into runs/).  Calibrated detector,
+  --dimensions fixed at 4, 8, 16, 32 and 64, seeds 17, 18 and 19, -T 1, nice 19, two at a time,
+  --iterations 8 --montecarlo-steps 1000 --montecarlo-replicas 4 --montecarlo-level finest.
+  Projection and partition samples of 68: the autotuner's automatic size for 300 spectra, leaving 67
+  axes, so every rung up to 64 fits.  RdRp is the calibration: on the full corpus its good range is
+  16-32 axes, where the neighbouring-rung and cross-seed ARI also peaked.
+
+Choices made here, not by the user
+  - uniform sampling, not stratified by type (rare types may be absent or singletons);
+  - shuf seed 17;
+  - samples of 68 rather than a fixed 200, so the sample is the same fraction of the corpus as the
+    autotuner would take by itself;
+  - rung 128 left out, since 67 axes are available.
+
+Outcomes as they came
+  rdrps300.fixed4.s17 refused after 22s (exit 2): at 4 axes the calibrated detector keeps 1 of 5
+  troughs, with 58.6% of pairs below it (z 7.1), so there are "no groups at a usable level".  This
+  is the designed stop, not a crash; the protocol was not changed (no --report-anyway), and the
+  refusal is the outcome at that rung.
+  rdrps300.fixed4.s19 refused in round 2 (57s) and rdrps300.fixed4.s18 in round 3 (91s), for the
+  same reason: their earlier rounds had kept valleys at 23-27% of pairs, but the re-twisted embedding
+  kept only valleys above half (53.9%) or none (0 of 3).  So at 4 axes all three seeds refuse, and
+  the stop can come in a later round, after partitions were printed; the run's exit status is 2
+  either way and stage1-score reports it as failed.
+  rdrps300.fixed8.s18 refused in round 7 (363s) after six sensible rounds (11-22 clusters, one kept
+  valley each at 13-15% of pairs, z 3.3-7.2): round 7 kept 0 of 5 troughs.  rdrps300.fixed8.s19
+  refused in round 2 (79s): round 1 kept one valley at 21.7% (z 3.8), round 2 kept 0 of 6.  On the
+  full corpus the kept valleys had z 20-28; here they sit near the threshold, so a round loses its
+  only valley by chance.  --report-anyway is not a clean way round: a round with no usable valley
+  then starts its search from singletons (radius 0, Clustering.run_montecarlo), a different search.
+  rdrps300.fixed8.s17 finished all 8 rounds (459s; 9-19 clusters; main valley 12.5-22.5%, z 3.3-9.8).
+  rdrps300.fixed16.s17 refused in round 1 (28s): 0 of 4 troughs kept.
+
+Why the refusals: z scales with the square root of the corpus
+  The same RdRp valley (8-15% of pairs, reappearing in 100% of resamples) has z 22-30 in most rounds
+  of the full-corpus controls (control/rdrp.fixed{8,16,32}.s17.stderr) and z 3.3-9.8 here.  The ratio,
+  about 0.3, is sqrt(300/3228) = 0.305: a significance grows with the number of spectra, so at 300
+  the valley sits near the keep threshold (valley_z_min = 3, Clustering.ml) and a round loses it by
+  chance, which the run treats as no groups.  The subsample shrinks the evidence, not only the cost.
+  rdrps300.fixed16.s18 refused in round 2 (154s): round 1 kept valleys at 12.3% (z 3.5) and 16.6%
+  (z 4.8) and gave 22 clusters; round 2 kept none.
+  rdrps300.fixed16.s19 refused (143s) after 1 round(s).
+  rdrps300.fixed32.s17 refused (36s) after 0 round(s).
+  rdrps300.fixed32.s19 refused (27s) after 0 round(s).
+  rdrps300.fixed64.s17 refused (33s) after 0 round(s).
+  rdrps300.fixed32.s18 refused (178s) after 1 round(s).
+  rdrps300.fixed64.s19 refused (19s) after 0 round(s).
+  VP1: vp1s300.fixed4.s17 finished all 8 rounds (138s; 5-8 clusters; kept valleys at 10-33% with
+  z 3.7-10.9, plus some above half).  vp1s300.fixed4.s18 refused in round 1 (10s): its only kept
+  valley had 65.8% of pairs below (z 3.7).
+  vp1s300.fixed4.s19 refused (157s) after 7 round(s).
+  vp1s300.fixed8.s17 finished (303s) after 8 rounds; clusters 12 11 17 16 13 12 13 21.
+  vp1s300.fixed8.s18 refused (11s) after 0 round(s).
+    Its only kept valley had 50.7% of pairs below (z 3.5), just over half.  On VP1, seed 18 has now
+    refused in round 1 at both 4 and 8 axes (65.8% and 50.7%), within about 10s; round 1 embeds the
+    68-spectrum projection sample the seed draws, so that sample (a choice made here) may simply
+    not span VP1's types.  A hypothesis, not checked.
+  rdrps300.fixed64.s18 refused (828s) after 2 round(s); clusters 37 41.  RdRp: 14 of 15 runs refused.
+  vp1s300.fixed16.s17 refused (13s) after 0 round(s).
+  vp1s300.fixed16.s18 refused after 0 round(s).
+  vp1s300.fixed16.s19 refused after 0 round(s).
+  vp1s300.fixed32.s17 refused after 0 round(s).
+  vp1s300.fixed32.s18 refused after 0 round(s).
+  vp1s300.fixed8.s19 finished (241s) after 8 rounds; clusters 14 15 17 12 14 16 25 15.
+  vp1s300.fixed32.s19 finished (880s) after 8 rounds; clusters 17 31 26 31 28 31 30 34.
+  vp1s300.fixed64.s18 refused (440s) after 1 round(s); clusters 48.
+  vp1s300.fixed64.s17 finished (3244s) after 8 rounds; clusters 25 28 46 49 50 60 55 45.
+  vp1s300.fixed64.s19 still in round 1 at 22:00 (Monte-Carlo from 108 clusters, valley at 2.8%, z 3.9).
+
+Partial results, 29 of 30 runs (subsample-compare into partial/, 22:05)
+  Label scores, median over the rounds 5-8 each run printed (homogeneity/completeness):
+    RdRp  8 axes: s17 0.903/0.936, s18 0.922/0.887 (2 rounds); every other RdRp run printed none.
+    VP1   4 axes: s17 0.692/0.964, s19 0.737/0.976 (3 rounds)
+          8 axes: s17 0.860/0.805, s19 0.866/0.749
+         32 axes: s19 0.909/0.623
+         64 axes: s17 0.936/0.544
+    VP1 trades homogeneity for completeness steadily as the axes double; no rung stands out.
+  Agreement, rounds 5-8 where both partitions exist (adjusted Rand index, median):
+    VP1 same seed, 8 vs 4 axes: 0.584 (7 pairs; homogeneity 0.989, completeness 0.651: 8 refines 4)
+    VP1 between seeds: 4 axes 0.938 (3 pairs), 8 axes 0.781 (4 pairs); 16-64: no pairs
+    RdRp between seeds: 8 axes 0.876 (2 pairs); nothing else
+  So on the VP1 subsample what agreement there is favours the coarsest rung, where homogeneity is
+  lowest -- the opposite of full-corpus RdRp -- but it rests on 3-7 pairs from two seeds, and 16
+  and 32 axes, where full RdRp peaked, have no pairs at all.  Not a test of the criterion.
+
+Final results, 30 of 30 runs (runs finished 22:18; subsample-compare into final/)
+  vp1s300.fixed64.s19 finished (3118s): 8 rounds, 37-54 clusters, kept valleys at 2.6-4.2% (z 3.2-3.9);
+  0.920/0.541.  Tally: RdRp 1 of 15 runs finished, VP1 6 of 15; no run at 16 axes finished on either.
+  Added to the partial results:
+    VP1 same seed, 64 vs 32 axes: 0.722 (4 pairs; homogeneity 0.963, completeness 0.832)
+    VP1 between seeds, 64 axes: 0.859 (4 pairs)
+  VP1 between seeds is 0.938 at 4 axes, 0.781 at 8 and 0.859 at 64, the labels scoring 0.69/0.96,
+  0.86/0.78 and 0.93/0.54 there: reproducibility is high at both ends of the ladder, so on this
+  subsample it does not single out a rung.  Still 3-7 pairs per figure and nothing at 16 or 32.
+  The inline comparison at the end of run.out used a lower median for even counts; final/ is the
+  one to read.
