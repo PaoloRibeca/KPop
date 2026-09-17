@@ -35,21 +35,25 @@ open BiOCamLib
 open Better
 open KPop
 
-(* THE NUMBER OF AXES A ROUND WORKS IN: a fixed number, 0 taking as many as the analysis yields, or
-   [Auto], which lets the valleys choose it afresh at every round *)
+(* THE NUMBER OF AXES A ROUND WORKS IN: a fixed number, 0 taking as many as the analysis yields;
+   [Auto], which lets the valleys choose it afresh at every round; or [Search], which searches for
+   it and runs a single round in it *)
 module Dimensions =
   struct
     type t =
       | Auto
+      | Search
       | Fixed of int
     let of_string = function
       | "auto" -> Auto
+      | "search" -> Search
       | s ->
         match int_of_string_opt s with
         | Some d when d >= 0 -> Fixed d
         | _ -> Exception.raise_unrecognized_initializer __FUNCTION__ "number of dimensions" s
     let to_string = function
       | Auto -> "auto"
+      | Search -> "search"
       | Fixed d -> string_of_int d
   end
 
@@ -60,6 +64,7 @@ module Defaults =
     let iterations = 12
     let dimensions = Dimensions.Fixed 0
     let dimensions_max = 256
+    let dimensions_search_seeds = 3
     let dimensions_inertia = 0.
     let report_anyway = false
     let valleys_method = Clustering.ValleysMethod.HalfHeight
@@ -89,6 +94,7 @@ module Parameters =
     let iterations = ref Defaults.iterations
     let dimensions = ref Defaults.dimensions
     let dimensions_max = ref Defaults.dimensions_max
+    let dimensions_search_seeds = ref Defaults.dimensions_search_seeds
     let dimensions_inertia = ref Defaults.dimensions_inertia
     let report_anyway = ref Defaults.report_anyway
     let valleys_method = ref Defaults.valleys_method
@@ -165,9 +171,10 @@ let analyse ?(what = "") ~threads ~verbose ~dimensions db =
   let asked =
     match dimensions with
     | Dimensions.Fixed d -> d
-    | Auto -> !Parameters.dimensions_max in
+    | Auto | Search -> !Parameters.dimensions_max in
   let wanted = if asked > 0 then min asked available else 0 in
-  if dimensions <> Dimensions.Auto && asked > 0 && wanted < asked && verbose then
+  let fixed = match dimensions with Dimensions.Fixed _ -> true | Auto | Search -> false in
+  if fixed && asked > 0 && wanted < asked && verbose then
     Printf.eprintf
       "(%s): %s%d axes were asked for and only %d are available, the analysis having %d rows.\n%!"
       __FUNCTION__ (if what = "" then "" else what ^ ": ") asked wanted (available + 1);
@@ -488,7 +495,7 @@ let () =
       TA.Default (string_of_int Defaults.iterations |> Fun.const),
       (fun _ -> Parameters.iterations := TA.get_parameter_int_pos ());
     [ "--dimensions" ],
-      Some "'auto'|<non_negative_integer>",
+      Some "'auto'|'search'|<non_negative_integer>",
       [ "number of axes every round works in, 0 taking as many as the analysis yields.";
         "Left to itself the loop has no say in this: an analysis of k classes yields k-1 axes,";
         "so each round inherits whatever the round before happened to find, and the";
@@ -496,18 +503,39 @@ let () =
         "Fixing it makes the level of the partition something chosen rather than inherited,";
         "and makes two runs over the same data comparable.";
         "'auto' lets the valleys choose instead: every round decomposes into as many axes";
-        "as --dimensions-max allows, finds the valleys in 1, 2, 4 and so on of them, and";
+        "as --dimensions-max allows, finds the valleys in 1, 2, 3, 4, 6, 8, 11, 16 and so on";
+        "of them, the powers of two and between each two their geometric mean rounded, and";
         "searches at the first of those rungs showing the most valleys with at most half of";
         "the pairs below, or at the last of the rungs after it showing as many.  It requires";
         "the calibrated --valleys-method and a --partition-sample above 1, cannot start from";
-        "a --projection-sample of 1, and refuses --report-anyway" ],
+        "a --projection-sample of 1, and refuses --report-anyway.";
+        "'search' runs a single round, in a number of axes it searches for.  The valleys of the";
+        "first projection bound the search from above, where their strength steps down for";
+        "good, and below that a golden-section search finds the number of axes in which first";
+        "rounds run with different seeds agree best, taking the most axes among those agreeing";
+        "within the spread between seeds.  The answer is the partition of the seed agreeing";
+        "most with the others there.  It requires the calibrated --valleys-method, cannot start";
+        "from a --projection-sample of 1, refuses --report-anyway, and ignores --iterations" ],
       TA.Default (Dimensions.to_string Defaults.dimensions |> Fun.const),
       (fun _ -> Parameters.dimensions := TA.get_parameter () |> Dimensions.of_string);
     [ "--dimensions-max" ],
       Some "<positive_integer>",
-      [ "largest number of axes 'auto' may decompose into and search in" ],
+      [ "largest number of axes 'auto' and 'search' may decompose into and search in" ],
       TA.Default (string_of_int Defaults.dimensions_max |> Fun.const),
       (fun _ -> Parameters.dimensions_max := TA.get_parameter_int_pos ());
+    [ "--dimensions-search-seeds" ],
+      Some "<positive_integer>",
+      [ "number of first rounds 'search' runs, with consecutive seeds, at every number of axes";
+        "it tries, their agreement being what it maximises.  At least 2" ],
+      TA.Default (string_of_int Defaults.dimensions_search_seeds |> Fun.const),
+      (fun _ ->
+        let seeds = TA.get_parameter_int_pos () in
+        if seeds < 2 then
+          TA.parse_error
+            (Printf.sprintf
+               "option '--dimensions-search-seeds' needs at least 2 seeds, an agreement needing \
+                two partitions, and was given %d" seeds);
+        Parameters.dimensions_search_seeds := seeds);
     [ "--dimensions-inertia" ],
       Some "<fractional_float>",
       [ "keep only the leading axes carrying this share of the inertia, 0 keeping all of them.";
@@ -640,37 +668,45 @@ let () =
       TA.Optional,
       (fun _ -> TA.usage (); exit 1)
   ];
-  (* WHAT 'auto' CANNOT WORK WITH, refused before anything is read.  It chooses among valleys,
-     which only the calibrated detector reports.  A round that combines each class into one
-     spectrum hands the next an analysis of k-1 axes, which is the dependence it exists to break,
-     and an analysis of one spectrum has no axes at all.  And a round showing no groups at any
-     number of axes has no space to search in, so there is nothing a partition could be written
-     out from *)
-  if !Parameters.dimensions = Dimensions.Auto then begin
+  (* WHAT 'auto' AND 'search' CANNOT WORK WITH, refused before anything is read.  Both choose
+     among valleys, which only the calibrated detector reports.  Under 'auto' a round that
+     combines each class into one spectrum hands the next an analysis of k-1 axes, which is the
+     dependence it exists to break; 'search' runs a single round and has no next one.  An analysis
+     of one spectrum has no axes at all.  And a round showing no groups at any number of axes has
+     no space to search in, so there is nothing a partition could be written out from *)
+  if List.mem !Parameters.dimensions Dimensions.[ Auto; Search ] then begin
+    let mode = Dimensions.to_string !Parameters.dimensions in
     if !Parameters.valleys_method <> Clustering.ValleysMethod.Calibrated then
       TA.parse_error
-        "option '--dimensions auto' requires '--valleys-method calibrated', the half-height \
-         detector finding one valley and so giving the axis ladder nothing to count";
-    if !Parameters.partition_sample = 0 then
-      TA.parse_error
-        "option '--dimensions auto' requires '--partition-sample' above 0: combining each class \
-         into one spectrum leaves an analysis of k classes k-1 axes, the dependence 'auto' exists \
-         to break";
-    if !Parameters.partition_sample = 1 then
-      TA.parse_error
-        "option '--dimensions auto' cannot work with '--partition-sample 1', an analysis of one \
-         spectrum having no axes";
+        (Printf.sprintf
+           "option '--dimensions %s' requires '--valleys-method calibrated', the half-height \
+            detector finding one valley and so giving the axis ladder nothing to count" mode);
+    if !Parameters.dimensions = Dimensions.Auto then begin
+      if !Parameters.partition_sample = 0 then
+        TA.parse_error
+          "option '--dimensions auto' requires '--partition-sample' above 0: combining each class \
+           into one spectrum leaves an analysis of k classes k-1 axes, the dependence 'auto' \
+           exists to break";
+      if !Parameters.partition_sample = 1 then
+        TA.parse_error
+          "option '--dimensions auto' cannot work with '--partition-sample 1', an analysis of one \
+           spectrum having no axes"
+    end;
     if !Parameters.projection_sample = 1 then
       TA.parse_error
-        "option '--dimensions auto' cannot work with '--projection-sample 1', an analysis of one \
-         spectrum having no axes";
+        (Printf.sprintf
+           "option '--dimensions %s' cannot work with '--projection-sample 1', an analysis of one \
+            spectrum having no axes" mode);
     if !Parameters.report_anyway then
       TA.parse_error
-        "option '--dimensions auto' refuses '--report-anyway': a round showing no groups at any \
-         number of axes stops, having no space in which a partition could be sought";
+        (Printf.sprintf
+           "option '--dimensions %s' refuses '--report-anyway': a round showing no groups at any \
+            number of axes stops, having no space in which a partition could be sought" mode);
     if !Parameters.dimensions_inertia > 0. then
       Printf.eprintf "%s %s\n%!" prefix
-        (String.TermIO.red "Option '--dimensions-inertia' is ignored under '--dimensions auto'.")
+        (String.TermIO.red
+           (Printf.sprintf "Option '--dimensions-inertia' is ignored under '--dimensions %s'."
+              mode))
   end;
   let verbose = !Parameters.verbose and threads = !Parameters.threads in
   let state = Random.State.make [| !Parameters.seed |] in
@@ -683,7 +719,7 @@ let () =
   (* ROUND ZERO NEEDS AXES AND HAS NO PARTITION TO TAKE THEM FROM, so it takes them from the
      spectra themselves.  A sample of them will do -- see --projection-sample -- and the
      database becomes that sample by removing everything the sample does not name *)
-  let twister_of_sample () =
+  let twister_of_sample ?(state = state) ?(dimensions = !Parameters.dimensions) () =
     let n =
       if !Parameters.projection_sample > 0 then !Parameters.projection_sample
       else automatic_sample (!db).KMerDB_Base.core.KMerDB_Base.n_cols in
@@ -697,8 +733,7 @@ let () =
           (complement_of_diverse_sample ~threads ~verbose state !db n) in
     if verbose then
       Printf.eprintf "%s Building the initial projection...\n%!" prefix;
-    let twister, _, _ = analyse ~what:"first projection" ~threads ~verbose
-        ~dimensions:!Parameters.dimensions sampled in
+    let twister, _, _ = analyse ~what:"first projection" ~threads ~verbose ~dimensions sampled in
     twister
   (* AND EVERY LATER ROUND TAKES THEM FROM THE PARTITION, combining the spectra of each class
      into the one that stands for it and running the analysis on those, so that the axes become
@@ -745,7 +780,8 @@ let () =
     let twister, _, _ = analyse ~what:"projection from the partition" ~threads ~verbose
         ~dimensions:!Parameters.dimensions analysed in
     twister in
-  let cluster ~round twister =
+  let cluster ?(seed = !Parameters.seed) ?(dimensions = !Parameters.dimensions) ?(report = true)
+      ~round twister =
     let twisted =
       Twister.add_twisted_from_database ~threads ~verbose twister Twisted.empty
         !Parameters.input in
@@ -757,11 +793,14 @@ let () =
     let twisted, rung, valleys =
       let mat = twisted.Twisted.twisted.Matrix.matrix
       and iv = twisted.Twisted.inertia.Matrix.matrix.Matrix.Base.data.(0) in
-      match !Parameters.dimensions, !Parameters.valleys_method with
+      match dimensions, !Parameters.valleys_method with
+      | Dimensions.Search, _ ->
+        Exception.raise __FUNCTION__ Algorithm
+          "'search' reaches a round only through a fixed number of axes"
       | Dimensions.Auto, _ ->
         let axes = Float.Array.length iv in
         let l =
-          Clustering.ladder ~verbose ~seed:!Parameters.seed
+          Clustering.ladder ~verbose ~seed
             ~resamples:!Parameters.valleys_resamples ~level:!Parameters.montecarlo_level
             ~dmax:axes ~metric:!Parameters.metric ~distance:!Parameters.distance
             ~distance_normalize:!Parameters.distance_normalize mat.Matrix.Base.data iv in
@@ -779,7 +818,7 @@ let () =
       | Fixed _, Calibrated ->
         twisted, None,
         Some
-          (Clustering.find_valleys ~verbose ~seed:!Parameters.seed
+          (Clustering.find_valleys ~verbose ~seed
              ~resamples:!Parameters.valleys_resamples ~metric:!Parameters.metric
              ~distance:!Parameters.distance ~distance_normalize:!Parameters.distance_normalize
              mat.Matrix.Base.data iv) in
@@ -790,7 +829,7 @@ let () =
        does not fall into groups that partition is a property of the criterion.  What decides
        is whether the distances are two-moded at all *)
     let structured, _ =
-      Clustering.assess_structure ~verbose ~seed:!Parameters.seed ?valleys ~what_label:"samples"
+      Clustering.assess_structure ~verbose ~seed ?valleys ~what_label:"samples"
         ~metric:!Parameters.metric ~distance:!Parameters.distance
         ~distance_normalize:!Parameters.distance_normalize mat.Matrix.Base.data iv in
     (* A SINGLE MODE HAS TWO READINGS AND THEY ARE DIFFERENT CLAIMS, so the message says which
@@ -818,7 +857,7 @@ let () =
             criterion used to find it rather than a property of the data.  Pass --report-anyway \
             to have one written out regardless");
     let assign =
-      Clustering.run_montecarlo ~verbose ~threads ~seed:!Parameters.seed ?valleys
+      Clustering.run_montecarlo ~verbose ~threads ~seed ?valleys ~report
         ~level:!Parameters.montecarlo_level ~replicas:!Parameters.montecarlo_replicas
         ~what_label:"samples"
         ~steps:!Parameters.montecarlo_steps ~sample:!Parameters.montecarlo_sample
@@ -834,9 +873,161 @@ let () =
      but the number of axes each round works in settle on different partitions, 1, 2, 4, 8, 16,
      32, 64, 128 and 199 axes giving 4, 7, 5, 11, 21, 22, 64, 19 and 53 classes of norovirus VP1
      and each of those reproducing itself *)
+  (* THE NUMBER OF AXES SEARCHED FOR, and the first round's answer in it.  Held at a fixed number
+     of axes, every round after the first loses completeness against the CDC types -- on norovirus
+     RdRp, VP2 and VP1, by 0.10 to 0.17 at the second round, never won back, and whichever way the
+     later rounds' sample is drawn -- so the answer worth having is a first round, and what is left
+     to choose is the number of axes it is sought in.
+     The valleys of a first projection in as many axes as --dimensions-max allows bound that number:
+     from above where their strength steps down for good, from below at the first number of axes
+     showing a valley with at most half of the pairs below it.  Between the two, on the rungs of the
+     axis ladder, a golden-section search maximises how well first rounds run with consecutive seeds
+     agree, in median adjusted Rand index over their pairs -- a first round with another seed
+     differing in its projection sample, its detector's resamples and its search, just as a run
+     with that seed would.  Agreement is not single-peaked, a handful of clusters agreeing almost
+     perfectly with itself, so the rung taken is the one with the most axes among those tried whose
+     agreement lies within the spread between seeds at the best of them: two rungs the seeds cannot
+     tell apart are one rung as far as the agreement knows, and the finer of them resolves more.
+     Measured on the three corpora that is the rung the labels score best or the one below it.  The
+     answer is the first round of the seed agreeing most with the others there *)
+  let search () =
+    let seeds = !Parameters.dimensions_search_seeds in
+    let usable vs = List.exists (fun v -> v.Clustering.share <= 0.5) vs in
+    let bounding =
+      Twister.add_twisted_from_database ~threads ~verbose
+        (twister_of_sample ~dimensions:Dimensions.Search ()) Twisted.empty !Parameters.input in
+    let mat = bounding.Twisted.twisted.Matrix.matrix
+    and iv = bounding.Twisted.inertia.Matrix.matrix.Matrix.Base.data.(0) in
+    let l =
+      Clustering.ladder ~verbose ~seed:!Parameters.seed ~resamples:!Parameters.valleys_resamples
+        ~level:!Parameters.montecarlo_level ~dmax:(Float.Array.length iv) ~metric:!Parameters.metric
+        ~distance:!Parameters.distance ~distance_normalize:!Parameters.distance_normalize
+        mat.Matrix.Base.data iv in
+    let rungs = l.Clustering.rungs in
+    let nr = Array.length rungs and lowest = ref 0 in
+    while !lowest < nr && not (usable l.Clustering.valleys.(!lowest)) do incr lowest done;
+    if !lowest = nr then
+      Exception.raise __FUNCTION__ IO_Format
+        "the samples show no groups at a usable level: in no number of axes the first projection \
+         offers does a valley have at most half of the pairs below it";
+    let highest =
+      match Clustering.ladder_bound ~seed:!Parameters.seed l with
+      | Some (i, p) ->
+        if verbose then
+          Printf.eprintf "%s The valleys step down in strength after %d %s (p=%.4f).\n%!" prefix
+            rungs.(i) (String.pluralize_int ~plural:"axes" "axis" rungs.(i)) p;
+        max i !lowest
+      | None ->
+        if verbose then Printf.eprintf "%s The valleys never step down in strength.\n%!" prefix;
+        nr - 1 in
+    let tried = Array.sub rungs !lowest (highest - !lowest + 1) in
+    let m = Array.length tried in
+    if verbose then
+      Printf.eprintf "%s Searching among %s axes, with %d seeds each.\n%!" prefix
+        (Array.to_list tried |> List.map string_of_int |> String.concat ", ") seeds;
+    let first_round ~report ~seed d =
+      let dimensions = Dimensions.Fixed d and state = Random.State.make [| seed |] in
+      let tw = twister_of_sample ~state ~dimensions () in
+      let tws, nms, asg, _ = cluster ~seed ~dimensions ~report ~round:1 tw in
+      tw, tws, nms, asg in
+    let ari a b =
+      let x, _, _ = Clustering.compare_partitions a b in
+      x in
+    let median = function
+      | [] -> None
+      | v ->
+        let a = List.sort compare v |> Array.of_list in
+        let n = Array.length a in
+        Some (if n mod 2 = 1 then a.(n / 2) else (a.((n / 2) - 1) +. a.(n / 2)) /. 2.) in
+    (* A rung tried: each seed's partition, None for a seed finding no groups there, the median
+       agreement over the pairs of seeds and the spread of the pairs *)
+    let tries = Hashtbl.create 16 in
+    let attempt i =
+      match Hashtbl.find_opt tries i with
+      | Some r -> r
+      | None ->
+        let found =
+          Array.init seeds (fun k ->
+              try
+                let _, _, _, asg =
+                  first_round ~report:false ~seed:(!Parameters.seed + k) tried.(i) in
+                Some (canonical asg |> Array.map string_of_int)
+              with Exception.E (IO_Format, _, _) -> None) in
+        let pairs = ref [] in
+        for a = 0 to seeds - 2 do
+          for b = a + 1 to seeds - 1 do
+            match found.(a), found.(b) with
+            | Some pa, Some pb -> pairs := ari pa pb :: !pairs
+            | _ -> ()
+          done
+        done;
+        let spread =
+          match !pairs with
+          | [] -> 0.
+          | x :: _ as v -> List.fold_left Float.max x v -. List.fold_left Float.min x v in
+        let agreement = median !pairs in
+        if verbose then
+          Printf.eprintf "%s %d %s: agreement %s, spread %.4f, %d of %d seeds finding groups.\n%!"
+            prefix tried.(i) (String.pluralize_int ~plural:"axes" "axis" tried.(i))
+            (Option.fold ~none:"none" ~some:(Printf.sprintf "%.4f") agreement) spread
+            (Array.fold_left (fun acc f -> if f = None then acc else acc + 1) 0 found) seeds;
+        let r = found, agreement, spread in
+        Hashtbl.add tries i r;
+        r in
+    let score i =
+      let _, agreement, _ = attempt i in
+      Option.value ~default:neg_infinity agreement in
+    (* The golden-section search, over the positions of the rungs rather than their axes *)
+    let lo = ref 0 and hi = ref (m - 1) and ratio = (sqrt 5. -. 1.) /. 2. in
+    while !hi - !lo > 2 do
+      let span = float_of_int (!hi - !lo) in
+      let c = int_of_float (Float.round (float_of_int !hi -. (ratio *. span)))
+      and d = int_of_float (Float.round (float_of_int !lo +. (ratio *. span))) in
+      let d = if c = d then c + 1 else d in
+      if score c >= score d then hi := d else lo := c
+    done;
+    for i = !lo to !hi do ignore (score i) done;
+    let agreed =
+      Hashtbl.fold
+        (fun i (_, agreement, spread) acc ->
+          match agreement with Some a -> (i, a, spread) :: acc | None -> acc)
+        tries [] in
+    if agreed = [] then
+      Exception.raise __FUNCTION__ IO_Format
+        "the samples show no groups at a usable level: at no number of axes searched did two seeds \
+         find groups to compare";
+    let best, noise =
+      List.fold_left
+        (fun (ba, bs) (_, a, s) -> if a > ba then a, s else ba, bs) (neg_infinity, 0.) agreed in
+    let pick =
+      List.fold_left (fun acc (i, a, _) -> if a >= best -. noise && i > acc then i else acc) (-1)
+        agreed in
+    let found, _, _ = attempt pick in
+    let total k =
+      match found.(k) with
+      | None -> neg_infinity
+      | Some pk ->
+        Array.fold_left
+          (fun acc f -> match f with Some pf when pf != pk -> acc +. ari pk pf | _ -> acc)
+          0. found in
+    let chosen = ref 0 in
+    for k = 1 to seeds - 1 do if total k > total !chosen then chosen := k done;
+    let d = tried.(pick) in
+    if verbose then
+      Printf.eprintf
+        "%s Taking %d %s, the most agreeing within %.4f of the best, which is its spread between \
+         seeds, and the seed %d there.\n%!"
+        prefix d (String.pluralize_int ~plural:"axes" "axis" d) noise (!Parameters.seed + !chosen);
+    let tw, tws, nms, asg = first_round ~report:true ~seed:(!Parameters.seed + !chosen) d in
+    tw, tws, nms, asg, d in
   let twisted = ref (Twisted.empty: Twisted.t)
   and twister = ref Twister.empty and names = ref [||] and assign = ref [||]
   and settled = ref false and round = ref 0 and last_rung = ref None in
+  if !Parameters.dimensions = Dimensions.Search then begin
+    let tw, tws, nms, asg, d = search () in
+    round := 1;
+    twister := tw; twisted := tws; names := nms; assign := asg; last_rung := Some d
+  end else
   while not !settled && !round < !Parameters.iterations do
     incr round;
     let tw =
@@ -872,7 +1063,7 @@ let () =
         moved
         (if !settled then ", which is the one it was given -- settled" else "")
   done;
-  if verbose && not !settled then
+  if verbose && not !settled && !Parameters.dimensions <> Dimensions.Search then
     Printf.eprintf "%s Stopped at the %d-round limit without settling.\n%!" prefix !round;
   (* ONE MORE ANALYSIS, ON THE PARTITION BEING RETURNED RATHER THAN ON THE ONE THAT PRODUCED IT.
      Every round searches in a space built from the round before, so the twister the loop ends

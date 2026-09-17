@@ -201,10 +201,15 @@ let test_detector () =
 let test_ladder () =
   Testing.section "The rungs of the ladder and the one it picks" (fun () ->
     let rungs a = Array.to_list a |> List.map string_of_int |> String.concat " " in
-    Testing.check_equal "rungs double from one and end at the most axes there are"
-      ~to_string:rungs ~expected:[| 1; 2; 4; 8; 16; 20 |] (Clustering.ladder_rungs 20);
-    Testing.check_equal "and end once where that is itself a power of two" ~to_string:rungs
-      ~expected:[| 1; 2; 4; 8 |] (Clustering.ladder_rungs 8);
+    Testing.check_equal "rungs grow by half powers of two and end at the most axes there are"
+      ~to_string:rungs ~expected:[| 1; 2; 3; 4; 6; 8; 11; 16; 20 |] (Clustering.ladder_rungs 20);
+    Testing.check_equal "and end once where that is itself a rung" ~to_string:rungs
+      ~expected:[| 1; 2; 3; 4; 6; 8 |] (Clustering.ladder_rungs 8);
+    Testing.check_equal "a rung between two powers of two is their geometric mean, rounded"
+      ~to_string:rungs ~expected:[| 1; 2; 3; 4; 6; 8; 11; 16; 23; 32; 45; 64; 91; 128; 181; 199 |]
+      (Clustering.ladder_rungs 199);
+    Testing.check_equal "the square root of two rounds to one axis, which is not repeated"
+      ~to_string:rungs ~expected:[| 1; 2 |] (Clustering.ladder_rungs 2);
     Testing.check_equal "one axis is a ladder of one rung" ~to_string:rungs ~expected:[| 1 |]
       (Clustering.ladder_rungs 1);
     Testing.check_raises "no axes at all is refused" (fun () -> Clustering.ladder_rungs 0);
@@ -220,6 +225,31 @@ let test_ladder () =
       ~expected:(Some 2) (Clustering.pick_rung [| 2; 2; 3; 1; 1; 1; 3; 3; 2 |]);
     Testing.check_equal "no rung scoring is no pick" ~to_string:picked ~expected:None
       (Clustering.pick_rung [| 0; 0; 0 |]));
+  Testing.section "The most axes worth searching in" (fun () ->
+    let valley z = { Clustering.radius = 1.; share = 0.2; z; reappearance = 1.; depth = 1. } in
+    (* A ladder whose rung i has one usable valley of strength z, or none *)
+    let ladder zs =
+      let n = Array.length zs in
+      { Clustering.rungs = Array.init n (fun i -> i + 1); scores = Array.make n 0;
+        valleys = Array.map (Option.fold ~none:[] ~some:(fun z -> [ valley z ])) zs; pick = None;
+        resample_picks = [||]; resample_levels = [||] } in
+    let bound zs = Option.map fst (Clustering.ladder_bound (ladder zs))
+    and shown = function Some i -> Printf.sprintf "rung %d" i | None -> "none" in
+    let strong = [ 30.; 32.; 29.; 31.; 30. ] and weak = [ 6.; 5.; 6.; 5.; 6. ] in
+    let some l = List.map Option.some l in
+    Testing.check_equal "strong valleys then weak ones are bounded at the last strong rung"
+      ~to_string:shown ~expected:(Some 4) (bound (Array.of_list (some strong @ some weak)));
+    Testing.check_equal "valleys of one strength throughout are not bounded" ~to_string:shown
+      ~expected:None
+      (bound (some [ 20.; 22.; 19.; 21.; 20.; 22.; 19.; 21.; 20.; 21. ] |> Array.of_list));
+    Testing.check_equal "the rungs before the first usable valley take no part" ~to_string:shown
+      ~expected:(Some 5)
+      (bound
+         (Array.of_list ([ None; None ] @ some [ 30.; 31.; 29.; 30. ] @ some [ 6.; 5.; 6.; 5. ])));
+    Testing.check_equal "valleys vanishing count as the weakest a kept one can be" ~to_string:shown
+      ~expected:(Some 4) (bound (Array.of_list (some strong @ [ None; None; None; None; None ])));
+    Testing.check_equal "too few rungs to split are not bounded" ~to_string:shown ~expected:None
+      (bound [| Some 30.; Some 5.; Some 5. |]));
   Testing.section "Which valley is the level" (fun () ->
     let module L = Clustering.Level in
     Testing.check_equal "a level prints as it parses" ~to_string:(String.concat ", ")

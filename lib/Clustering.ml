@@ -1816,13 +1816,21 @@ include (
       resample_picks: int option array;
       resample_levels: valley_t option array
     }
-    (* One axis, then twice as many each time, and the most there are *)
+    (* Two to the power 0, 1/2, 1, 3/2 and so on, rounded, and the most there are: every other rung
+       a power of two and the one between two of them their geometric mean, so the axes grow by
+       about 1.41 a rung.  The square root of two rounds to one axis, which is a rung already *)
     let ladder_rungs dmax =
       if dmax < 1 then
         Exception.raise __FUNCTION__ Initialize
           (Printf.sprintf "a ladder needs at least one axis, not %d" dmax);
-      let rec up acc r = if r >= dmax then List.rev (dmax :: acc) else up (r :: acc) (2 * r) in
-      up [] 1 |> Array.of_list
+      let rung k =
+        if k land 1 = 0 then 1 lsl (k / 2)
+        else Float.ldexp (sqrt 2.) (k / 2) |> Float.round |> int_of_float in
+      let rec up acc k =
+        let r = rung k in
+        if r >= dmax then List.rev (dmax :: acc)
+        else up (match acc with last :: _ when last = r -> acc | _ -> r :: acc) (k + 1) in
+      up [] 0 |> Array.of_list
     (* THE RUNG A LADDER CHOOSES: the first to reach the highest score, extended across the rungs
        adjoining it at that same score, of which the last is taken.  A plateau leaves the search the
        largest space resolving that much structure, while a later and unconnected rung of equal
@@ -1835,6 +1843,80 @@ include (
         while scores.(!last) <> best do incr last done;
         while !last + 1 < n && scores.(!last + 1) = best do incr last done;
         Some !last
+      end
+    (* THE MOST AXES WORTH SEARCHING IN: where the valleys a ladder finds step down in strength for
+       good.  Past some number of axes the added ones dilute the structure more than they resolve
+       it, and every rung after that shows weaker valleys than the rungs before it -- a graded
+       version of the valleys disappearing, which on large corpora they never quite do.  The
+       strength of a rung is the log of the z of its strongest valley with at most half of the
+       pairs below, a rung with none counting as [valley_z_min], the most it can have had, and an
+       infinite z as the largest finite one.  From the first rung with such a valley on, the step
+       is the split into a run before and a run after, two rungs at least on either side, whose
+       means differ most in pooled t; it counts when shuffling the rungs' order gives a split as
+       large less than [significance] of the time.  Measured over eight norovirus embeddings the
+       step is significant on seven, and the peak of the silhouette of the labelled partition lies
+       at or before it on every one of them *)
+    let ladder_bound ?(seed = 17) ?(permutations = 2000) ?(significance = 0.05) l =
+      let usable v = v.share <= 0.5 in
+      let strength =
+        Array.map
+          (fun vs ->
+            List.fold_left
+              (fun acc v ->
+                if usable v then Some (Float.max (Option.value ~default:0. acc) v.z) else acc)
+              None vs)
+          l.valleys in
+      let largest =
+        Array.fold_left
+          (fun acc s -> match s with Some z when Float.is_finite z -> Float.max acc z | _ -> acc)
+          valley_z_min strength in
+      let nr = Array.length strength in
+      let first = ref 0 in
+      while !first < nr && strength.(!first) = None do incr first done;
+      let n = nr - !first in
+      if n < 4 then None
+      else begin
+        let x =
+          Array.init n (fun i ->
+              match strength.(!first + i) with
+              | None -> log valley_z_min
+              | Some z -> log (if Float.is_finite z then z else largest)) in
+        (* The split whose run before exceeds its run after by the most, in pooled t *)
+        let best_split x =
+          let best = ref neg_infinity and at = ref (-1) in
+          for i = 2 to n - 2 do
+            let mean lo hi =
+              let s = ref 0. in
+              for j = lo to hi - 1 do s := !s +. x.(j) done;
+              !s /. float_of_int (hi - lo) in
+            let ma = mean 0 i and mb = mean i n in
+            let ss = ref 0. in
+            for j = 0 to n - 1 do
+              let m = if j < i then ma else mb in
+              ss := !ss +. ((x.(j) -. m) *. (x.(j) -. m))
+            done;
+            let t =
+              if !ss <= 0. then (if ma > mb then infinity else if ma < mb then neg_infinity else 0.)
+              else
+                (ma -. mb)
+                /. (sqrt (!ss /. float_of_int (n - 2))
+                    *. sqrt ((1. /. float_of_int i) +. (1. /. float_of_int (n - i)))) in
+            if t > !best then begin best := t; at := i end
+          done;
+          !best, !at in
+        let observed, at = best_split x in
+        let state = Random.State.make [| seed |] and y = Array.copy x and as_large = ref 0 in
+        for _ = 1 to permutations do
+          for i = n - 1 downto 1 do
+            let j = Random.State.int state (i + 1) in
+            let t = y.(i) in
+            y.(i) <- y.(j);
+            y.(j) <- t
+          done;
+          if fst (best_split y) >= observed then incr as_large
+        done;
+        let p = float_of_int (1 + !as_large) /. float_of_int (1 + permutations) in
+        if at > 0 && p < significance then Some (!first + at - 1, p) else None
       end
     let ladder ?(verbose = false) ?(seed = 17) ?(pairs_max = 10_000_000) ?(pairs_sample = 2_000_000)
         ?(resamples = 50) ?multiplicities ?(level = Level.Finest) ~dmax ~metric ~distance
@@ -2123,8 +2205,8 @@ include (
         structured, dim
     let run_montecarlo
         ?(verbose = false) ?(seed = 17) ?(threads = 1) ?(replicas = 1) ?(exchange_every = 250)
-        ?(decades = 3.) ?valleys ?(level = Level.Finest) ~what_label ~steps ~sample ~temperature
-        ~cooling ~metric ~distance ~distance_normalize coords names inertia_vec =
+        ?(decades = 3.) ?valleys ?(level = Level.Finest) ?(report = true) ~what_label ~steps ~sample
+        ~temperature ~cooling ~metric ~distance ~distance_normalize coords names inertia_vec =
       let n = Array.length coords and d = Float.Array.length inertia_vec in
       let open String.TermIO in
       let prefix = grey (Printf.sprintf "(%s):" __FUNCTION__) in
@@ -2524,18 +2606,20 @@ include (
           Printf.sprintf " level=%s fv=%s fp=%.15g" (Level.to_string level)
             (Option.fold ~none:"none" ~some:(fun v -> Printf.sprintf "%.15g" v.share) chosen)
             (if pairs > 0. then Float.max (within /. pairs) (1. /. pairs) else 0.) in
-      Printf.printf
-        "=== Clustering of %s: Monte-Carlo \
-         (steps=%d, sample=%d, temperature=%.15g, cooling=%.15g, metric=%s, distance=%s, \
-         D=%d) ===\n\
-         # n=%d n_clusters=%d silhouette=%.15g started_from=%d%s\n\
-         name\trepresentative\tstatus\n"
-        what_label steps (min sample n) temperature cooling metric_str distance_str d
-        n !n_live !cur n_start calibrated;
-      for i = 0 to n - 1 do
-        Printf.printf "%s\t%s\t%s\n"
-          names.(i) names.(rep_orig.(i)) (if rep_orig.(i) = i then "rep" else "abs")
-      done;
+      if report then begin
+        Printf.printf
+          "=== Clustering of %s: Monte-Carlo \
+           (steps=%d, sample=%d, temperature=%.15g, cooling=%.15g, metric=%s, distance=%s, \
+           D=%d) ===\n\
+           # n=%d n_clusters=%d silhouette=%.15g started_from=%d%s\n\
+           name\trepresentative\tstatus\n"
+          what_label steps (min sample n) temperature cooling metric_str distance_str d
+          n !n_live !cur n_start calibrated;
+        for i = 0 to n - 1 do
+          Printf.printf "%s\t%s\t%s\n"
+            names.(i) names.(rep_orig.(i)) (if rep_orig.(i) = i then "rep" else "abs")
+        done
+      end;
       if verbose then
         Printf.eprintf "%s Clustering of %s done. %d %s, silhouette %.4f.\n%!"
           prefix what_label !n_live (String.pluralize_int "cluster" !n_live) !cur;
@@ -2631,6 +2715,8 @@ include (
     val troughs_of_counts: Float.Array.t -> (int * int * int * float * float) list
     (* The candidates that pass the detector's thresholds, a chain of near-identical shares
        counting as one valley *)
+    (* The least z a valley is kept with *)
+    val valley_z_min: float
     val keep_valleys: valley_t list -> valley_t list
     (* Every candidate trough of the pairwise distances, calibrated against resamples of the points
        and not yet thresholded.  [multiplicities], when given, replaces the resamples drawn *)
@@ -2687,11 +2773,16 @@ include (
       resample_picks: int option array;
       resample_levels: valley_t option array
     }
-    (* 1, 2, 4, ... up to and including [dmax] *)
+    (* 1, 2, 3, 4, 6, 8, 11, 16, ...: two to the power 0, 1/2, 1, 3/2 and so on, rounded, up to and
+       including [dmax] *)
     val ladder_rungs: int -> int array
     (* The index of the right end of the first plateau of the highest score; None when every score
        is 0 *)
     val pick_rung: int array -> int option
+    (* The index of the last rung before the strength of the valleys a ladder finds steps down for
+       good, and the permutation p-value of that step; None when no step is significant *)
+    val ladder_bound:
+      ?seed:int -> ?permutations:int -> ?significance:float -> ladder_t -> (int * float) option
     (* The detector run at every rung of the ladder, sharing one set of pairs and resamples, and the
        rung chosen *)
     val ladder:
@@ -2740,6 +2831,8 @@ include (
          selects and its header saying which *)
       ?valleys:valley_t list ->
       ?level:Level.t ->
+      (* Whether the partition is printed on stdout, as it is unless told otherwise *)
+      ?report:bool ->
       what_label:string ->
       steps:int ->
       sample:int ->

@@ -190,6 +190,42 @@ refused "--dimensions auto with --report-anyway is refused" "refuses '--report-a
 refused "a number of dimensions of no known kind is refused" \
   "Unrecognized number of dimensions 'sideways'" --dimensions sideways
 
+# ----------------------------------------------------------------------------
+# Part 4: the number of axes searched for, and a single round in it
+# ----------------------------------------------------------------------------
+echo
+echo "=== Part 4: --dimensions search ==="
+SEARCH=(--dimensions search --valleys-method calibrated)
+"$BIN" -i "$DATA" -o "$TMP/s" "${FLAGS[@]}" "${SEARCH[@]}" -v > "$TMP/s.stdout" 2> "$TMP/s.stderr"
+rc=$?
+if [[ $rc -eq 0 ]]; then
+  pass "--dimensions search succeeds"
+else
+  fail "--dimensions search succeeds" "exit status $rc; $(tail -n 1 "$TMP/s.stderr")"
+fi
+if [[ "$(rounds "$TMP/s.stdout")" == 1 ]]; then
+  pass "and reports a single round"
+else
+  fail "and reports a single round" "$(rounds "$TMP/s.stdout") rounds"
+fi
+# The number of axes taken is the one the round was searched in, and the register written has it
+taken="$(sed -n 's/.* Taking \([0-9]*\) ax.*/\1/p' "$TMP/s.stderr" | tail -n 1)"
+searched="$(grep '^=== Clustering' "$TMP/s.stdout" | tail -n 1 | sed 's/.*D=\([0-9]*\).*/\1/')"
+if [[ $rc -eq 0 && -n "$taken" && "$taken" == "$searched" ]] \
+     && "$TWISTDB" -i t "$TMP/s" -O t "$TMP/s.text" > /dev/null 2>&1 \
+     && [[ "$(awk -F'\t' 'NR == 1 { print NF - 1; exit }' "$TMP/s.text.KPopTwisted.txt")" == "$searched" ]]; then
+  pass "the round and the register are in the number of axes taken"
+else
+  fail "the round and the register are in the number of axes taken" \
+    "taken ${taken:-none}, searched ${searched:-none}"
+fi
+refused "--dimensions search without the calibrated detector is refused" \
+  "option '--dimensions search' requires '--valleys-method calibrated'" --dimensions search
+refused "--dimensions search with --report-anyway is refused" \
+  "option '--dimensions search' refuses '--report-anyway'" "${SEARCH[@]}" --report-anyway
+refused "--dimensions-search-seeds 1 is refused" "needs at least 2 seeds" \
+  "${SEARCH[@]}" --dimensions-search-seeds 1
+
 echo
 if [[ $failed -eq 0 ]]; then
   echo "All autotuner integration tests passed."
