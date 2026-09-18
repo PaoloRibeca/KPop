@@ -78,18 +78,6 @@ jobs:
         # otfm is needed although no dune file names it.
         run: opam install --yes dune menhir zarith gg vg otfm
 
-      - name: Patch BiOCamLib for macOS
-        # The dune files need no patching any more: BUILD writes this platform's
-        # OpenMP flags where they read them through (:include), so a Mac builds the
-        # repository by hand exactly as this runner does.  What is left is nproc,
-        # which is GNU and which BiOCamLib asks the shell for by name.
-        run: |
-          # '@' delimiter (not '|'): the replacement contains '||', which would
-          # collide with a '|' delimiter (BSD sed: "bad flag in substitute command").
-          sed -i '' \
-            "s@spawn_and_read_single_line \"nproc\"@spawn_and_read_single_line \"sh -c 'nproc 2>/dev/null || sysctl -n hw.ncpu'\"@g" \
-            BiOCamLib/lib/Processes.ml
-
       - name: Configure compilers and OpenMP
         # AppleClang for C (most compatible for OpenBLAS on both arches — Ryan's
         # choice on Intel), brew llvm clang++ for C++ (native OpenMP), brew
