@@ -3,6 +3,10 @@ lib/libopenblas.a
 lib/libfaiss.a
 lib/libinterfaiss.a
 lib/Info.ml
+# Per-platform OpenMP flags, written by BUILD and read by dune through (:include)
+lib/omp_cflags.sexp
+bin/omp_link.sexp
+test/omp_link.sexp
 KPop.opam
 _build
 .build

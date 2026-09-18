@@ -1,12 +1,16 @@
+; The OpenMP link flags, as in bin/dune: BUILD writes them to omp_link.sexp because
+; macOS's are known only at build time.  These executables link the same library the
+; binaries do, so they need them for the same reason -- and got them from nothing at
+; all on macOS while the flags were patched into bin/dune and lib/dune by the CI.
 (env
  (dev
-  (ocamlopt_flags (:standard -g -ccopt -fopenmp)))
+  (ocamlopt_flags (:standard -g (:include omp_link.sexp))))
  (dev-static
-  (ocamlopt_flags (:standard -g -ccopt -fopenmp -ccopt -static)))
+  (ocamlopt_flags (:standard -g (:include omp_link.sexp) -ccopt -static)))
  (release
-  (ocamlopt_flags (:standard -O3 -ccopt -O3 -ccopt -fopenmp)))
+  (ocamlopt_flags (:standard -O3 -ccopt -O3 (:include omp_link.sexp))))
  (release-static
-  (ocamlopt_flags (:standard -O3 -ccopt -O3 -ccopt -fopenmp -ccopt -static))))
+  (ocamlopt_flags (:standard -O3 -ccopt -O3 (:include omp_link.sexp) -ccopt -static))))
 
 (executable
  (public_name DistanceIterator)
@@ -18,4 +22,3 @@
  (names CA RSVD Epsilon Cluster Phylo HypBench CoverTreeTest RPForestTest RefitTest Autotuner)
  (libraries str unix BiOCamLib KPop)
  (link_flags (-cclib -lgfortran -cclib -lquadmath -cclib -lstdc++)))
-

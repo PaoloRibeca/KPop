@@ -1,12 +1,17 @@
+; The OpenMP runtime the binaries link against differs by platform, and macOS's path
+; is known only at build time, so BUILD writes the flags to omp_link.sexp and every
+; profile reads them through (:include): Linux links libgomp through gcc's -fopenmp,
+; macOS Homebrew's libomp archive by its absolute path.  Without them the OpenMP
+; symbols in libinterfaiss.a do not resolve.
 (env
  (dev
-  (ocamlopt_flags (:standard -g -fPIC -ccopt -fPIC -ccopt -fopenmp)))
+  (ocamlopt_flags (:standard -g -fPIC -ccopt -fPIC (:include omp_link.sexp))))
  (dev-static
-  (ocamlopt_flags (:standard -g -fPIC -ccopt -fPIC -ccopt -fopenmp -ccopt -static)))
+  (ocamlopt_flags (:standard -g -fPIC -ccopt -fPIC (:include omp_link.sexp) -ccopt -static)))
  (release
-  (ocamlopt_flags (:standard -O3 -fPIC -ccopt -O3 -ccopt -fPIC -ccopt -fopenmp)))
+  (ocamlopt_flags (:standard -O3 -fPIC -ccopt -O3 -ccopt -fPIC (:include omp_link.sexp))))
  (release-static
-  (ocamlopt_flags (:standard -O3 -fPIC -ccopt -O3 -ccopt -fPIC -ccopt -fopenmp -ccopt -static))))
+  (ocamlopt_flags (:standard -O3 -fPIC -ccopt -O3 -ccopt -fPIC (:include omp_link.sexp) -ccopt -static))))
 
 (executables
  (public_names KPopCount KPopCountDB KPopTwist KPopTwistDB KPopPhylo KPop-hash2kmer KPop-autotuner)

@@ -1,12 +1,17 @@
+; The OpenMP flags these C stubs are compiled with differ by platform, and macOS's
+; are known only at build time, so BUILD writes them to omp_cflags.sexp and they are
+; read here through (:include).  Linux takes gcc's -fopenmp; macOS takes nothing at
+; all, none of these stubs using OpenMP itself -- faiss's OpenMP lives in the
+; interfaiss archive, which BUILD compiles against Homebrew's libomp.
 (env
  (dev
-  (c_flags :standard -fopenmp))
+  (c_flags :standard (:include omp_cflags.sexp)))
  (dev-static
-  (c_flags :standard -fopenmp))
+  (c_flags :standard (:include omp_cflags.sexp)))
  (release
-  (c_flags :standard -O3 -fomit-frame-pointer -fopenmp))
+  (c_flags :standard -O3 -fomit-frame-pointer (:include omp_cflags.sexp)))
  (release-static
-  (c_flags :standard -O3 -fomit-frame-pointer -fopenmp)))
+  (c_flags :standard -O3 -fomit-frame-pointer (:include omp_cflags.sexp))))
 
 (library
  (public_name KPop)

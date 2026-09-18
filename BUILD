@@ -278,6 +278,27 @@ bash "$TOOLS/stamp-version" --root "$ROOT/BiOCamLib" --out "$ROOT/BiOCamLib/lib/
 bash "$TOOLS/stamp-version" --root "$ROOT" --out "$ROOT/lib/Info.ml" --open \
   KPop KPopCount KPopCountDB KPopTwist KPopTwistDB KPopPhylo
 
+# The OpenMP flags dune compiles the C stubs and links the binaries with are
+# platform-specific, and macOS's are known only at build time, from Homebrew.  Write
+# them where lib/dune, bin/dune and test/dune read them through (:include): Linux
+# takes gcc's -fopenmp, and libgomp under it; macOS links Homebrew's libomp archive
+# by its absolute path, statically, so that a downloaded binary needs no Homebrew of
+# its own, and compiles the stubs with no OpenMP flag at all, none of them using
+# OpenMP -- faiss's lives in the interfaiss archive built above.
+# The macOS workflow used to sed-patch these files in its checkout instead, which
+# ran in CI alone: no Mac could build this repository by hand, and test/dune, which
+# the patch did not reach, kept a flag no macOS compiler accepts.
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  LIBOMP_A="$(brew --prefix libomp)/lib/libomp.a"
+  printf '()\n' > "$ROOT/lib/omp_cflags.sexp"
+  printf '(-cclib %s)\n' "$LIBOMP_A" > "$ROOT/bin/omp_link.sexp"
+  printf '(-cclib %s)\n' "$LIBOMP_A" > "$ROOT/test/omp_link.sexp"
+else
+  printf '(-fopenmp)\n' > "$ROOT/lib/omp_cflags.sexp"
+  printf '(-ccopt -fopenmp)\n' > "$ROOT/bin/omp_link.sexp"
+  printf '(-ccopt -fopenmp)\n' > "$ROOT/test/omp_link.sexp"
+fi
+
 #FLAGS="--verbose"
 
 dune build --profile="$PROFILE" bin/KPopCount.exe $FLAGS
